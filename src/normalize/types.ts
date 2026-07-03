@@ -73,6 +73,8 @@ export interface FindWheelOutput {
     }>;
   };
   degradedSources?: string[];
+  /** 命中缓存时为 true,提示调用方结果可能非实时 */
+  cached?: boolean;
 }
 
 // Discriminated union of raw results per source

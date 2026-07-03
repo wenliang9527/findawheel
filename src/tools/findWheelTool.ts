@@ -12,6 +12,7 @@ import { rank } from '../rank/ranker.js';
 import { enrichWithMatch } from '../rank/recommender.js';
 import { readEnv } from '../util/env.js';
 import { SourceError } from '../errors.js';
+import { createCache, cacheKey, type Cache } from '../cache/cache.js';
 
 export interface McpToolResult {
   content: Array<{ type: 'text'; text: string }>;
@@ -20,10 +21,24 @@ export interface McpToolResult {
 
 export interface CreateToolOpts {
   adapters: SourceAdapter[];
+  /** 可选缓存实例(测试注入);未提供时按 env 配置创建磁盘缓存 */
+  cache?: Cache;
+}
+
+/** 搜索流程的中间结果 */
+interface SearchResult {
+  wheels: Wheel[];
+  degraded: string[];
+  allFailed: boolean;
 }
 
 export function createFindWheelTool(opts: CreateToolOpts) {
   const env = readEnv();
+  const cache: Cache = opts.cache ?? createCache({
+    dir: env.cacheDir,
+    ttlMs: env.cacheTtlMs,
+    enabled: env.cacheEnabled,
+  });
 
   async function handle(input: FindWheelInput): Promise<McpToolResult> {
     if (!input.query || input.query.trim() === '') {
@@ -34,6 +49,50 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     }
     const intent: Intent = classify(input.query, input.intent);
     const limit = input.limit ?? env.limit;
+
+    // 缓存命中:直接返回(跨会话复用磁盘缓存)
+    const key = cacheKey(input.query, intent, input.ecosystem, limit);
+    const cached = await cache.get(key);
+    if (cached) {
+      const output: FindWheelOutput = {
+        query: input.query,
+        intent,
+        total: cached.length,
+        wheels: cached,
+        summary: buildSummary(cached),
+        cached: true,
+      };
+      return { content: [{ type: 'text', text: JSON.stringify(output) }] };
+    }
+
+    // 未命中:用 dedupe 包裹搜索流程,同 key 并发只执行一次
+    const result = await cache.dedupe(key, () => runSearch(input, intent, limit));
+
+    if (result.allFailed) {
+      return {
+        content: [{ type: 'text', text: 'all data sources unavailable' }],
+        isError: true,
+      };
+    }
+
+    // 成功才写缓存(失败结果不缓存,避免下次命中错误响应)
+    await cache.set(key, result.wheels);
+
+    const output: FindWheelOutput = {
+      query: input.query,
+      intent,
+      total: result.wheels.length,
+      wheels: result.wheels,
+      summary: buildSummary(result.wheels),
+      ...(result.degraded.length > 0 ? { degradedSources: result.degraded } : {}),
+    };
+    return { content: [{ type: 'text', text: JSON.stringify(output) }] };
+  }
+
+  /** 执行主搜索 + 副搜索,归一化、排序、填充推荐信息 */
+  async function runSearch(
+    input: FindWheelInput, intent: Intent, limit: number,
+  ): Promise<SearchResult> {
     const timeoutMs = env.timeoutMs;
     // 解析 query:拆分核心短语/修饰词/反义词,让数据源做更精准的搜索
     const parsedQuery = parseQuery(input.query);
@@ -87,10 +146,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     if (mainSettled.some(r => r.status === 'fulfilled')) allFailed = false;
 
     if (allFailed) {
-      return {
-        content: [{ type: 'text', text: 'all data sources unavailable' }],
-        isError: true,
-      };
+      return { wheels: [], degraded, allFailed: true };
     }
 
     const wheels: Wheel[] = allRaw.map(normalize).map(enrich);
@@ -104,17 +160,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     // 给每个结果填充推荐信息(matchScore + recommendation 等级 + reason 理由)
     // 让调用方 AI 看到结构化的推荐等级,倾向于列出多个结果让用户选择
     const rankedWithMatch = enrichWithMatch(ranked, queryKeywords);
-    // 生成结构化 summary:按推荐等级分组,明确告诉 AI 要列全所有结果
-    const summary = buildSummary(rankedWithMatch);
-    const output: FindWheelOutput = {
-      query: input.query,
-      intent,
-      total: allRaw.length,
-      wheels: rankedWithMatch,
-      summary,
-      ...(degraded.length > 0 ? { degradedSources: degraded } : {}),
-    };
-    return { content: [{ type: 'text', text: JSON.stringify(output) }] };
+    return { wheels: rankedWithMatch, degraded, allFailed: false };
   }
 
   return { handle };

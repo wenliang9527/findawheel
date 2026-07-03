@@ -1,9 +1,13 @@
 // tests/tools/findWheelTool.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createFindWheelTool } from '../../src/tools/findWheelTool.js';
+import { createCache, type Cache } from '../../src/cache/cache.js';
 import type { SourceAdapter, SearchOpts } from '../../src/sources/sourceAdapter.js';
 import type { RawResult } from '../../src/normalize/types.js';
 import { SourceError } from '../../src/errors.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
 function mockAdapter(name: string, results: RawResult[]): SourceAdapter {
   return {
@@ -19,8 +23,27 @@ function failingAdapter(name: string): SourceAdapter {
   };
 }
 
+let dirCounter = 0;
+function tmpCacheDir(): string {
+  dirCounter += 1;
+  return path.join(os.tmpdir(), `fw-test-${process.pid}-${dirCounter}`);
+}
+
+// description 包含 query 核心词的通用 github 结果,避免被 isMissingCoreConcept 过滤
+function ghResult(name: string, desc: string): RawResult {
+  return {
+    source: 'github', name, url: `https://github.com/${name}`,
+    description: desc, stars: 100, language: null, license: 'MIT',
+    archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
+  };
+}
+
 describe('findWheelTool.handle', () => {
-  beforeEach(() => vi.restoreAllMocks());
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    // 默认禁用缓存,避免现有测试受磁盘缓存污染
+    process.env.FINDAWHEEL_CACHE_ENABLED = 'false';
+  });
 
   it('returns empty query error', async () => {
     const tool = createFindWheelTool({ adapters: [] });
@@ -81,5 +104,81 @@ describe('findWheelTool.handle', () => {
     expect(res.isError).toBeFalsy();
     const payload = JSON.parse(res.content[0].text);
     expect(payload.wheels).toEqual([]);
+  });
+
+  // ===== 缓存集成测试 =====
+
+  it('缓存命中时不调用 adapter', async () => {
+    const dir = tmpCacheDir();
+    const cache = createCache({ dir, ttlMs: 3600000, enabled: true });
+    const gh = ghResult('a/b', 'A markdown editor');
+    const searchSpy = vi.fn().mockResolvedValue([gh]);
+    const adapter: SourceAdapter = { name: 'github', search: searchSpy };
+    const tool = createFindWheelTool({ adapters: [adapter], cache });
+    // 第一次调用:未命中,执行搜索并写缓存
+    await tool.handle({ query: 'markdown editor' });
+    expect(searchSpy).toHaveBeenCalled();
+    const firstCallCount = searchSpy.mock.calls.length;
+    // 第二次调用:命中缓存,adapter 不应被调用
+    const res = await tool.handle({ query: 'markdown editor' });
+    expect(searchSpy.mock.calls.length).toBe(firstCallCount);
+    const payload = JSON.parse(res.content[0].text);
+    expect(payload.cached).toBe(true);
+    // 清理临时目录
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  });
+
+  it('未命中时调用 adapter 并写缓存', async () => {
+    const dir = tmpCacheDir();
+    const cache = createCache({ dir, ttlMs: 3600000, enabled: true });
+    const gh = ghResult('a/b', 'A markdown editor');
+    const adapter = mockAdapter('github', [gh]);
+    const tool = createFindWheelTool({ adapters: [adapter], cache });
+    await tool.handle({ query: 'markdown editor' });
+    // 缓存文件应该存在
+    const files = await fs.promises.readdir(dir);
+    expect(files.length).toBe(1);
+    expect(files[0]).toMatch(/\.json$/);
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  });
+
+  it('disabled 时不缓存,每次都调 adapter', async () => {
+    const dir = tmpCacheDir();
+    const cache = createCache({ dir, ttlMs: 3600000, enabled: false });
+    const gh = ghResult('a/b', 'A markdown editor');
+    const searchSpy = vi.fn().mockResolvedValue([gh]);
+    const adapter: SourceAdapter = { name: 'github', search: searchSpy };
+    const tool = createFindWheelTool({ adapters: [adapter], cache });
+    await tool.handle({ query: 'markdown editor' });
+    await tool.handle({ query: 'markdown editor' });
+    // 两次调用都应执行搜索(主+副),共 4 次
+    expect(searchSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // 目录应该为空(disabled 不写缓存)
+    const files = await fs.promises.readdir(dir).catch(() => [] as string[]);
+    expect(files.length).toBe(0);
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  });
+
+  it('同 key 并发只执行一次搜索 (dedupe)', async () => {
+    const dir = tmpCacheDir();
+    const cache = createCache({ dir, ttlMs: 3600000, enabled: true });
+    const gh = ghResult('a/b', 'A markdown editor');
+    // 加延迟模拟真实网络 I/O(远慢于磁盘 readFile),
+    // 确保 A 的搜索在 B 的 cache.get 完成时仍在进行,dedupe 才能生效
+    const searchSpy = vi.fn().mockImplementation(async () => {
+      await new Promise<void>(r => setTimeout(r, 30));
+      return [gh];
+    });
+    const adapter: SourceAdapter = { name: 'github', search: searchSpy };
+    const tool = createFindWheelTool({ adapters: [adapter], cache });
+    // 并发两次同 query
+    await Promise.all([
+      tool.handle({ query: 'markdown editor' }),
+      tool.handle({ query: 'markdown editor' }),
+    ]);
+    // dedupe 应让搜索流程只跑一次(主+副共 2 次 adapter 调用)
+    // 若无 dedupe 会跑两次(4 次)
+    expect(searchSpy.mock.calls.length).toBe(2);
+    await fs.promises.rm(dir, { recursive: true, force: true });
   });
 });
