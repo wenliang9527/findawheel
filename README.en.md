@@ -226,12 +226,27 @@ Restart your client, describe your idea in conversation, and the AI will automat
 - [x] **suggest_queries tool** — 4 search-term variants
 - [x] **Synonym fuzzy secondary search** — main + fuzzy searches run in parallel for broader recall
 
-### 🚧 Phase 3 (Planned)
+### 🚧 Phase 3 (Planned, stdio local service stays)
 
-- [ ] Result caching and retry logic
-- [ ] ML-based scoring tuning
-- [ ] Standalone GitLab / PyPI (HTML scraping) sources
-- [ ] Multi-user, auth, and server-side hosting
+Three batches — see [Phase 3 plan](./docs/superpowers/plans/2026-07-03-phase3.md).
+
+**Batch 3.1 — Reliability foundation + data source expansion**
+- [ ] Local cache layer (`~/.findawheel/cache/`, TTL 1h, on by default)
+- [ ] Exponential backoff retry for transient errors (5xx/network, not 4xx)
+- [ ] In-flight request dedup
+- [ ] GitLab standalone source
+- [ ] PyPI source (HTML parsing)
+- [ ] Libraries.io source (covers 30+ package managers)
+
+**Batch 3.2 — Richer result info**
+- [ ] README summary + code example snippets
+- [ ] Version + latest release time
+- [ ] License compatibility hints
+
+**Batch 3.3 — Search quality**
+- [ ] Local feedback storage (like/hide/click)
+- [ ] Feedback-weighted ranking
+- [ ] ML scoring model (replace heuristic weights)
 
 ---
 
@@ -243,6 +258,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
 | ⚙️ [How It Works](./docs/HOW_IT_WORKS.md) | Internal architecture and components |
 | 📐 [Design Spec](./docs/superpowers/specs/2026-07-02-findawheel-design.md) | Full design decisions |
 | 📝 [Implementation Plan](./docs/superpowers/plans/2026-07-02-findawheel.md) | 16 TDD tasks |
+| 🚀 [Phase 3 Plan](./docs/superpowers/plans/2026-07-03-phase3.md) | Three-batch evolution plan |
 
 ---
 

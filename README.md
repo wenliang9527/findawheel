@@ -223,12 +223,27 @@ npm run build
 - [x] **suggest_queries 工具** — 生成 4 个角度的搜索词建议
 - [x] **同义词副搜索** — 主搜索 + 模糊搜索并行，扩大召回
 
-### 🚧 Phase 3（规划中）
+### 🚧 Phase 3（规划中，保持 stdio 本地定位）
 
-- [ ] 结果缓存与重试机制
-- [ ] 评分公式 ML 调参
-- [ ] GitLab / PyPI（HTML 解析）独立源
-- [ ] 多用户、鉴权、服务端托管
+分三批次推进，详见 [Phase 3 规划文档](./docs/superpowers/plans/2026-07-03-phase3.md)。
+
+**批次 3.1 — 可靠性基座 + 数据源扩展**
+- [ ] 本地缓存层（`~/.findawheel/cache/`，TTL 1h，默认开启）
+- [ ] 瞬时错误指数退避重试（5xx/网络错误，4xx 不重试）
+- [ ] 请求去重（in-flight dedup）
+- [ ] GitLab 独立源
+- [ ] PyPI 源（HTML 解析）
+- [ ] Libraries.io 源（覆盖 30+ 包管理器）
+
+**批次 3.2 — 结果信息丰富度**
+- [ ] README 摘要抓取 + 代码示例片段
+- [ ] 版本号 + 最近发布时间
+- [ ] license 兼容性提示
+
+**批次 3.3 — 搜索质量提升**
+- [ ] 本地反馈存储（点赞/隐藏/点击）
+- [ ] 反馈加权排序
+- [ ] ML 评分模型（替换启发式权重）
 
 ---
 
@@ -240,6 +255,7 @@ npm run build
 | ⚙️ [工作原理](./docs/HOW_IT_WORKS.md) | 内部架构与组件详解 |
 | 📐 [设计规格](./docs/superpowers/specs/2026-07-02-findawheel-design.md) | 完整设计决策记录 |
 | 📝 [实现计划](./docs/superpowers/plans/2026-07-02-findawheel.md) | 16 个任务的 TDD 步骤 |
+| 🚀 [Phase 3 规划](./docs/superpowers/plans/2026-07-03-phase3.md) | 三批次演进规划 |
 
 ---
 
