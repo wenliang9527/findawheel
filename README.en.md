@@ -129,6 +129,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
 | `TAVILY_API_KEY` | no | — | Tavily API key, Web search fallback (used when Exa fails or quota is exhausted). [Get one](https://tavily.com) |
 | `GITLAB_TOKEN` | No | — | GitLab token (optional, improves GitLab rate limit; anonymous search works without it). |
 | `LIBRARIES_IO_API_KEY` | No | — | Libraries.io API key, enables multi-package-manager search (covers npm/pypi/rubygems/cargo/maven and 30+ platforms). [Get one](https://libraries.io/account) |
+| `FINDAWHEEL_USER_LICENSE` | No | — | Your project's license (e.g., `MIT`/`Apache-2.0`/`GPL-3.0`). When set, each wheel's details include a `licenseCheck` field showing whether its license is compatible with yours (avoids license contamination). |
 | `FINDAWHEEL_CACHE_ENABLED` | No | `true` | Enable local cache (`~/.findawheel/cache/`). Set to `false` to disable. |
 | `FINDAWHEEL_CACHE_TTL_MS` | No | `3600000` | Cache TTL in milliseconds, default 1 hour. |
 | `FINDAWHEEL_LIMIT` | no | `20` | Default result count. |
@@ -212,6 +213,19 @@ Restart your client, describe your idea in conversation, and the AI will automat
 |:-----|:-----|:-----|
 | `find_wheel` | Search for existing wheels | **First action** when the user says "I want to make/build/create a ..." |
 | `suggest_queries` | Generate 4 search-term variants | Call when the AI is unsure how to construct the query; returns precise / action-oriented / fuzzy / concise variants |
+| `get_wheel_details` | Fetch details for a single wheel | When a `find_wheel` result has `hasDetails: true`, call this on demand to get README snippet, code examples, latest release, and license compatibility |
+
+### Hybrid Presentation (Result Richness)
+
+`find_wheel` uses a **hybrid presentation** strategy to balance information density and response speed:
+
+- **Top 3 results**: inline `details` field with README snippet (first 30 lines), up to 2 code examples, latest release tag, and license compatibility check. The AI can show these directly without a second call.
+- **Top 4-10 results**: marked with `hasDetails: true`, meaning details were pre-fetched and cached. When the AI wants to show them, it calls `get_wheel_details` for an **instant** cache hit.
+- **Top 11+ results**: unmarked; `get_wheel_details` will fetch them live when needed.
+- **Non-GitHub sources** (npm/PyPI etc.): unmarked (no README API).
+- **Pre-fetch failures**: tolerated and skipped; the main search flow is never blocked.
+
+`get_wheel_details` shares its cache with `find_wheel`'s pre-fetch, avoiding duplicate fetches. Configure `FINDAWHEEL_USER_LICENSE` to add a `licenseCheck` field to each wheel's details.
 
 ---
 
@@ -247,10 +261,12 @@ Three batches — see [Phase 3 plan](./docs/superpowers/plans/2026-07-03-phase3.
 - [x] PyPI source (HTML parsing)
 - [x] Libraries.io source (covers 30+ package managers)
 
-**Batch 3.2 — Richer result info**
-- [ ] README summary + code example snippets
-- [ ] Version + latest release time
-- [ ] License compatibility hints
+**✅ Batch 3.2 — Richer result info (Done)**
+- [x] README snippet fetch (GitHub README API, first 30 lines)
+- [x] Code example extraction (priority: bash install > js/ts/python > others)
+- [x] Version + latest release time (GitHub Releases API)
+- [x] License compatibility hints (normalize case variants + compatibility matrix)
+- [x] Hybrid presentation: top 3 inline details + top 4-10 pre-fetched cache + `get_wheel_details` lazy-load tool
 
 **Batch 3.3 — Search quality**
 - [ ] Local feedback storage (like/hide/click)

@@ -8,6 +8,7 @@ describe('readEnv', () => {
     delete process.env.TAVILY_API_KEY;
     delete process.env.GITLAB_TOKEN;
     delete process.env.LIBRARIES_IO_API_KEY;
+    delete process.env.FINDAWHEEL_USER_LICENSE;
     delete process.env.FINDAWHEEL_LIMIT;
     delete process.env.FINDAWHEEL_TIMEOUT_MS;
     delete process.env.FINDAWHEEL_LOG_LEVEL;
@@ -53,6 +54,15 @@ describe('readEnv', () => {
   it('reads libraries.io api key', () => {
     process.env.LIBRARIES_IO_API_KEY = 'lib_key';
     expect(readEnv().librariesIoApiKey).toBe('lib_key');
+  });
+
+  it('reads user license', () => {
+    process.env.FINDAWHEEL_USER_LICENSE = 'MIT';
+    expect(readEnv().userLicense).toBe('MIT');
+  });
+
+  it('userLicense defaults to undefined when env var absent', () => {
+    expect(readEnv().userLicense).toBeUndefined();
   });
 
   it('respects FINDAWHEEL_CACHE_ENABLED=false', () => {

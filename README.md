@@ -127,6 +127,7 @@ npm run build
 | `TAVILY_API_KEY` | 否 | — | Tavily API key，Web 搜索兜底（Exa 失败/额度耗尽时使用）。[获取](https://tavily.com) |
 | `GITLAB_TOKEN` | 否 | — | GitLab token（可选，提升 GitLab 搜索限流，匿名也可搜）。 |
 | `LIBRARIES_IO_API_KEY` | 否 | — | Libraries.io API key，启用多包管理器搜索（覆盖 npm/pypi/rubygems/cargo/maven 等 30+ 平台）。[获取](https://libraries.io/account) |
+| `FINDAWHEEL_USER_LICENSE` | 否 | — | 你的项目 license（如 `MIT`/`Apache-2.0`/`GPL-3.0`）。配置后，搜索结果的详情里会包含 `licenseCheck` 字段，标注每个轮子的 license 是否与你的项目兼容（避免 license 传染）。 |
 | `FINDAWHEEL_CACHE_ENABLED` | 否 | `true` | 是否启用本地缓存（`~/.findawheel/cache/`）。设为 `false` 可禁用。 |
 | `FINDAWHEEL_CACHE_TTL_MS` | 否 | `3600000` | 缓存 TTL（毫秒），默认 1 小时。 |
 | `FINDAWHEEL_LIMIT` | 否 | `20` | 默认返回结果数量。 |
@@ -209,6 +210,19 @@ npm run build
 |:-----|:-----|:-----|
 | `find_wheel` | 搜索现成轮子 | 用户说"我想做/建/创建一个..."时**第一动作**调用 |
 | `suggest_queries` | 生成 4 个搜索词建议 | AI 不确定怎么构造搜索词时调用，拿到精准/动作导向/模糊/简洁 4 个角度的建议 |
+| `get_wheel_details` | 拉取单个轮子的详情 | `find_wheel` 结果里带 `hasDetails: true` 标记时，按需调用拿到 README 摘要、代码示例、最新 release、license 兼容性 |
+
+### 混合呈现（结果信息丰富度）
+
+`find_wheel` 返回结果时采用**混合呈现**策略，平衡信息量和响应速度：
+
+- **top 3 结果**：内联 `details` 字段，包含 README 前 30 行摘要、最多 2 个代码示例、最新 release tag、license 兼容性检查。AI 可直接展示给用户，无需二次调用。
+- **top 4-10 结果**：加 `hasDetails: true` 标记，表示详情已预抓取并写入缓存。AI 想展示时调 `get_wheel_details`，**秒回**（命中缓存）。
+- **top 11+ 结果**：无标记，需要时调 `get_wheel_details` 实时抓取。
+- **非 GitHub 源**（npm/PyPI 等）：不加标记（无 README API）。
+- **预抓取失败**：容错跳过，不阻断主搜索流程。
+
+`get_wheel_details` 的缓存与 `find_wheel` 的预抓取共享，避免重复抓取。配置 `FINDAWHEEL_USER_LICENSE` 后，详情里会多出 `licenseCheck` 字段。
 
 ---
 
@@ -244,10 +258,12 @@ npm run build
 - [x] PyPI 源（HTML 解析）
 - [x] Libraries.io 源（覆盖 30+ 包管理器）
 
-**批次 3.2 — 结果信息丰富度**
-- [ ] README 摘要抓取 + 代码示例片段
-- [ ] 版本号 + 最近发布时间
-- [ ] license 兼容性提示
+**✅ 批次 3.2 — 结果信息丰富度（已完成）**
+- [x] README 摘要抓取（GitHub README API，前 30 行）
+- [x] 代码示例片段提取（优先 bash 安装示例 > js/ts/python > 其他）
+- [x] 版本号 + 最近发布时间（GitHub Releases API）
+- [x] license 兼容性提示（归一化大小写变体 + 兼容性矩阵）
+- [x] 混合呈现：top 3 内联详情 + top 4-10 预抓取缓存 + `get_wheel_details` 懒加载工具
 
 **批次 3.3 — 搜索质量提升**
 - [ ] 本地反馈存储（点赞/隐藏/点击）

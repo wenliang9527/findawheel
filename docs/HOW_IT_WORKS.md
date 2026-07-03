@@ -28,7 +28,7 @@
 
 ## 🏛️ 整体架构
 
-findawheel 是一个基于 [MCP（Model Context Protocol）](https://modelcontextprotocol.io/) 的 stdio 服务。它对外暴露两个工具 `find_wheel` 和 `suggest_queries`，内部采用**适配器模式（Adapter Pattern）**组织数据源。
+findawheel 是一个基于 [MCP（Model Context Protocol）](https://modelcontextprotocol.io/) 的 stdio 服务。它对外暴露三个工具 `find_wheel`、`suggest_queries` 和 `get_wheel_details`，内部采用**适配器模式（Adapter Pattern）**组织数据源。
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -882,14 +882,14 @@ AI 客户端                              findawheel
 
 ### 工具注册信息
 
-findawheel 注册了两个工具：
+findawheel 注册了三个工具：
 
 **find_wheel**（主工具）：
 
 ```json
 {
   "name": "find_wheel",
-  "description": "Search for existing reusable wheels (open-source projects, npm/crates packages, APIs, CLI, SDK). MUST CALL THIS FIRST before any creative work (brainstorming/designing/planning/coding) when user says 'I want to make/build/create a ...'. Returns results grouped by recommendation level (highly_recommended/recommended/optional/not_recommended).",
+  "description": "Search for existing reusable wheels (open-source projects, npm/crates packages, APIs, CLI, SDK). MUST CALL THIS FIRST before any creative work (brainstorming/designing/planning/coding) when user says 'I want to make/build/create a ...'. Returns results grouped by recommendation level (highly_recommended/recommended/optional/not_recommended). HYBRID PRESENTATION: top 3 results include inline 'details' (README snippet, code examples, release, license check); results ranked 4-10 have 'hasDetails': true (call get_wheel_details to retrieve cached details).",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -918,6 +918,40 @@ findawheel 注册了两个工具：
   }
 }
 ```
+
+**get_wheel_details**（详情懒加载工具）：
+
+```json
+{
+  "name": "get_wheel_details",
+  "description": "Retrieve detailed information (README snippet, code examples, latest release, license compatibility) for a single wheel by name. Use AFTER find_wheel when a result had 'hasDetails': true (details were pre-fetched and cached, so this call is instant). Only works for GitHub-hosted wheels (owner/repo format).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": {"type": "string", "description": "Wheel name in owner/repo format (e.g., facebook/react)"}
+    },
+    "required": ["name"]
+  }
+}
+```
+
+#### 混合呈现（Hybrid Presentation）
+
+`find_wheel` 返回结果时采用混合呈现策略，由 `enrichTopWheels()` 实现：
+
+| 结果排名 | 字段 | 说明 |
+|:-----|:-----|:-----|
+| top 3 | `details: WheelDetails` | 内联完整详情（README 前 30 行 + 最多 2 个代码示例 + 最新 release + license 兼容性） |
+| top 4-10 | `hasDetails: true` | 详情已预抓取并写入 `detailsCache`，AI 调 `get_wheel_details` 命中缓存秒回 |
+| top 11+ | 无标记 | 需要时调 `get_wheel_details` 实时抓取 |
+| 非 GitHub 源 | 无标记 | npm/PyPI 等无 README API，不支持详情抓取 |
+| 预抓取失败 | 无标记 | 容错跳过，不阻断主搜索 |
+
+`detailsCache` 与 `findWheelTool` 的搜索缓存共享同一目录（`~/.findawheel/cache/`），但 key 空间隔离：
+- 搜索缓存 key：`sha1(query + intent + ecosystem + limit)`
+- 详情缓存 key：`sha1("details:" + name)`（`detailsCacheKey()` 导出自 `getWheelDetailsTool`，供 `findWheelTool` 复用）
+
+这样 `get_wheel_details` 能直接命中 `find_wheel` 预抓取写入的缓存，避免重复抓取 README 和 release。
 
 ### 关键设计：工具只给数据，不写文案
 

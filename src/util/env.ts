@@ -11,6 +11,8 @@ export interface EnvConfig {
   gitlabToken?: string;
   /** Libraries.io API key(可选,启用多包管理器搜索) */
   librariesIoApiKey?: string;
+  /** 用户项目 license(可选,用于 license 兼容性比对,如 MIT/Apache-2.0/GPL-3.0) */
+  userLicense?: string;
   limit: number;
   timeoutMs: number;
   logLevel: 'error' | 'warn' | 'info' | 'debug';
@@ -43,6 +45,7 @@ export function readEnv(): EnvConfig {
     tavilyApiKey: process.env.TAVILY_API_KEY || undefined,
     gitlabToken: process.env.GITLAB_TOKEN || undefined,
     librariesIoApiKey: process.env.LIBRARIES_IO_API_KEY || undefined,
+    userLicense: process.env.FINDAWHEEL_USER_LICENSE || undefined,
     limit: parseInt(process.env.FINDAWHEEL_LIMIT, 20),
     timeoutMs: parseInt(process.env.FINDAWHEEL_TIMEOUT_MS, 8000),
     logLevel: level && (validLevels as readonly string[]).includes(level)
