@@ -1,4 +1,8 @@
 // src/normalize/types.ts
+// type-only import: 编译期擦除,不产生运行时循环依赖
+// (wheelDetailsEnricher 反向 import type Wheel,同为 type-only,TS 能正确处理)
+import type { WheelDetails } from '../enrich/wheelDetailsEnricher.js';
+
 export type WheelSource = 'github' | 'gitlab' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'librariesio' | 'web';
 export type WheelType = 'project' | 'package' | 'api' | 'cli' | 'sdk';
 export type Activity = 'high' | 'medium' | 'low';
@@ -40,6 +44,10 @@ export interface Wheel {
   metrics: WheelMetrics;
   /** 查询相关的匹配信息(可选,只在搜索结果里填充) */
   match?: WheelMatch;
+  /** 详情(可选):仅 top N 结果内联填充,供 AI 直接展示 README 摘要/代码示例/release/license */
+  details?: WheelDetails;
+  /** 标记:表示该 wheel 的详情已预抓取并写入 details 缓存,AI 可调 get_wheel_details 懒加载 */
+  hasDetails?: boolean;
 }
 
 export type Intent = 'feature' | 'project';

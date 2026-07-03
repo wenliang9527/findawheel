@@ -13,6 +13,12 @@ import { enrichWithMatch } from '../rank/recommender.js';
 import { readEnv } from '../util/env.js';
 import { SourceError } from '../errors.js';
 import { createCache, cacheKey, type Cache } from '../cache/cache.js';
+import {
+  enrichDetails,
+  type WheelDetails,
+  type EnrichDetailsOpts,
+} from '../enrich/wheelDetailsEnricher.js';
+import { detailsCacheKey } from './getWheelDetailsTool.js';
 
 export interface McpToolResult {
   content: Array<{ type: 'text'; text: string }>;
@@ -23,6 +29,10 @@ export interface CreateToolOpts {
   adapters: SourceAdapter[];
   /** 可选缓存实例(测试注入);未提供时按 env 配置创建磁盘缓存 */
   cache?: Cache;
+  /** 可选详情缓存实例(与 get_wheel_details 工具共享,预抓取的详情写入此处供懒加载复用) */
+  detailsCache?: Cache<WheelDetails>;
+  /** 可选详情抓取配置;未提供时不做预抓取(保持原行为,向后兼容) */
+  enrichOpts?: EnrichDetailsOpts;
 }
 
 /** 搜索流程的中间结果 */
@@ -76,6 +86,11 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     }
 
     // 成功才写缓存(失败结果不缓存,避免下次命中错误响应)
+    // 混合呈现:enrichOpts 配置时对 top 10 预抓取详情,top 3 内联,4-10 加 hasDetails 标记
+    // 预抓取失败不阻断主流程(容错);缓存里存的是已内联 details 的 wheels,命中时直接返回
+    if (opts.enrichOpts) {
+      await enrichTopWheels(result.wheels, opts.enrichOpts, opts.detailsCache);
+    }
     await cache.set(key, result.wheels);
 
     const output: FindWheelOutput = {
@@ -168,6 +183,57 @@ export function createFindWheelTool(opts: CreateToolOpts) {
   }
 
   return { handle };
+}
+
+/** 混合呈现:对 top 10 预抓取详情,top 3 内联 details,4-10 加 hasDetails 标记 */
+const TOP_INLINE = 3;   // top 3 内联 WheelDetails
+const TOP_PREFETCH = 10; // top 10 预抓取写 details 缓存
+
+/**
+ * 对排名靠前的 wheels 预抓取详情,实现混合呈现:
+ * - top 3:内联 wheel.details = WheelDetails(AI 直接拿到 README 摘要/代码示例/release/license)
+ * - top 4-10:加 wheel.hasDetails = true(提示 AI 可调 get_wheel_details 懒加载)
+ * - 成功抓取的详情写入 detailsCache(若提供),供 get_wheel_details 工具复用,避免重复抓取
+ *
+ * 容错:enrichDetails 失败或返回 null(非 GitHub 源)时,该 wheel 不加任何标记,不影响主流程。
+ * 并行抓取 top 10,任一失败不阻断其他。
+ */
+async function enrichTopWheels(
+  wheels: Wheel[],
+  enrichOpts: EnrichDetailsOpts,
+  detailsCache?: Cache<WheelDetails>,
+): Promise<void> {
+  if (wheels.length === 0) return;
+  const prefetchCount = Math.min(TOP_PREFETCH, wheels.length);
+  const top = wheels.slice(0, prefetchCount);
+
+  // 并行抓取 top 10 详情,任一失败容错(不阻断其他)
+  const results = await Promise.allSettled(
+    top.map(w => enrichDetails(w, enrichOpts)),
+  );
+
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    if (r.status !== 'fulfilled') continue; // 抓取失败:跳过,不加标记
+    const details = r.value;
+    if (!details) continue; // 非 GitHub 源:跳过,不加标记
+
+    // 写 details 缓存(供 get_wheel_details 懒加载复用)
+    if (detailsCache) {
+      try {
+        await detailsCache.set(detailsCacheKey(top[i].name), details);
+      } catch {
+        // 缓存写入失败不阻断(磁盘满等极端情况)
+      }
+    }
+
+    // top 3 内联 details;其余加 hasDetails 标记
+    if (i < TOP_INLINE) {
+      top[i].details = details;
+    } else {
+      top[i].hasDetails = true;
+    }
+  }
 }
 
 /** 推荐等级的中文标签 + 排序顺序 */

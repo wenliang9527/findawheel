@@ -26,7 +26,7 @@ export interface CreateGetWheelDetailsToolOpts {
 }
 
 /** 计算 details cache key:sha1("details:" + name) */
-function detailsCacheKey(name: string): string {
+export function detailsCacheKey(name: string): string {
   return crypto.createHash('sha1').update(`details:${name}`).digest('hex').slice(0, 24);
 }
 
