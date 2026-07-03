@@ -9,6 +9,7 @@ import { parseQuery } from '../classifier/queryParser.js';
 import { normalize } from '../normalize/normalizer.js';
 import { enrich } from '../enrich/metricsEnricher.js';
 import { rank } from '../rank/ranker.js';
+import { enrichWithMatch } from '../rank/recommender.js';
 import { readEnv } from '../util/env.js';
 import { SourceError } from '../errors.js';
 
@@ -94,11 +95,14 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       wheels, intent, limit, queryKeywords,
       parsedQuery.antonymExcludes, parsedQuery.coreWords, parsedQuery.formatWords,
     );
+    // 给每个结果填充推荐信息(matchScore + recommendation 等级 + reason 理由)
+    // 让调用方 AI 看到结构化的推荐等级,倾向于列出多个结果让用户选择
+    const rankedWithMatch = enrichWithMatch(ranked, queryKeywords);
     const output: FindWheelOutput = {
       query: input.query,
       intent,
       total: allRaw.length,
-      wheels: ranked,
+      wheels: rankedWithMatch,
       ...(degraded.length > 0 ? { degradedSources: degraded } : {}),
     };
     return { content: [{ type: 'text', text: JSON.stringify(output) }] };

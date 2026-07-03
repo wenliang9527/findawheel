@@ -3,6 +3,25 @@ export type WheelSource = 'github' | 'npm' | 'pypi' | 'crates' | 'web';
 export type WheelType = 'project' | 'package' | 'api' | 'cli' | 'sdk';
 export type Activity = 'high' | 'medium' | 'low';
 
+/** 推荐等级:从高到低 */
+export type Recommendation =
+  | 'highly_recommended' // 强烈推荐:高匹配 + 高 star + 活跃
+  | 'recommended'        // 推荐:中等匹配或匹配但 star 一般
+  | 'optional'           // 可选:低匹配或数据不足
+  | 'not_recommended';   // 不推荐:虽未被过滤但匹配度很低
+
+/** 查询相关的匹配信息,搜索结果里填充 */
+export interface WheelMatch {
+  /** 综合匹配分 0~1,结合相关度+热度+活跃度 */
+  score: number;
+  /** 推荐等级 */
+  recommendation: Recommendation;
+  /** 推荐理由(中文简述),给 AI 总结时引用 */
+  reason: string;
+  /** 命中的 query 关键词列表 */
+  matchedKeywords: string[];
+}
+
 export interface WheelMetrics {
   stars?: number;
   lastUpdated?: string; // ISO date
@@ -19,6 +38,8 @@ export interface Wheel {
   description: string;
   type: WheelType;
   metrics: WheelMetrics;
+  /** 查询相关的匹配信息(可选,只在搜索结果里填充) */
+  match?: WheelMatch;
 }
 
 export type Intent = 'feature' | 'project';
