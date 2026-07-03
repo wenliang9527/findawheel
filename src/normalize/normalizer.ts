@@ -90,6 +90,18 @@ export function normalize(raw: RawResult): Wheel {
         type: 'package',
         metrics: {},
       };
+    case 'librariesio':
+      return {
+        name: raw.name,
+        source: 'librariesio',
+        url: raw.url,
+        description: raw.description,
+        type: 'package',
+        metrics: {
+          stars: raw.stars,
+          ...(raw.lastUpdated ? { lastUpdated: raw.lastUpdated } : {}),
+        },
+      };
     case 'web':
       return {
         name: raw.name,

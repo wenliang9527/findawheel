@@ -1,5 +1,5 @@
 // src/normalize/types.ts
-export type WheelSource = 'github' | 'gitlab' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'web';
+export type WheelSource = 'github' | 'gitlab' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'librariesio' | 'web';
 export type WheelType = 'project' | 'package' | 'api' | 'cli' | 'sdk';
 export type Activity = 'high' | 'medium' | 'low';
 
@@ -151,6 +151,20 @@ export interface PypiRawResult {
   version: string;
 }
 
+/** Libraries.io 搜索结果(覆盖 30+ 包管理器) */
+export interface LibrariesIoRawResult {
+  source: 'librariesio';
+  name: string;
+  url: string;
+  description: string;
+  stars: number;
+  language: string | null;
+  /** 来源平台(npm/pypi/rubygems/cargo/maven...) */
+  platform: string;
+  /** 最近发布时间,可能为 null */
+  lastUpdated: string | null;
+}
+
 /** Web 搜索结果(Tavily 等),网页/教程/工具站 */
 export interface WebRawResult {
   source: 'web';
@@ -163,4 +177,4 @@ export interface WebRawResult {
   score?: number;
 }
 
-export type RawResult = GitHubRawResult | NpmRawResult | CratesRawResult | GiteeRawResult | GitlabRawResult | PypiRawResult | WebRawResult;
+export type RawResult = GitHubRawResult | NpmRawResult | CratesRawResult | GiteeRawResult | GitlabRawResult | PypiRawResult | LibrariesIoRawResult | WebRawResult;

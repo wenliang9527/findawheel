@@ -14,6 +14,8 @@ export interface SearchOpts {
   githubToken?: string;
   /** GitLab token(可选,提升限流额度) */
   gitlabToken?: string;
+  /** Libraries.io API key(必需,未配置时 adapter 跳过) */
+  librariesIoApiKey?: string;
   /** Exa API key(Web 搜索主源),可选 */
   exaApiKey?: string;
   /** Tavily API key(Web 搜索兜底源),可选 */

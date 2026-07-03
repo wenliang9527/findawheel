@@ -101,6 +101,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       intent, ecosystem: input.ecosystem, timeoutMs,
       githubToken: env.githubToken,
       gitlabToken: env.gitlabToken,
+      librariesIoApiKey: env.librariesIoApiKey,
       exaApiKey: env.exaApiKey,
       tavilyApiKey: env.tavilyApiKey,
       parsedQuery,
@@ -110,6 +111,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       intent, ecosystem: input.ecosystem, timeoutMs,
       githubToken: env.githubToken,
       gitlabToken: env.gitlabToken,
+      librariesIoApiKey: env.librariesIoApiKey,
       exaApiKey: env.exaApiKey,
       tavilyApiKey: env.tavilyApiKey,
     };
