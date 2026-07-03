@@ -2,12 +2,17 @@
 
 # 🔍 findawheel
 
-**An AI-era "find the wheel" assistant — discover existing wheels before you start coding.**
+### An AI-era "find the wheel" assistant
 
-[![zh](https://img.shields.io/badge/lang-中文-blue.svg)](./README.md)
-[![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)](./)
-[![Tests](https://img.shields.io/badge/tests-46%2F46-brightgreen.svg)](./)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+> Discover existing wheels before you start coding.
+
+[![Language](https://img.shields.io/badge/lang-中文-blue.svg?style=flat-square)](./README.md)
+[![Node](https://img.shields.io/badge/Node.js-≥18-green.svg?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![MCP](https://img.shields.io/badge/MCP-1.29-orange.svg?style=flat-square)](https://modelcontextprotocol.io/)
+[![Build](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](./)
+[![Tests](https://img.shields.io/badge/tests-46%2F46-brightgreen.svg?style=flat-square)](./)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](./LICENSE)
 
 </div>
 
@@ -15,17 +20,19 @@
 
 ## 📖 Table of Contents
 
-- [Introduction](#-introduction)
-- [Why](#-why)
-- [What It Does](#-what-it-does)
-- [Quick Start](#-quick-start)
-- [Connect to Your AI Client](#-connect-to-your-ai-client)
-- [Environment Variables](#-environment-variables)
-- [Architecture](#-architecture)
-- [Development](#-development)
-- [Data Sources (Phase 1)](#-data-sources-phase-1)
-- [Roadmap](#-roadmap)
-- [License](#-license)
+| | Section | Description |
+|:---:|:-----|:-----|
+| 🎯 | [Introduction](#-introduction) | What is findawheel |
+| 🤔 | [Why](#-why) | The problem it solves |
+| ✨ | [Core Features](#-core-features) | Six capabilities |
+| 🚀 | [Quick Start](#-quick-start) | Three steps |
+| 🤖 | [Connect to AI Client](#-connect-to-ai-client) | Trae / Cursor / Claude |
+| 🔧 | [Environment Variables](#-environment-variables) | Configuration |
+| 🏗️ | [Architecture](#-architecture) | Data flow diagram |
+| 🛠️ | [Development](#-development) | Command reference |
+| 🌐 | [Data Sources](#-data-sources) | Phase 1 coverage |
+| 🗺️ | [Roadmap](#-roadmap) | Evolution plan |
+| 📚 | [Further Reading](#-further-reading) | Detailed docs |
 
 ---
 
@@ -33,7 +40,9 @@
 
 `findawheel` is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) service. Before you start implementing a new idea, it searches the web for existing reusable wheels — open-source projects, npm/crates packages, APIs, CLI tools, SDKs — so you don't have to reinvent them.
 
-> 💡 **Use case**: When you tell your AI, "I want to build a Markdown-to-PDF tool," the AI first calls `findawheel` to find existing implementations and then recommends whether to reuse one.
+> 💡 **Use case**
+>
+> When you tell your AI, "I want to build a Markdown-to-PDF tool," the AI first calls `findawheel` to find existing implementations and then recommends whether to reuse one.
 
 ---
 
@@ -44,21 +53,24 @@ In the AI-coding era, everyone can quickly turn ideas into code. But many "new i
 `findawheel` adds one step before implementation:
 
 ```
-Idea → Search existing wheels → Reuse or build yourself
+ ┌──────────┐      ┌──────────────────┐      ┌────────────────────┐
+ │   Idea    │ ──→ │ Search existing  │ ──→ │ Reuse or build self │
+ │           │     │     wheels       │     │                     │
+ └──────────┘      └──────────────────┘      └────────────────────┘
 ```
 
 ---
 
-## ✨ What It Does
+## ✨ Core Features
 
-Exposes a single MCP tool `find_wheel(query, intent?, ecosystem?, limit?)`:
-
-- 🔎 **Multi-source search**: GitHub, npm, and crates.io
-- 🧠 **Intent detection**: Automatically classifies queries as feature-level or project-level
-- 📊 **Unified model**: Normalizes results from all sources into a single `Wheel` structure
-- 🏆 **Quality ranking**: Ranks by stars, recency, activity, downloads, and license
-- 🛡️ **Auto filtering**: Drops archived, stale, or low-information results
-- ⚡ **Graceful degradation**: If one source fails, the others still return results
+| Icon | Feature | Description |
+|:---:|:-----|:-----|
+| 🔎 | **Multi-source search** | GitHub, npm, and crates.io simultaneously |
+| 🧠 | **Intent detection** | Auto-classifies query as feature-level or project-level |
+| 📊 | **Unified model** | Normalizes all sources into a single `Wheel` structure |
+| 🏆 | **Quality ranking** | stars / recency / activity / downloads / license |
+| 🛡️ | **Auto filtering** | Drops archived, stale, or low-info results |
+| ⚡ | **Graceful degradation** | Source failure doesn't block the others |
 
 ---
 
@@ -76,9 +88,11 @@ npm install
 npm run build
 ```
 
+> 📖 Full installation guide: [USAGE.md](./docs/USAGE.md)
+
 ---
 
-## 🤖 Connect to Your AI Client
+## 🤖 Connect to AI Client
 
 Add this to your MCP-compatible client config (Trae / Cursor / Claude Desktop):
 
@@ -96,80 +110,98 @@ Add this to your MCP-compatible client config (Trae / Cursor / Claude Desktop):
 }
 ```
 
-Restart your client, describe your idea in conversation, and the AI will automatically call `find_wheel` to recommend reusable wheels.
+Restart your client, describe your idea in conversation, and the AI will automatically call `find_wheel`.
 
 ---
 
 ## 🔧 Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `GITHUB_TOKEN` | no | — | GitHub Personal Access Token. Without it, GitHub API is limited to 60 req/h. |
-| `FINDAWHEEL_LIMIT` | no | `10` | Default number of results returned. |
-| `FINDAWHEEL_TIMEOUT_MS` | no | `8000` | Per-source request timeout in milliseconds. |
-| `FINDAWHEEL_LOG_LEVEL` | no | `info` | Log level: `error` \| `warn` \| `info` \| `debug`. |
+|:---------|:---:|:------:|:-----|
+| `GITHUB_TOKEN` | no | — | GitHub PAT. Without it, 60 req/h limit. |
+| `FINDAWHEEL_LIMIT` | no | `10` | Default result count. |
+| `FINDAWHEEL_TIMEOUT_MS` | no | `8000` | Per-source timeout (ms). |
+| `FINDAWHEEL_LOG_LEVEL` | no | `info` | `error` \| `warn` \| `info` \| `debug`. |
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-AI calls find_wheel(query)
-        │
-        ▼
-┌─────────────────────┐
-│  QueryClassifier    │  ← decides feature vs project
-└─────────────────────┘
-        │
-        ▼
-┌─────────────────────┐
-│   SourceAdapters    │  ← GitHub / npm / crates.io parallel search
-└─────────────────────┘
-        │
-        ▼
-┌─────────────────────┐
-│     Normalizer      │  ← normalizes to Wheel structure
-│   MetricsEnricher   │  ← enriches activity metrics
-│       Ranker        │  ← filter + score + dedupe
-└─────────────────────┘
-        │
-        ▼
-    Wheel[] returned to AI
+                  AI calls find_wheel(query)
+                            │
+                            ▼
+                  ┌─────────────────────┐
+                  │  QueryClassifier    │  ← decides feature vs project
+                  └─────────────────────┘
+                            │
+                            ▼
+                  ┌─────────────────────┐
+                  │   SourceAdapters    │  ← GitHub / npm / crates.io parallel search
+                  └─────────────────────┘
+                            │
+                            ▼
+            ┌──────────────────────────────────┐
+            │  Normalizer → MetricsEnricher    │  ← normalize + enrich metrics
+            │           → Ranker               │  ← filter + score + dedupe
+            └──────────────────────────────────┘
+                            │
+                            ▼
+                    Wheel[] returned to AI
 ```
+
+> 📖 Full internals: [HOW_IT_WORKS.md](./docs/HOW_IT_WORKS.md)
 
 ---
 
 ## 🛠️ Development
 
-```bash
-npm run dev        # tsc --watch
-npm test           # run all tests
-npm run test:watch # run tests in watch mode
-npm run build      # build to dist/
-```
+| Command | Description |
+|:-----|:-----|
+| `npm run dev` | tsc --watch |
+| `npm test` | Run all tests |
+| `npm run test:watch` | Tests in watch mode |
+| `npm run build` | Build to dist/ |
 
 ---
 
-## 🌐 Data Sources (Phase 1)
+## 🌐 Data Sources
 
 | Source | Type | Notes |
-|--------|------|-------|
+|:------|:-----|:-----|
 | **GitHub** | Open-source repos | `/search/repositories`, sorted by stars |
 | **npm** | JavaScript packages | registry search |
 | **crates.io** | Rust packages | crates search |
 
-> PyPI has no official search API, so Python packages are covered through GitHub mirrors in Phase 1. Phase 2 will add a generic web search source (Exa / Brave) for wheels not hosted on GitHub.
+> ℹ️ PyPI has no official search API; Python packages are covered via GitHub mirrors in Phase 1. Phase 2 will add a generic web search source (Exa / Brave).
 
 ---
 
 ## 🗺️ Roadmap
 
-- [x] Phase 1: GitHub + npm + crates.io search
+### ✅ Phase 1 (Done)
+
+- [x] GitHub + npm + crates.io search
 - [x] Intent classification and quality ranking
-- [ ] Phase 2: Web search source (Exa / Brave)
-- [ ] Phase 2: Result caching and retry logic
-- [ ] Phase 2: npm download counts and README summaries
-- [ ] Phase 2: Scoring formula tuning
+- [x] Multi-source degradation and error handling
+
+### 🚧 Phase 2 (Planned)
+
+- [ ] Web search source (Exa / Brave)
+- [ ] Result caching and retry logic
+- [ ] npm download counts and README summaries
+- [ ] Scoring formula tuning
+
+---
+
+## 📚 Further Reading
+
+| Document | Description |
+|:-----|:-----|
+| 📖 [Usage Guide](./docs/USAGE.md) | Download, install, configure, and use |
+| ⚙️ [How It Works](./docs/HOW_IT_WORKS.md) | Internal architecture and components |
+| 📐 [Design Spec](./docs/superpowers/specs/2026-07-02-findawheel-design.md) | Full design decisions |
+| 📝 [Implementation Plan](./docs/superpowers/plans/2026-07-02-findawheel.md) | 16 TDD tasks |
 
 ---
 
@@ -181,6 +213,8 @@ npm run build      # build to dist/
 
 <div align="center">
 
-**[中文版本](./README.md)**
+<sub>Found a bug or have a suggestion? Open an issue.</sub>
+
+**[🌐 中文版本](./README.md)**
 
 </div>
