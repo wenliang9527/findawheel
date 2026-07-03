@@ -13,6 +13,9 @@ import { GitHubSourceAdapter } from './sources/githubSourceAdapter.js';
 import { GiteeSourceAdapter } from './sources/giteeSourceAdapter.js';
 import { RegistrySourceAdapter } from './sources/registrySourceAdapter.js';
 import { WebSourceAdapter } from './sources/webSourceAdapter.js';
+import { GitlabSourceAdapter } from './sources/gitlabSourceAdapter.js';
+import { PypiSourceAdapter } from './sources/pypiSourceAdapter.js';
+import { LibrariesIoSourceAdapter } from './sources/librariesIoSourceAdapter.js';
 
 const FindWheelSchema = z.object({
   query: z.string(),
@@ -33,6 +36,9 @@ export function createServer() {
       new GiteeSourceAdapter(),
       new RegistrySourceAdapter(),
       new WebSourceAdapter(),
+      new GitlabSourceAdapter(),
+      new PypiSourceAdapter(),
+      new LibrariesIoSourceAdapter(),
     ],
   });
   const suggestQueriesTool = createSuggestQueriesTool();

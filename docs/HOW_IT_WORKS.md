@@ -456,7 +456,7 @@ interface SourceAdapter {
 | npm | `https://registry.npmjs.org/-/v1/search` | 公开，无需 token；不返回下载量 |
 | crates.io | `https://crates.io/api/v1/crates` | 公开；返回 downloads 和 recent_downloads，指标最全 |
 
-> ⚠️ **PyPI 策略**：PyPI 没有官方搜索 API。一期不查 PyPI，由 GitHub 适配器兜底（Python 包大多有 GitHub 镜像仓库）。二期由 Web 搜索源补覆盖。
+> ℹ️ **PyPI 策略**：PyPI 没有官方搜索 JSON API。Phase 3.1 起通过解析 `pypi.org/search` 的 HTML 提取包信息（无 stars/downloads），解析失败返回空数组不阻断。
 
 **npm 包指标补充**：npm registry 不返回 stars 和 downloads，适配器会并发调用 GitHub API（按包名查仓库 stars）和 npm downloads API（查周下载量）补充，让 npm 包和 GitHub 仓库能公平排序。
 
@@ -480,7 +480,43 @@ interface SourceAdapter {
 
 **限流处理**：403 抛 `RateLimitError`，其他 HTTP 错误抛 `SourceError`。
 
-#### 4.4 WebSourceAdapter（Exa 主 + Tavily 兜底）
+#### 4.4 GitlabSourceAdapter
+
+| | |
+|:---|:---|
+| 📄 **文件** | `src/sources/gitlabSourceAdapter.ts` |
+
+- API: `GET https://gitlab.com/api/v4/projects?search=<q>&order_by=star_count&sort=desc&per_page=50`
+- 不支持 NOT/引号语法，直接用翻译后的 query
+- 鉴权：可选 `GITLAB_TOKEN`（用 `PRIVATE-TOKEN` header，匿名可搜）
+- 429 → 抛 `RateLimitError`
+- 字段映射：`path_with_namespace`→name, `web_url`→url, `star_count`→stars, `last_activity_at`→lastUpdated
+
+#### 4.5 PypiSourceAdapter
+
+| | |
+|:---|:---|
+| 📄 **文件** | `src/sources/pypiSourceAdapter.ts` |
+
+- API: 解析 `https://pypi.org/search/?q=<q>` 的 HTML
+- 无官方搜索 JSON API，用正则提取 `package-snippet` 块
+- 无 stars/downloads 数据
+- 解析失败返回空数组（容错，HTML 结构变更不阻断）
+- 字段映射：包名、描述、链接、版本号
+
+#### 4.6 LibrariesIoSourceAdapter
+
+| | |
+|:---|:---|
+| 📄 **文件** | `src/sources/librariesIoSourceAdapter.ts` |
+
+- API: `GET https://libraries.io/api/search?q=<q>&api_key=<key>`
+- 一次查询覆盖 30+ 包管理器（npm/pypi/rubygems/cargo/maven...）
+- 鉴权：必需 `LIBRARIES_IO_API_KEY`，未配置时返回空数组跳过（零配置兼容）
+- URL fallback：homepage → repository_url → `https://libraries.io/{platform}/{name}`
+- 字段映射：name/description/stars/language/platform/lastUpdated
+
+#### 4.7 WebSourceAdapter（Exa 主 + Tavily 兜底）
 
 | | |
 |:---|:---|

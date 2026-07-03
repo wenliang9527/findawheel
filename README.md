@@ -105,7 +105,9 @@ npm run build
       "env": {
         "GITHUB_TOKEN": "可选，但强烈建议配置",
         "EXA_API_KEY": "可选，启用 Web 神经搜索（主源）",
-        "TAVILY_API_KEY": "可选，Web 搜索兜底"
+        "TAVILY_API_KEY": "可选，Web 搜索兜底",
+        "GITLAB_TOKEN": "可选，提升 GitLab 限流",
+        "LIBRARIES_IO_API_KEY": "可选，启用 30+ 包管理器搜索"
       }
     }
   }
@@ -123,6 +125,10 @@ npm run build
 | `GITHUB_TOKEN` | 否 | — | GitHub PAT。未配置时限流 60 次/小时，配置后 5000 次/小时。 |
 | `EXA_API_KEY` | 否 | — | Exa API key，启用 Web 神经网络搜索（主源）。[获取](https://exa.ai) |
 | `TAVILY_API_KEY` | 否 | — | Tavily API key，Web 搜索兜底（Exa 失败/额度耗尽时使用）。[获取](https://tavily.com) |
+| `GITLAB_TOKEN` | 否 | — | GitLab token（可选，提升 GitLab 搜索限流，匿名也可搜）。 |
+| `LIBRARIES_IO_API_KEY` | 否 | — | Libraries.io API key，启用多包管理器搜索（覆盖 npm/pypi/rubygems/cargo/maven 等 30+ 平台）。[获取](https://libraries.io/account) |
+| `FINDAWHEEL_CACHE_ENABLED` | 否 | `true` | 是否启用本地缓存（`~/.findawheel/cache/`）。设为 `false` 可禁用。 |
+| `FINDAWHEEL_CACHE_TTL_MS` | 否 | `3600000` | 缓存 TTL（毫秒），默认 1 小时。 |
 | `FINDAWHEEL_LIMIT` | 否 | `20` | 默认返回结果数量。 |
 | `FINDAWHEEL_TIMEOUT_MS` | 否 | `8000` | 单源请求超时（毫秒）。 |
 | `FINDAWHEEL_LOG_LEVEL` | 否 | `info` | 日志级别：`error` \| `warn` \| `info` \| `debug`。 |
@@ -149,7 +155,7 @@ npm run build
            └────────┬───────┘         │              │
                     ▼                 │              │
     ┌─────────────────────────────────────────────┐  │
-    │  GitHub · Gitee · npm · crates.io · Web    │  │
+    │  GitHub · Gitee · npm · crates · GitLab · PyPI · Libraries.io · Web    │  │
     │     (Exa 主 + Tavily 兜底)                  │  │
     └─────────────────────┬───────────────────────┘  │
                           ▼                          │
@@ -187,8 +193,11 @@ npm run build
 | **crates.io** | Rust 包 | 不需要 | 返回 downloads，指标最全 |
 | **Web (Exa)** | 网页/教程/工具站 | 需要 API key | 神经网络搜索，对代码语义友好（主源） |
 | **Web (Tavily)** | 网页/教程/工具站 | 需要 API key | Exa 失败/额度耗尽时自动 fallback |
+| **GitLab** | 开源仓库 | 可选 | `/api/v4/projects`，补充非 GitHub 托管的项目 |
+| **PyPI** | Python 包 | 不需要 | 解析 `pypi.org/search` HTML，无 stars/downloads 数据 |
+| **Libraries.io** | 多平台包 | 需要 API key | 一次查询覆盖 30+ 包管理器（npm/pypi/cargo/maven...） |
 
-> ℹ️ **PyPI 策略**：PyPI 无官方搜索 API，通过 GitHub `language:Python` 覆盖 Python 生态。
+> ℹ️ **PyPI 策略**：PyPI 无官方搜索 JSON API，通过解析 `pypi.org/search` 的 HTML 提取包信息，无 stars/downloads 数据。
 >
 > ℹ️ **零配置 Web 搜索**：如果不想申请 Exa/Tavily key，可并启 [Open-WebSearch MCP](https://github.com/OpenWebSearch) 作为补充，AI 会自动编排。
 
@@ -227,13 +236,13 @@ npm run build
 
 分三批次推进，详见 [Phase 3 规划文档](./docs/superpowers/plans/2026-07-03-phase3.md)。
 
-**批次 3.1 — 可靠性基座 + 数据源扩展**
-- [ ] 本地缓存层（`~/.findawheel/cache/`，TTL 1h，默认开启）
-- [ ] 瞬时错误指数退避重试（5xx/网络错误，4xx 不重试）
-- [ ] 请求去重（in-flight dedup）
-- [ ] GitLab 独立源
-- [ ] PyPI 源（HTML 解析）
-- [ ] Libraries.io 源（覆盖 30+ 包管理器）
+**✅ 批次 3.1 — 可靠性基座 + 数据源扩展（已完成）**
+- [x] 本地缓存层（`~/.findawheel/cache/`，TTL 1h，默认开启）
+- [x] 瞬时错误指数退避重试（5xx/网络错误，4xx 不重试）
+- [x] 请求去重（in-flight dedup）
+- [x] GitLab 独立源
+- [x] PyPI 源（HTML 解析）
+- [x] Libraries.io 源（覆盖 30+ 包管理器）
 
 **批次 3.2 — 结果信息丰富度**
 - [ ] README 摘要抓取 + 代码示例片段

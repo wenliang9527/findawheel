@@ -107,7 +107,9 @@ Add this to your MCP-compatible client config (Trae / Cursor / Claude Desktop):
       "env": {
         "GITHUB_TOKEN": "optional but recommended",
         "EXA_API_KEY": "optional, enables neural Web search (primary)",
-        "TAVILY_API_KEY": "optional, Web search fallback"
+        "TAVILY_API_KEY": "optional, Web search fallback",
+        "GITLAB_TOKEN": "optional, improves GitLab rate limit",
+        "LIBRARIES_IO_API_KEY": "optional, enables 30+ package manager search"
       }
     }
   }
@@ -125,6 +127,10 @@ Restart your client, describe your idea in conversation, and the AI will automat
 | `GITHUB_TOKEN` | no | — | GitHub PAT. Without it, 60 req/h limit; with it, 5000 req/h. |
 | `EXA_API_KEY` | no | — | Exa API key, enables neural Web search (primary source). [Get one](https://exa.ai) |
 | `TAVILY_API_KEY` | no | — | Tavily API key, Web search fallback (used when Exa fails or quota is exhausted). [Get one](https://tavily.com) |
+| `GITLAB_TOKEN` | No | — | GitLab token (optional, improves GitLab rate limit; anonymous search works without it). |
+| `LIBRARIES_IO_API_KEY` | No | — | Libraries.io API key, enables multi-package-manager search (covers npm/pypi/rubygems/cargo/maven and 30+ platforms). [Get one](https://libraries.io/account) |
+| `FINDAWHEEL_CACHE_ENABLED` | No | `true` | Enable local cache (`~/.findawheel/cache/`). Set to `false` to disable. |
+| `FINDAWHEEL_CACHE_TTL_MS` | No | `3600000` | Cache TTL in milliseconds, default 1 hour. |
 | `FINDAWHEEL_LIMIT` | no | `20` | Default result count. |
 | `FINDAWHEEL_TIMEOUT_MS` | no | `8000` | Per-source timeout (ms). |
 | `FINDAWHEEL_LOG_LEVEL` | no | `info` | `error` \| `warn` \| `info` \| `debug`. |
@@ -151,7 +157,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
            └────────┬───────┘         │              │
                     ▼                 │              │
     ┌─────────────────────────────────────────────┐  │
-    │  GitHub · Gitee · npm · crates.io · Web    │  │
+    │  GitHub · Gitee · npm · crates · GitLab · PyPI · Libraries.io · Web    │  │
     │     (Exa primary + Tavily fallback)         │  │
     └─────────────────────┬───────────────────────┘  │
                           ▼                          │
@@ -190,8 +196,11 @@ Restart your client, describe your idea in conversation, and the AI will automat
 | **crates.io** | Rust packages | no | Returns downloads; richest metrics |
 | **Web (Exa)** | Pages / tutorials / tool sites | API key required | Neural search, code-semantic friendly (primary) |
 | **Web (Tavily)** | Pages / tutorials / tool sites | API key required | Auto-fallback when Exa fails / quota exhausted |
+| **GitLab** | Open-source repos | Optional | `/api/v4/projects`, complements non-GitHub hosted projects |
+| **PyPI** | Python packages | Not required | Parses `pypi.org/search` HTML, no stars/downloads data |
+| **Libraries.io** | Multi-platform packages | API key required | One query covers 30+ package managers (npm/pypi/cargo/maven...) |
 
-> ℹ️ **PyPI strategy**: PyPI has no official search API; Python ecosystem is covered via GitHub `language:Python`.
+> ℹ️ **PyPI strategy**: PyPI has no official search JSON API. We parse the HTML of `pypi.org/search` to extract package info (no stars/downloads data).
 >
 > ℹ️ **Zero-config Web search**: If you don't want to sign up for Exa/Tavily keys, you can additionally enable the [Open-WebSearch MCP](https://github.com/OpenWebSearch) — the AI will orchestrate it automatically.
 
@@ -230,13 +239,13 @@ Restart your client, describe your idea in conversation, and the AI will automat
 
 Three batches — see [Phase 3 plan](./docs/superpowers/plans/2026-07-03-phase3.md).
 
-**Batch 3.1 — Reliability foundation + data source expansion**
-- [ ] Local cache layer (`~/.findawheel/cache/`, TTL 1h, on by default)
-- [ ] Exponential backoff retry for transient errors (5xx/network, not 4xx)
-- [ ] In-flight request dedup
-- [ ] GitLab standalone source
-- [ ] PyPI source (HTML parsing)
-- [ ] Libraries.io source (covers 30+ package managers)
+**✅ Batch 3.1 — Reliability foundation + data source expansion (completed)**
+- [x] Local cache layer (`~/.findawheel/cache/`, TTL 1h, on by default)
+- [x] Exponential backoff retry for transient errors (5xx/network, not 4xx)
+- [x] In-flight request dedup
+- [x] GitLab standalone source
+- [x] PyPI source (HTML parsing)
+- [x] Libraries.io source (covers 30+ package managers)
 
 **Batch 3.2 — Richer result info**
 - [ ] README summary + code example snippets
