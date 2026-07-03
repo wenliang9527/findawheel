@@ -32,8 +32,11 @@ export function createServer() {
     tools: [{
       name: 'find_wheel',
       description:
-        'Search for existing reusable wheels (open-source projects, packages, APIs, CLIs, SDKs) for a feature or project idea. Call this BEFORE implementing a new idea to avoid reinventing the wheel. ' +
-        'Each result includes a "match" field with recommendation level (highly_recommended/recommended/optional/not_recommended), matchScore (0-1), and a reason explaining why. ' +
+        'MUST CALL THIS FIRST before any creative work — before brainstorming, before designing, before planning, before writing any code for a new feature or project. ' +
+        'Search for existing reusable wheels (open-source projects, packages, APIs, CLIs, SDKs) so you avoid reinventing the wheel. ' +
+        'When the user says "I want to make/build/create a ...", your FIRST action must be calling this tool — NOT brainstorming, NOT asking clarifying questions. ' +
+        'Only after reviewing the search results should you proceed with design/brainstorming, and even then you should reference existing wheels and explain why the user should or should not build from scratch. ' +
+        'Each result includes a "match" field with recommendation level (highly_recommended/recommended/optional/not_recommended), matchScore (0-1), reason, and matchedKeywords. ' +
         'When presenting results to the user, list ALL results grouped by recommendation level (highly_recommended first), include stars/downloads and the reason — do NOT only show 1 result, give the user choices to compare.',
       inputSchema: {
         type: 'object',
