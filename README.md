@@ -129,6 +129,7 @@ npm run build
 | `LIBRARIES_IO_API_KEY` | 否 | — | Libraries.io API key，启用多包管理器搜索（覆盖 npm/pypi/rubygems/cargo/maven 等 30+ 平台）。[获取](https://libraries.io/account) |
 | `FINDAWHEEL_USER_LICENSE` | 否 | — | 你的项目 license（如 `MIT`/`Apache-2.0`/`GPL-3.0`）。配置后，搜索结果的详情里会包含 `licenseCheck` 字段，标注每个轮子的 license 是否与你的项目兼容（避免 license 传染）。 |
 | `FINDAWHEEL_CACHE_ENABLED` | 否 | `true` | 是否启用本地缓存（`~/.findawheel/cache/`）。设为 `false` 可禁用。 |
+| `FINDAWHEEL_FEEDBACK_DIR` | 否 | `~/.findawheel/feedback/` | 反馈存储目录。持久化用户对 wheel 的 like/hide/click 反馈，跨会话累积影响排序。无 TTL，手动清理即可。 |
 | `FINDAWHEEL_CACHE_TTL_MS` | 否 | `3600000` | 缓存 TTL（毫秒），默认 1 小时。 |
 | `FINDAWHEEL_LIMIT` | 否 | `20` | 默认返回结果数量。 |
 | `FINDAWHEEL_TIMEOUT_MS` | 否 | `8000` | 单源请求超时（毫秒）。 |
@@ -211,6 +212,7 @@ npm run build
 | `find_wheel` | 搜索现成轮子 | 用户说"我想做/建/创建一个..."时**第一动作**调用 |
 | `suggest_queries` | 生成 4 个搜索词建议 | AI 不确定怎么构造搜索词时调用，拿到精准/动作导向/模糊/简洁 4 个角度的建议 |
 | `get_wheel_details` | 拉取单个轮子的详情 | `find_wheel` 结果里带 `hasDetails: true` 标记时，按需调用拿到 README 摘要、代码示例、最新 release、license 兼容性 |
+| `record_feedback` | 记录用户反馈 | AI 展示结果后，根据用户反应调用：点赞→`like`、说不相关→`hide`、点开链接→`click`。反馈持久化累积，影响后续搜索排序 |
 
 ### 混合呈现（结果信息丰富度）
 
@@ -223,6 +225,18 @@ npm run build
 - **预抓取失败**：容错跳过，不阻断主搜索流程。
 
 `get_wheel_details` 的缓存与 `find_wheel` 的预抓取共享，避免重复抓取。配置 `FINDAWHEEL_USER_LICENSE` 后，详情里会多出 `licenseCheck` 字段。
+
+### 反馈加权（搜索质量提升）
+
+AI 展示搜索结果后，根据用户反应调 `record_feedback` 记录反馈。反馈持久化到 `~/.findawheel/feedback/`，跨会话累积，影响后续搜索排序：
+
+| 动作 | 分值 | 累加上限 | 含义 |
+|:-----|:-----|:-----|:-----|
+| `like` | +0.2/次 | +1.0（5 次封顶） | 用户点赞/选用，后续搜索上浮 |
+| `click` | +0.05/次 | +0.3（6 次封顶） | 用户点开查看，小幅加分 |
+| `hide` | -0.5/次 | 无上限 | 用户说不相关，后续搜索下沉 |
+
+反馈调整量叠加到 `matchScore` 上，调整后重新排序并重新分级推荐等级。结果的 `match` 字段会带 `feedbackDelta`（反馈带来的调整量，正数加分负数扣分）。反馈变化后，搜索缓存（TTL 1h）自然刷新排序。
 
 ---
 
@@ -265,10 +279,12 @@ npm run build
 - [x] license 兼容性提示（归一化大小写变体 + 兼容性矩阵）
 - [x] 混合呈现：top 3 内联详情 + top 4-10 预抓取缓存 + `get_wheel_details` 懒加载工具
 
-**批次 3.3 — 搜索质量提升**
-- [ ] 本地反馈存储（点赞/隐藏/点击）
-- [ ] 反馈加权排序
-- [ ] ML 评分模型（替换启发式权重）
+**✅ 批次 3.3 — 搜索质量提升（已完成）**
+- [x] 本地反馈存储（`~/.findawheel/feedback/`，like/hide/click，JSON 持久化，无 TTL）
+- [x] `record_feedback` MCP 工具（AI 根据用户反应记录反馈）
+- [x] 反馈加权排序（like +0.2/click +0.05/hide -0.5，累加上限防刷，重新排序+重新分级）
+- [x] `feedbackDelta` 字段（结果里展示反馈调整量，透明可审计）
+- [~] ML 评分模型（暂不实现，YAGNI；待真实反馈数据积累后再评估）
 
 ---
 

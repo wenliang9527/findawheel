@@ -14,6 +14,8 @@ describe('readEnv', () => {
     delete process.env.FINDAWHEEL_LOG_LEVEL;
     delete process.env.FINDAWHEEL_CACHE_ENABLED;
     delete process.env.FINDAWHEEL_CACHE_TTL_MS;
+    delete process.env.FINDAWHEEL_CACHE_DIR;
+    delete process.env.FINDAWHEEL_FEEDBACK_DIR;
   });
 
   it('returns defaults when env vars absent', () => {
@@ -25,6 +27,12 @@ describe('readEnv', () => {
     expect(env.cacheEnabled).toBe(true); // 默认开启
     expect(env.cacheTtlMs).toBe(3600000); // 1 小时
     expect(env.cacheDir).toMatch(/findawheel[/\\]cache$/);
+    expect(env.feedbackDir).toMatch(/findawheel[/\\]feedback$/);
+  });
+
+  it('reads custom feedback dir', () => {
+    process.env.FINDAWHEEL_FEEDBACK_DIR = '/custom/feedback';
+    expect(readEnv().feedbackDir).toBe('/custom/feedback');
   });
 
   it('parses numeric env vars', () => {

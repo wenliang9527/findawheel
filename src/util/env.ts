@@ -22,6 +22,8 @@ export interface EnvConfig {
   cacheTtlMs: number;
   /** 缓存目录,默认 ~/.findawheel/cache */
   cacheDir: string;
+  /** 反馈存储目录,默认 ~/.findawheel/feedback (持久化用户反馈, 不参与 TTL) */
+  feedbackDir: string;
 }
 
 function parseInt(value: string | undefined, fallback: number): number {
@@ -39,6 +41,7 @@ export function readEnv(): EnvConfig {
   const level = process.env.FINDAWHEEL_LOG_LEVEL;
   const validLevels = ['error', 'warn', 'info', 'debug'] as const;
   const defaultCacheDir = path.join(os.homedir(), '.findawheel', 'cache');
+  const defaultFeedbackDir = path.join(os.homedir(), '.findawheel', 'feedback');
   return {
     githubToken: process.env.GITHUB_TOKEN || undefined,
     exaApiKey: process.env.EXA_API_KEY || undefined,
@@ -54,5 +57,6 @@ export function readEnv(): EnvConfig {
     cacheEnabled: parseBool(process.env.FINDAWHEEL_CACHE_ENABLED, true),
     cacheTtlMs: parseInt(process.env.FINDAWHEEL_CACHE_TTL_MS, 3600000),
     cacheDir: process.env.FINDAWHEEL_CACHE_DIR || defaultCacheDir,
+    feedbackDir: process.env.FINDAWHEEL_FEEDBACK_DIR || defaultFeedbackDir,
   };
 }

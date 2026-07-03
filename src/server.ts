@@ -19,6 +19,8 @@ import { PypiSourceAdapter } from './sources/pypiSourceAdapter.js';
 import { LibrariesIoSourceAdapter } from './sources/librariesIoSourceAdapter.js';
 import { createCache } from './cache/cache.js';
 import type { WheelDetails } from './enrich/wheelDetailsEnricher.js';
+import { createFeedbackStore } from './feedback/feedbackStore.js';
+import { createRecordFeedbackTool } from './tools/recordFeedbackTool.js';
 import { readEnv } from './util/env.js';
 
 const FindWheelSchema = z.object({
@@ -37,6 +39,11 @@ const GetWheelDetailsSchema = z.object({
   name: z.string(),
 });
 
+const RecordFeedbackSchema = z.object({
+  name: z.string(),
+  action: z.enum(['like', 'hide', 'click']),
+});
+
 export function createServer() {
   const env = readEnv();
   // 共享详情缓存: findWheelTool 预抓取写入, getWheelDetailsTool 懒加载复用
@@ -53,6 +60,10 @@ export function createServer() {
     ...(env.userLicense ? { userLicense: env.userLicense } : {}),
   };
 
+  // 反馈存储: 持久化用户对 wheel 的 like/hide/click, 影响后续搜索排序
+  // 独立目录(与 cache 分离), 无 TTL, 跨会话累积
+  const feedbackStore = createFeedbackStore({ dir: env.feedbackDir });
+
   const findWheelTool = createFindWheelTool({
     adapters: [
       new GitHubSourceAdapter(),
@@ -65,9 +76,11 @@ export function createServer() {
     ],
     detailsCache,
     enrichOpts,
+    feedbackStore,
   });
   const suggestQueriesTool = createSuggestQueriesTool();
   const getWheelDetailsTool = createGetWheelDetailsTool({ cache: detailsCache, enrichOpts });
+  const recordFeedbackTool = createRecordFeedbackTool({ store: feedbackStore });
 
   const server = new Server(
     { name: 'findawheel', version: '0.1.0' },
@@ -130,6 +143,22 @@ export function createServer() {
           required: ['name'],
         },
       },
+      {
+        name: 'record_feedback',
+        description:
+          'Record user feedback on a wheel to improve future search ranking. Call this AFTER showing find_wheel results and observing the user\'s reaction. ' +
+          'Actions: "like" (user praised/selected this wheel — boosts its future ranking), "hide" (user said it\'s irrelevant — demotes it), "click" (user opened the link — small boost). ' +
+          'Feedback is persisted locally (~/.findawheel/feedback/) and accumulates across sessions. ' +
+          'Input: the wheel\'s "name" (owner/repo format) and the "action".',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Wheel name in owner/repo format (e.g., facebook/react)' },
+            action: { type: 'string', enum: ['like', 'hide', 'click'], description: 'Feedback action: like (boost), hide (demote), click (small boost)' },
+          },
+          required: ['name', 'action'],
+        },
+      },
     ],
   }));
 
@@ -155,6 +184,13 @@ export function createServer() {
         return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
       }
       return getWheelDetailsTool.handle(parsed.data) as unknown as CallToolResult;
+    }
+    if (name === 'record_feedback') {
+      const parsed = RecordFeedbackSchema.safeParse(req.params.arguments);
+      if (!parsed.success) {
+        return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
+      }
+      return recordFeedbackTool.handle(parsed.data) as unknown as CallToolResult;
     }
     return { content: [{ type: 'text', text: `unknown tool: ${name}` }], isError: true };
   });

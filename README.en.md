@@ -131,6 +131,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
 | `LIBRARIES_IO_API_KEY` | No | — | Libraries.io API key, enables multi-package-manager search (covers npm/pypi/rubygems/cargo/maven and 30+ platforms). [Get one](https://libraries.io/account) |
 | `FINDAWHEEL_USER_LICENSE` | No | — | Your project's license (e.g., `MIT`/`Apache-2.0`/`GPL-3.0`). When set, each wheel's details include a `licenseCheck` field showing whether its license is compatible with yours (avoids license contamination). |
 | `FINDAWHEEL_CACHE_ENABLED` | No | `true` | Enable local cache (`~/.findawheel/cache/`). Set to `false` to disable. |
+| `FINDAWHEEL_FEEDBACK_DIR` | No | `~/.findawheel/feedback/` | Feedback storage directory. Persists user feedback (like/hide/click) across sessions to adjust search ranking. No TTL — clear manually. |
 | `FINDAWHEEL_CACHE_TTL_MS` | No | `3600000` | Cache TTL in milliseconds, default 1 hour. |
 | `FINDAWHEEL_LIMIT` | no | `20` | Default result count. |
 | `FINDAWHEEL_TIMEOUT_MS` | no | `8000` | Per-source timeout (ms). |
@@ -214,6 +215,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
 | `find_wheel` | Search for existing wheels | **First action** when the user says "I want to make/build/create a ..." |
 | `suggest_queries` | Generate 4 search-term variants | Call when the AI is unsure how to construct the query; returns precise / action-oriented / fuzzy / concise variants |
 | `get_wheel_details` | Fetch details for a single wheel | When a `find_wheel` result has `hasDetails: true`, call this on demand to get README snippet, code examples, latest release, and license compatibility |
+| `record_feedback` | Record user feedback | After showing results, call based on user reaction: praise→`like`, irrelevant→`hide`, opened link→`click`. Feedback persists and adjusts future search ranking |
 
 ### Hybrid Presentation (Result Richness)
 
@@ -226,6 +228,18 @@ Restart your client, describe your idea in conversation, and the AI will automat
 - **Pre-fetch failures**: tolerated and skipped; the main search flow is never blocked.
 
 `get_wheel_details` shares its cache with `find_wheel`'s pre-fetch, avoiding duplicate fetches. Configure `FINDAWHEEL_USER_LICENSE` to add a `licenseCheck` field to each wheel's details.
+
+### Feedback Weighting (Search Quality)
+
+After showing results, the AI calls `record_feedback` based on the user's reaction. Feedback persists to `~/.findawheel/feedback/`, accumulates across sessions, and adjusts future search ranking:
+
+| Action | Score | Accumulation cap | Meaning |
+|:-----|:-----|:-----|:-----|
+| `like` | +0.2 each | +1.0 (caps at 5) | User praised/selected — boosts future ranking |
+| `click` | +0.05 each | +0.3 (caps at 6) | User opened the link — small boost |
+| `hide` | -0.5 each | no cap | User said irrelevant — demotes future ranking |
+
+The feedback delta is added to `matchScore`, then results are re-sorted and re-graded. The `match` field includes `feedbackDelta` (the adjustment amount — positive means boost, negative means demote). Feedback changes refresh naturally via search cache TTL (1h).
 
 ---
 
@@ -268,10 +282,12 @@ Three batches — see [Phase 3 plan](./docs/superpowers/plans/2026-07-03-phase3.
 - [x] License compatibility hints (normalize case variants + compatibility matrix)
 - [x] Hybrid presentation: top 3 inline details + top 4-10 pre-fetched cache + `get_wheel_details` lazy-load tool
 
-**Batch 3.3 — Search quality**
-- [ ] Local feedback storage (like/hide/click)
-- [ ] Feedback-weighted ranking
-- [ ] ML scoring model (replace heuristic weights)
+**✅ Batch 3.3 — Search quality (Done)**
+- [x] Local feedback storage (`~/.findawheel/feedback/`, like/hide/click, JSON persistence, no TTL)
+- [x] `record_feedback` MCP tool (AI records feedback based on user reaction)
+- [x] Feedback-weighted ranking (like +0.2/click +0.05/hide -0.5, accumulation caps, re-sort + re-grade)
+- [x] `feedbackDelta` field (shows feedback adjustment in results, transparent and auditable)
+- [~] ML scoring model (deferred per YAGNI; will evaluate after real feedback data accumulates)
 
 ---
 

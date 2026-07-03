@@ -28,7 +28,7 @@
 
 ## 🏛️ 整体架构
 
-findawheel 是一个基于 [MCP（Model Context Protocol）](https://modelcontextprotocol.io/) 的 stdio 服务。它对外暴露三个工具 `find_wheel`、`suggest_queries` 和 `get_wheel_details`，内部采用**适配器模式（Adapter Pattern）**组织数据源。
+findawheel 是一个基于 [MCP（Model Context Protocol）](https://modelcontextprotocol.io/) 的 stdio 服务。它对外暴露四个工具 `find_wheel`、`suggest_queries`、`get_wheel_details` 和 `record_feedback`，内部采用**适配器模式（Adapter Pattern）**组织数据源。
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -882,7 +882,7 @@ AI 客户端                              findawheel
 
 ### 工具注册信息
 
-findawheel 注册了三个工具：
+findawheel 注册了四个工具：
 
 **find_wheel**（主工具）：
 
@@ -935,6 +935,23 @@ findawheel 注册了三个工具：
 }
 ```
 
+**record_feedback**（反馈记录工具）：
+
+```json
+{
+  "name": "record_feedback",
+  "description": "Record user feedback on a wheel to improve future search ranking. Actions: like (boost), hide (demote), click (small boost). Persisted to ~/.findawheel/feedback/.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": {"type": "string", "description": "Wheel name in owner/repo format"},
+      "action": {"type": "string", "enum": ["like", "hide", "click"]}
+    },
+    "required": ["name", "action"]
+  }
+}
+```
+
 #### 混合呈现（Hybrid Presentation）
 
 `find_wheel` 返回结果时采用混合呈现策略，由 `enrichTopWheels()` 实现：
@@ -952,6 +969,22 @@ findawheel 注册了三个工具：
 - 详情缓存 key：`sha1("details:" + name)`（`detailsCacheKey()` 导出自 `getWheelDetailsTool`，供 `findWheelTool` 复用）
 
 这样 `get_wheel_details` 能直接命中 `find_wheel` 预抓取写入的缓存，避免重复抓取 README 和 release。
+
+#### 反馈加权（Feedback Weighting）
+
+用户通过 `record_feedback` 记录的反馈持久化到 `~/.findawheel/feedback/`（独立目录，无 TTL），跨会话累积影响搜索排序。流程由 `feedbackStore` + `feedbackWeighter` + `findWheelTool.applyFeedback()` 协作完成：
+
+1. **存储层**（`feedbackStore.ts`）：`recordFeedback(name, action)` 累加计数并写磁盘，`getAllFeedback()` 批量读取
+2. **加权计算**（`feedbackWeighter.ts`）：`applyFeedbackScore(baseScore, feedback)` 按固定分值调整
+3. **集成**（`findWheelTool.ts`）：`runSearch` → `applyFeedback` → `enrichTopWheels` → `cache.set`
+
+| 动作 | 分值 | 累加上限 | 说明 |
+|:-----|:-----|:-----|:-----|
+| `like` | +0.2 | +1.0 | 正向反馈封顶防刷 |
+| `click` | +0.05 | +0.3 | 小幅加分封顶 |
+| `hide` | -0.5 | 无上限 | 强负面信号，扣分不封顶 |
+
+`applyFeedbackToWheels(wheels, feedbackMap)` 批量处理：调整 `matchScore` → 填 `feedbackDelta` → 用 `gradeRecommendation` 重新分级 → 按 adjustedScore 降序重排。缓存存最终结果（含 feedback 调整），反馈变化等 TTL（1h）自然刷新。
 
 ### 关键设计：工具只给数据，不写文案
 
