@@ -42,6 +42,40 @@ function descriptionMatchBonus(wheel: Wheel, queryKeywords: string[]): number {
   return Math.min(hitCount / Math.max(queryKeywords.length, 1), 1) * 0.15;
 }
 
+/**
+ * 反向意图过滤:检查结果是否是用户想要的"反向动作"。
+ * 例:用户搜 watermark(想加水印),但结果是 "remove watermark" / "watermark remover"。
+ *
+ * 判定规则:antonymExcludes 里的词 + query 核心动作词 同时出现在 description 里 → 剔除。
+ * 如 query 含 "watermark",antonymExcludes 含 "remove",
+ * 结果描述含 "remove watermark" 或 "watermark remover" → 剔除。
+ *
+ * @param antonymExcludes 反义词列表(来自 queryParser)
+ * @param queryKeywords query 关键词(用于检测反向动作是否针对同一对象)
+ */
+export function isReverseIntent(
+  wheel: Wheel,
+  antonymExcludes: string[],
+  queryKeywords: string[] = [],
+): boolean {
+  if (antonymExcludes.length === 0 || !wheel.description) return false;
+  const descLower = wheel.description.toLowerCase();
+  // 描述里必须同时出现"反向动词"和"动作对象"才判定为反向意图
+  // 例:"remove watermark" 同时含 remove 和 watermark → 反向
+  //     "remove files" 含 remove 但不含 watermark → 不是针对 watermark 的反向,保留
+  const hasAntonym = antonymExcludes.some(w => descLower.includes(w));
+  if (!hasAntonym) return false;
+  // 检查描述是否同时包含 query 的核心动作词(说明反向动作是针对同一对象)
+  const actionWords = queryKeywords.filter(kw =>
+    ANTONYM_ACTION_WORDS.has(kw.toLowerCase())
+  );
+  if (actionWords.length === 0) return false;
+  return actionWords.some(w => descLower.includes(w.toLowerCase()));
+}
+
+// 触发反义词检测的动作词(与 queryParser 的 ANTONYMS 表对应)
+const ANTONYM_ACTION_WORDS = new Set(['watermark', 'encrypt']);
+
 function normalize(v: number | undefined, max: number): number {
   if (v === undefined || v <= 0) return 0;
   return Math.min(v / max, 1);
@@ -101,8 +135,16 @@ export function dedupe(wheels: Wheel[]): Wheel[] {
   return [...map.values()];
 }
 
-export function rank(wheels: Wheel[], intent: Intent, limit: number, queryKeywords: string[] = []): Wheel[] {
-  const filtered = wheels.filter(w => !filterOut(w));
+export function rank(
+  wheels: Wheel[],
+  intent: Intent,
+  limit: number,
+  queryKeywords: string[] = [],
+  antonymExcludes: string[] = [],
+): Wheel[] {
+  const filtered = wheels.filter(w =>
+    !filterOut(w) && !isReverseIntent(w, antonymExcludes, queryKeywords)
+  );
   const deduped = dedupe(filtered);
   const scored = deduped
     .map(w => ({ w, s: score(w, intent, queryKeywords) }))

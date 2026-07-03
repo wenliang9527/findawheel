@@ -86,8 +86,9 @@ export class RegistrySourceAdapter implements SourceAdapter {
     const eco = opts.ecosystem;
     // PyPI has no search API — skip, GitHub adapter covers Python via mirror repos
     if (eco === 'python') return [];
-    // 翻译中文关键词,中英合并搜索扩大覆盖
-    const expandedQuery = translateQuery(query);
+    // npm/crates 不支持 NOT/引号语法,用展开后的 query(含中文翻译)
+    // 反义词过滤交给 Ranker 后处理
+    const expandedQuery = opts.parsedQuery?.expandedQuery ?? translateQuery(query);
     const tasks: Promise<RawResult[]>[] = [];
     if (!eco || eco === 'js' || eco === 'ts') {
       tasks.push(searchNpm(expandedQuery, opts.timeoutMs).then(r => r as RawResult[]));

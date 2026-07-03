@@ -1,11 +1,12 @@
 // tests/sources/githubSourceAdapter.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GitHubSourceAdapter, buildGithubQuery, isAggregateRepo } from '../../src/sources/githubSourceAdapter.js';
+import { parseQuery } from '../../src/classifier/queryParser.js';
 
 describe('buildGithubQuery', () => {
   it('project intent searches name+description', () => {
     const q = buildGithubQuery('markdown editor', 'project', undefined);
-    expect(q).toContain('markdown editor in:name,description');
+    expect(q).toContain('in:name,description');
     expect(q).toContain('sort:stars');
   });
 
@@ -29,6 +30,21 @@ describe('buildGithubQuery', () => {
     expect(q).toContain('图片水印');
     expect(q).toContain('image');
     expect(q).toContain('watermark');
+  });
+
+  it('wraps core phrase in quotes when parsedQuery provided', () => {
+    const parsed = parseQuery('invisible image watermark encryption');
+    const q = buildGithubQuery('invisible image watermark encryption', 'feature', undefined, parsed);
+    // core phrase "invisible watermark" 应该被引号包裹
+    expect(q).toContain('"invisible watermark"');
+  });
+
+  it('adds NOT clauses for antonyms when parsedQuery provided', () => {
+    const parsed = parseQuery('invisible image watermark');
+    const q = buildGithubQuery('invisible image watermark', 'feature', undefined, parsed);
+    // 反义词 remove/clean/strip 应该被 NOT 排除
+    expect(q).toContain('NOT remove in:description');
+    expect(q).toContain('NOT clean in:description');
   });
 });
 

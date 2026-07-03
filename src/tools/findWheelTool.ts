@@ -5,6 +5,7 @@ import type {
 } from '../normalize/types.js';
 import { classify } from '../classifier/queryClassifier.js';
 import { extractKeywords } from '../classifier/queryTranslator.js';
+import { parseQuery } from '../classifier/queryParser.js';
 import { normalize } from '../normalize/normalizer.js';
 import { enrich } from '../enrich/metricsEnricher.js';
 import { rank } from '../rank/ranker.js';
@@ -33,9 +34,12 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     const intent: Intent = classify(input.query, input.intent);
     const limit = input.limit ?? env.limit;
     const timeoutMs = env.timeoutMs;
+    // 解析 query:拆分核心短语/修饰词/反义词,让数据源做更精准的搜索
+    const parsedQuery = parseQuery(input.query);
 
     const searchOpts = {
       intent, ecosystem: input.ecosystem, timeoutMs, githubToken: env.githubToken,
+      parsedQuery,
     };
 
     const settled = await Promise.allSettled(
@@ -69,7 +73,8 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     const wheels: Wheel[] = allRaw.map(normalize).map(enrich);
     // 提取 query 关键词(含中文翻译后的英文),用于排序时描述匹配加分
     const queryKeywords = extractKeywords(input.query);
-    const ranked = rank(wheels, intent, limit, queryKeywords);
+    // 反义词排除列表,传给 Ranker 过滤反向意图的结果
+    const ranked = rank(wheels, intent, limit, queryKeywords, parsedQuery.antonymExcludes);
     const output: FindWheelOutput = {
       query: input.query,
       intent,

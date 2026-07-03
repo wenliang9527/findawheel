@@ -1,6 +1,6 @@
 // tests/rank/ranker.test.ts
 import { describe, it, expect } from 'vitest';
-import { rank, filterOut, score, dedupe } from '../../src/rank/ranker.js';
+import { rank, filterOut, score, dedupe, isReverseIntent } from '../../src/rank/ranker.js';
 import type { Wheel } from '../../src/normalize/types.js';
 
 function makeWheel(over: Partial<Wheel> = {}): Wheel {
@@ -56,6 +56,30 @@ describe('score', () => {
     const sNo = score(noMatch, 'project', ['image', 'watermark']);
     const sYes = score(match, 'project', ['image', 'watermark']);
     expect(sYes).toBeGreaterThan(sNo);
+  });
+});
+
+describe('isReverseIntent', () => {
+  const antonyms = ['remove', 'clean', 'strip'];
+  it('flags "remove watermark" result when user wants watermark', () => {
+    const w = makeWheel({ description: 'Remove invisible watermarks from images' });
+    expect(isReverseIntent(w, antonyms, ['watermark', 'image'])).toBe(true);
+  });
+  it('flags "watermark remover" result', () => {
+    const w = makeWheel({ description: 'A watermark remover tool' });
+    expect(isReverseIntent(w, antonyms, ['watermark'])).toBe(true);
+  });
+  it('does not flag result that just contains "remove" without watermark', () => {
+    const w = makeWheel({ description: 'Remove duplicate entries from arrays' });
+    expect(isReverseIntent(w, antonyms, ['watermark'])).toBe(false);
+  });
+  it('does not flag when antonymExcludes is empty', () => {
+    const w = makeWheel({ description: 'Remove watermarks' });
+    expect(isReverseIntent(w, [], ['watermark'])).toBe(false);
+  });
+  it('does not flag when query has no action word', () => {
+    const w = makeWheel({ description: 'Remove files quickly' });
+    expect(isReverseIntent(w, antonyms, ['files'])).toBe(false);
   });
 });
 
