@@ -56,6 +56,22 @@ export interface FindWheelOutput {
   intent: Intent;
   total: number;
   wheels: Wheel[];
+  /**
+   * 结构化概览:按推荐等级分组列出所有结果名。
+   * 目的:让调用方 AI 看到明确的列表结构,倾向于列全所有结果而非只挑 1 个。
+   */
+  summary: {
+    /** 给 AI 的展示指引 */
+    instruction: string;
+    /** 按推荐等级分组的结果名列表 */
+    groups: Array<{
+      level: Recommendation;
+      /** 该等级的中文名 */
+      label: string;
+      /** 该等级的结果名列表 */
+      items: string[];
+    }>;
+  };
   degradedSources?: string[];
 }
 

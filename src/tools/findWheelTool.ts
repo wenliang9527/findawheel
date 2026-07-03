@@ -98,15 +98,54 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     // 给每个结果填充推荐信息(matchScore + recommendation 等级 + reason 理由)
     // 让调用方 AI 看到结构化的推荐等级,倾向于列出多个结果让用户选择
     const rankedWithMatch = enrichWithMatch(ranked, queryKeywords);
+    // 生成结构化 summary:按推荐等级分组,明确告诉 AI 要列全所有结果
+    const summary = buildSummary(rankedWithMatch);
     const output: FindWheelOutput = {
       query: input.query,
       intent,
       total: allRaw.length,
       wheels: rankedWithMatch,
+      summary,
       ...(degraded.length > 0 ? { degradedSources: degraded } : {}),
     };
     return { content: [{ type: 'text', text: JSON.stringify(output) }] };
   }
 
   return { handle };
+}
+
+/** 推荐等级的中文标签 + 排序顺序 */
+const REC_LABELS: Record<string, string> = {
+  highly_recommended: '强烈推荐',
+  recommended: '推荐',
+  optional: '可选',
+  not_recommended: '不推荐',
+};
+const REC_ORDER = ['highly_recommended', 'recommended', 'optional', 'not_recommended'];
+
+/**
+ * 生成结构化 summary:按推荐等级分组,明确列出所有结果名。
+ * 目的:让 AI 看到明确的列表结构,倾向于列全所有结果而非只挑 1 个。
+ */
+function buildSummary(wheels: Wheel[]): FindWheelOutput['summary'] {
+  // 按推荐等级分组
+  const byLevel = new Map<string, string[]>();
+  for (const w of wheels) {
+    const level = w.match?.recommendation ?? 'optional';
+    if (!byLevel.has(level)) byLevel.set(level, []);
+    byLevel.get(level)!.push(w.name);
+  }
+  // 按固定顺序输出(强烈推荐 → 推荐 → 可选 → 不推荐)
+  const groups = REC_ORDER
+    .filter(level => byLevel.has(level) && byLevel.get(level)!.length > 0)
+    .map(level => ({
+      level: level as FindWheelOutput['summary']['groups'][0]['level'],
+      label: REC_LABELS[level],
+      items: byLevel.get(level)!,
+    }));
+  const totalCount = wheels.length;
+  return {
+    instruction: `共找到 ${totalCount} 个结果。请将所有结果按以下分组列给用户,不要只展示 1 个。每组展示项目名 + 推荐理由 + stars,让用户对比选择。`,
+    groups,
+  };
 }
