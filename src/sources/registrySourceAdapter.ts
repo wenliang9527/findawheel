@@ -97,7 +97,7 @@ export class RegistrySourceAdapter implements SourceAdapter {
     const errors: SourceError[] = [];
     for (const r of settled) {
       if (r.status === 'fulfilled') ok.push(...r.value);
-      else if (r.value instanceof SourceError) errors.push(r.value);
+      else if (r.reason instanceof SourceError) errors.push(r.reason);
       else errors.push(new SourceError('registry', String(r.reason)));
     }
     // Re-throw only if ALL sub-sources failed AND there were tasks
