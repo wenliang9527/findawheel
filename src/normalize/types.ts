@@ -1,5 +1,5 @@
 // src/normalize/types.ts
-export type WheelSource = 'github' | 'npm' | 'pypi' | 'crates' | 'web';
+export type WheelSource = 'github' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'web';
 export type WheelType = 'project' | 'package' | 'api' | 'cli' | 'sdk';
 export type Activity = 'high' | 'medium' | 'low';
 
@@ -114,4 +114,29 @@ export interface CratesRawResult {
   license: string | null;
 }
 
-export type RawResult = GitHubRawResult | NpmRawResult | CratesRawResult;
+export interface GiteeRawResult {
+  source: 'gitee';
+  name: string;
+  url: string;
+  description: string;
+  stars: number;
+  language: string | null;
+  license: string | null;
+  updatedAt: string;
+  /** Gitee 项目的人类可读名(可能和 path 不同,如 "vue-element-admin") */
+  humanName?: string;
+}
+
+/** Web 搜索结果(Tavily 等),网页/教程/工具站 */
+export interface WebRawResult {
+  source: 'web';
+  /** 网页标题 */
+  name: string;
+  url: string;
+  /** 网页内容摘要(Tavily 返回的 content) */
+  description: string;
+  /** Tavily 返回的相关度分数 0~1 */
+  score?: number;
+}
+
+export type RawResult = GitHubRawResult | NpmRawResult | CratesRawResult | GiteeRawResult | WebRawResult;

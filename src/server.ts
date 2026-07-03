@@ -10,7 +10,9 @@ import { z } from 'zod';
 import { createFindWheelTool } from './tools/findWheelTool.js';
 import { createSuggestQueriesTool } from './tools/suggestQueriesTool.js';
 import { GitHubSourceAdapter } from './sources/githubSourceAdapter.js';
+import { GiteeSourceAdapter } from './sources/giteeSourceAdapter.js';
 import { RegistrySourceAdapter } from './sources/registrySourceAdapter.js';
+import { WebSourceAdapter } from './sources/webSourceAdapter.js';
 
 const FindWheelSchema = z.object({
   query: z.string(),
@@ -26,7 +28,12 @@ const SuggestQueriesSchema = z.object({
 
 export function createServer() {
   const findWheelTool = createFindWheelTool({
-    adapters: [new GitHubSourceAdapter(), new RegistrySourceAdapter()],
+    adapters: [
+      new GitHubSourceAdapter(),
+      new GiteeSourceAdapter(),
+      new RegistrySourceAdapter(),
+      new WebSourceAdapter(),
+    ],
   });
   const suggestQueriesTool = createSuggestQueriesTool();
 

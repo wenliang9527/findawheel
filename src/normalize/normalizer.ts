@@ -53,5 +53,27 @@ export function normalize(raw: RawResult): Wheel {
           license: raw.license ?? undefined,
         },
       };
+    case 'gitee':
+      return {
+        name: raw.name,
+        source: 'gitee',
+        url: raw.url,
+        description: raw.description,
+        type: 'project',
+        metrics: {
+          stars: raw.stars,
+          lastUpdated: raw.updatedAt,
+          license: raw.license ?? undefined,
+        },
+      };
+    case 'web':
+      return {
+        name: raw.name,
+        source: 'web',
+        url: raw.url,
+        description: raw.description,
+        type: 'project', // 网页结果默认归类为 project(可能是工具站/教程/博客)
+        metrics: {},
+      };
   }
 }

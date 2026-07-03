@@ -1,5 +1,7 @@
 export interface EnvConfig {
   githubToken?: string;
+  /** Tavily API key(用于 Web 搜索源),可选 */
+  tavilyApiKey?: string;
   limit: number;
   timeoutMs: number;
   logLevel: 'error' | 'warn' | 'info' | 'debug';
@@ -16,6 +18,7 @@ export function readEnv(): EnvConfig {
   const validLevels = ['error', 'warn', 'info', 'debug'] as const;
   return {
     githubToken: process.env.GITHUB_TOKEN || undefined,
+    tavilyApiKey: process.env.TAVILY_API_KEY || undefined,
     limit: parseInt(process.env.FINDAWHEEL_LIMIT, 20),
     timeoutMs: parseInt(process.env.FINDAWHEEL_TIMEOUT_MS, 8000),
     logLevel: level && (validLevels as readonly string[]).includes(level)

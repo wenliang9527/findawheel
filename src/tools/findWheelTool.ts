@@ -39,12 +39,16 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     const parsedQuery = parseQuery(input.query);
 
     const searchOpts = {
-      intent, ecosystem: input.ecosystem, timeoutMs, githubToken: env.githubToken,
+      intent, ecosystem: input.ecosystem, timeoutMs,
+      githubToken: env.githubToken,
+      tavilyApiKey: env.tavilyApiKey,
       parsedQuery,
     };
     // 副搜索:用 fuzzyQuery(同义词泛化)扩大召回,不传 parsedQuery(让 adapter 走兜底)
     const fuzzyOpts = {
-      intent, ecosystem: input.ecosystem, timeoutMs, githubToken: env.githubToken,
+      intent, ecosystem: input.ecosystem, timeoutMs,
+      githubToken: env.githubToken,
+      tavilyApiKey: env.tavilyApiKey,
     };
 
     // 主搜索 + 副搜索并行,结果合并去重(由 rank() 的 dedupe 处理)
