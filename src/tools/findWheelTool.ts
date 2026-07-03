@@ -100,6 +100,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     const searchOpts = {
       intent, ecosystem: input.ecosystem, timeoutMs,
       githubToken: env.githubToken,
+      gitlabToken: env.gitlabToken,
       exaApiKey: env.exaApiKey,
       tavilyApiKey: env.tavilyApiKey,
       parsedQuery,
@@ -108,6 +109,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     const fuzzyOpts = {
       intent, ecosystem: input.ecosystem, timeoutMs,
       githubToken: env.githubToken,
+      gitlabToken: env.gitlabToken,
       exaApiKey: env.exaApiKey,
       tavilyApiKey: env.tavilyApiKey,
     };

@@ -66,6 +66,21 @@ export function normalize(raw: RawResult): Wheel {
           license: raw.license ?? undefined,
         },
       };
+    case 'gitlab': {
+      const type = inferTypeFromTopics(raw.topics) ?? 'project';
+      return {
+        name: raw.name,
+        source: 'gitlab',
+        url: raw.url,
+        description: raw.description,
+        type,
+        metrics: {
+          stars: raw.stars,
+          lastUpdated: raw.lastActivityAt,
+          archived: raw.archived,
+        },
+      };
+    }
     case 'web':
       return {
         name: raw.name,

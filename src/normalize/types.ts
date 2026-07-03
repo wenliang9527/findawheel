@@ -1,5 +1,5 @@
 // src/normalize/types.ts
-export type WheelSource = 'github' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'web';
+export type WheelSource = 'github' | 'gitlab' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'web';
 export type WheelType = 'project' | 'package' | 'api' | 'cli' | 'sdk';
 export type Activity = 'high' | 'medium' | 'low';
 
@@ -129,6 +129,19 @@ export interface GiteeRawResult {
   humanName?: string;
 }
 
+/** GitLab 项目原始结果(GitLab /api/v4/projects 搜索) */
+export interface GitlabRawResult {
+  source: 'gitlab';
+  name: string;
+  url: string;
+  description: string;
+  stars: number;
+  /** 最近活动时间(对应 GitHub pushedAt) */
+  lastActivityAt: string;
+  topics: string[];
+  archived: boolean;
+}
+
 /** Web 搜索结果(Tavily 等),网页/教程/工具站 */
 export interface WebRawResult {
   source: 'web';
@@ -141,4 +154,4 @@ export interface WebRawResult {
   score?: number;
 }
 
-export type RawResult = GitHubRawResult | NpmRawResult | CratesRawResult | GiteeRawResult | WebRawResult;
+export type RawResult = GitHubRawResult | NpmRawResult | CratesRawResult | GiteeRawResult | GitlabRawResult | WebRawResult;

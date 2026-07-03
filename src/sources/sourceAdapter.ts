@@ -12,6 +12,8 @@ export interface SearchOpts {
   ecosystem?: string;
   timeoutMs: number;
   githubToken?: string;
+  /** GitLab token(可选,提升限流额度) */
+  gitlabToken?: string;
   /** Exa API key(Web 搜索主源),可选 */
   exaApiKey?: string;
   /** Tavily API key(Web 搜索兜底源),可选 */
