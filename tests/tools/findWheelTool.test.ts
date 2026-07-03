@@ -29,14 +29,15 @@ describe('findWheelTool.handle', () => {
   });
 
   it('aggregates results from multiple adapters', async () => {
+    // description 包含 query 核心词,否则会被 isMissingCoreConcept 过滤(真实相关结果一定会在描述里提到核心词)
     const gh: RawResult = {
-      source: 'github', name: 'a/b', url: 'https://github.com/a/b', description: 'd',
+      source: 'github', name: 'a/b', url: 'https://github.com/a/b', description: 'A markdown editor',
       stars: 100, language: null, license: 'MIT', archived: false,
       pushedAt: '2025-06-01T00:00:00Z', topics: [],
     };
     const npm: RawResult = {
       source: 'npm', name: 'pkg', url: 'https://www.npmjs.com/package/pkg',
-      description: 'd', version: '1.0', keywords: [], date: '2025-06-01T00:00:00Z',
+      description: 'markdown editor library', version: '1.0', keywords: [], date: '2025-06-01T00:00:00Z',
     };
     const tool = createFindWheelTool({
       adapters: [mockAdapter('github', [gh]), mockAdapter('npm', [npm])],

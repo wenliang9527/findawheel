@@ -43,6 +43,28 @@ function descriptionMatchBonus(wheel: Wheel, queryKeywords: string[]): number {
 }
 
 /**
+ * 核心词必命中过滤:结果的 description 或 name 必须包含至少一个核心动作词。
+ *
+ * 场景:用户搜 "invisible image watermark encryption resistant cropping",
+ * 核心动作词是 watermark/encrypt,但裁剪工具 react-image-crop 的 description
+ * 里既没 watermark 也没 encrypt —— 这类结果应该被剔除。
+ *
+ * 注意:仅当核心词存在时才过滤;无核心词(如纯项目级 query)时跳过本规则。
+ *
+ * @param coreWords query 的核心词(动作词优先),来自 queryParser
+ */
+export function isMissingCoreConcept(
+  wheel: Wheel,
+  coreWords: string[] = [],
+): boolean {
+  if (coreWords.length === 0) return false;
+  // 包名/仓库名也算"描述"的一部分,避免描述简短但包名精准的工具被误杀
+  const text = `${wheel.name} ${wheel.description}`.toLowerCase();
+  // 核心词至少命中一个,否则剔除
+  return !coreWords.some(w => text.includes(w.toLowerCase()));
+}
+
+/**
  * 反向意图过滤:检查结果是否是用户想要的"反向动作"。
  * 例:用户搜 watermark(想加水印),但结果是 "remove watermark" / "watermark remover"。
  *
@@ -141,9 +163,12 @@ export function rank(
   limit: number,
   queryKeywords: string[] = [],
   antonymExcludes: string[] = [],
+  coreWords: string[] = [],
 ): Wheel[] {
   const filtered = wheels.filter(w =>
-    !filterOut(w) && !isReverseIntent(w, antonymExcludes, queryKeywords)
+    !filterOut(w)
+    && !isReverseIntent(w, antonymExcludes, queryKeywords)
+    && !isMissingCoreConcept(w, coreWords)
   );
   const deduped = dedupe(filtered);
   const scored = deduped

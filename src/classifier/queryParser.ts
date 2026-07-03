@@ -8,6 +8,8 @@ import { translateQuery } from './queryTranslator.js';
 export interface ParsedQuery {
   /** 核心短语(前 2-3 个实义词),用于引号包裹强制命中 */
   corePhrase: string;
+  /** 核心短语拆成单词列表,用于 Ranker 核心词必命中过滤 */
+  coreWords: string[];
   /** 修饰词(剩余的实义词),作为可选命中加分 */
   modifiers: string[];
   /** 反义词排除列表,传给搜索源 NOT 语法 + Ranker 后过滤 */
@@ -74,5 +76,5 @@ export function parseQuery(query: string): ParsedQuery {
     }
   }
 
-  return { corePhrase, modifiers: modifierWords, antonymExcludes, expandedQuery };
+  return { corePhrase, coreWords: coreWords, modifiers: modifierWords, antonymExcludes, expandedQuery };
 }

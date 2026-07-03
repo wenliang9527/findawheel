@@ -73,8 +73,11 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     const wheels: Wheel[] = allRaw.map(normalize).map(enrich);
     // 提取 query 关键词(含中文翻译后的英文),用于排序时描述匹配加分
     const queryKeywords = extractKeywords(input.query);
-    // 反义词排除列表,传给 Ranker 过滤反向意图的结果
-    const ranked = rank(wheels, intent, limit, queryKeywords, parsedQuery.antonymExcludes);
+    // 反义词排除列表传给 Ranker 过滤反向意图;核心词用于必命中过滤
+    const ranked = rank(
+      wheels, intent, limit, queryKeywords,
+      parsedQuery.antonymExcludes, parsedQuery.coreWords,
+    );
     const output: FindWheelOutput = {
       query: input.query,
       intent,

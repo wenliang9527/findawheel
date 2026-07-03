@@ -8,6 +8,21 @@ describe('parseQuery', () => {
     // stopword 'image' filtered, core = 'invisible watermark'
     expect(r.corePhrase).toBe('invisible watermark');
     expect(r.modifiers).toContain('encryption');
+    // coreWords 与 corePhrase 拆词一致
+    expect(r.coreWords).toEqual(['invisible', 'watermark']);
+  });
+
+  it('coreWords is empty array when query has no content words', () => {
+    // 全是停用词的 query,coreWords 为空(不应触发核心词过滤)
+    const r = parseQuery('a tool for library');
+    expect(r.coreWords).toEqual([]);
+    expect(r.corePhrase).toBe('');
+  });
+
+  it('coreWords has single element when only one content word', () => {
+    const r = parseQuery('markdown');
+    expect(r.coreWords).toEqual(['markdown']);
+    expect(r.corePhrase).toBe('markdown');
   });
 
   it('translates Chinese keywords in expandedQuery', () => {
