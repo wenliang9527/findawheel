@@ -142,6 +142,15 @@ export interface GitlabRawResult {
   archived: boolean;
 }
 
+/** PyPI 包原始结果(HTML 解析 pypi.org/search) */
+export interface PypiRawResult {
+  source: 'pypi';
+  name: string;
+  url: string;
+  description: string;
+  version: string;
+}
+
 /** Web 搜索结果(Tavily 等),网页/教程/工具站 */
 export interface WebRawResult {
   source: 'web';
@@ -154,4 +163,4 @@ export interface WebRawResult {
   score?: number;
 }
 
-export type RawResult = GitHubRawResult | NpmRawResult | CratesRawResult | GiteeRawResult | GitlabRawResult | WebRawResult;
+export type RawResult = GitHubRawResult | NpmRawResult | CratesRawResult | GiteeRawResult | GitlabRawResult | PypiRawResult | WebRawResult;

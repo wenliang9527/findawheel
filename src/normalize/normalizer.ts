@@ -81,6 +81,15 @@ export function normalize(raw: RawResult): Wheel {
         },
       };
     }
+    case 'pypi':
+      return {
+        name: raw.name,
+        source: 'pypi',
+        url: raw.url,
+        description: raw.description,
+        type: 'package',
+        metrics: {},
+      };
     case 'web':
       return {
         name: raw.name,

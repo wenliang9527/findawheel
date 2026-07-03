@@ -90,4 +90,14 @@ describe('httpGet', () => {
       .rejects.toThrow('fetch failed');
     expect(fetchMock).toHaveBeenCalledOnce();
   });
+
+  it('returns raw text when text option is true (HTML mode)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 200, headers: new Headers({ 'content-type': 'text/html' }),
+      text: async () => '<html><body>raw</body></html>',
+    } as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+    const data = await httpGet<string>('https://example.com', { timeoutMs: 1000, text: true });
+    expect(data).toBe('<html><body>raw</body></html>');
+  });
 });

@@ -19,6 +19,8 @@ export interface HttpGetOptions {
   extraHeaders?: Record<string, string>;
   /** 重试配置,不传则不重试 */
   retry?: RetryOpts;
+  /** 返回 text 而非 JSON(用于 HTML 解析场景,如 PyPI) */
+  text?: boolean;
 }
 
 export async function httpGet<T>(url: string, opts: HttpGetOptions): Promise<T> {
@@ -41,6 +43,8 @@ export async function httpGet<T>(url: string, opts: HttpGetOptions): Promise<T> 
         if (err.retryable) throw new RetryableError(err.message);
         throw err;
       }
+      // text 模式:返回原始文本(用于 HTML 解析);否则解析 JSON
+      if (opts.text) return (await res.text()) as T;
       return (await res.json()) as T;
     } catch (err) {
       // 网络错误/abort 也包装成可重试
