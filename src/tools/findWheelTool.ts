@@ -41,27 +41,43 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       intent, ecosystem: input.ecosystem, timeoutMs, githubToken: env.githubToken,
       parsedQuery,
     };
+    // 副搜索:用 fuzzyQuery(同义词泛化)扩大召回,不传 parsedQuery(让 adapter 走兜底)
+    const fuzzyOpts = {
+      intent, ecosystem: input.ecosystem, timeoutMs, githubToken: env.githubToken,
+    };
 
-    const settled = await Promise.allSettled(
-      opts.adapters.map(a => a.search(input.query, searchOpts)),
-    );
+    // 主搜索 + 副搜索并行,结果合并去重(由 rank() 的 dedupe 处理)
+    const [mainSettled, fuzzySettled] = await Promise.all([
+      Promise.allSettled(opts.adapters.map(a => a.search(input.query, searchOpts))),
+      Promise.allSettled(opts.adapters.map(a => a.search(parsedQuery.fuzzyQuery, fuzzyOpts))),
+    ]);
 
     const allRaw: RawResult[] = [];
     const degraded: string[] = [];
     let allFailed = true;
-    for (let i = 0; i < settled.length; i++) {
-      const r = settled[i];
+    // 收集主搜索结果
+    for (let i = 0; i < mainSettled.length; i++) {
+      const r = mainSettled[i];
       const name = opts.adapters[i].name;
       if (r.status === 'fulfilled') {
         allRaw.push(...r.value);
         if (r.value.length > 0) allFailed = false;
       } else {
-        degraded.push(name);
-        // allFailed stays true unless another source returned data
+        // 主搜索失败才记为 degraded(副搜索失败不算,因为副搜索是补充)
+        if (!fuzzySettled[i] || fuzzySettled[i].status !== 'fulfilled') {
+          degraded.push(name);
+        }
+      }
+    }
+    // 收集副搜索结果(追加到 allRaw,后续 dedupe 会按 name 去重)
+    for (const r of fuzzySettled) {
+      if (r.status === 'fulfilled') {
+        allRaw.push(...r.value);
+        allFailed = false;
       }
     }
     // If any source succeeded (even with 0 results), it's not all-failed
-    if (settled.some(r => r.status === 'fulfilled')) allFailed = false;
+    if (mainSettled.some(r => r.status === 'fulfilled')) allFailed = false;
 
     if (allFailed) {
       return {

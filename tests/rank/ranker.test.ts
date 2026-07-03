@@ -57,6 +57,29 @@ describe('score', () => {
     const sYes = score(match, 'project', ['image', 'watermark']);
     expect(sYes).toBeGreaterThan(sNo);
   });
+  it('higher query coverage scores higher', () => {
+    // 全词覆盖率高的项目应排在覆盖率低的前面
+    const lowCoverage = makeWheel({ description: 'A watermark library', metrics: { stars: 1000 } });
+    const highCoverage = makeWheel({ description: 'Add invisible watermark to images with encryption', metrics: { stars: 1000 } });
+    const sLow = score(lowCoverage, 'project', ['invisible', 'watermark', 'encryption', 'image']);
+    const sHigh = score(highCoverage, 'project', ['invisible', 'watermark', 'encryption', 'image']);
+    expect(sHigh).toBeGreaterThan(sLow);
+  });
+  it('zero-hit high-star project is penalized', () => {
+    // voicebox 场景:高 star 但零命中,应被降权,排不过低 star 但命中的项目
+    const zeroHitHighStar = makeWheel({
+      name: 'voicebox', description: 'The open-source AI voice studio',
+      metrics: { stars: 37000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const hitLowStar = makeWheel({
+      name: 'ai-monitor', description: 'Monitor AI coding assistant status',
+      metrics: { stars: 100, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const keywords = ['ai', 'coding', 'monitor', 'status', 'tracking'];
+    const sZero = score(zeroHitHighStar, 'feature', keywords);
+    const sHit = score(hitLowStar, 'feature', keywords);
+    expect(sHit).toBeGreaterThan(sZero);
+  });
 });
 
 describe('isReverseIntent', () => {

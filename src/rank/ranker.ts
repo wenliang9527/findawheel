@@ -43,6 +43,28 @@ function descriptionMatchBonus(wheel: Wheel, queryKeywords: string[]): number {
 }
 
 /**
+ * 计算 query 全词覆盖率:description/name 命中 query 所有实义词的比例。
+ * 用于排序:覆盖率越高,项目越可能是真正相关的。
+ * voicebox/crawl4ai 这种覆盖率=0 的项目,即使 star 再高也不该排前面。
+ */
+function queryCoverage(wheel: Wheel, queryKeywords: string[]): number {
+  if (queryKeywords.length === 0) return 0;
+  const text = `${wheel.name} ${wheel.description}`.toLowerCase();
+  const hitCount = queryKeywords.filter(kw => text.includes(kw.toLowerCase())).length;
+  return hitCount / queryKeywords.length;
+}
+
+/**
+ * 判断是否"零命中":description/name 一个 query 关键词都不含。
+ * 用于高 star 降权:零命中的高 star 项目(如 voicebox)不应霸榜。
+ */
+function isZeroHit(wheel: Wheel, queryKeywords: string[]): boolean {
+  if (queryKeywords.length === 0) return false;
+  const text = `${wheel.name} ${wheel.description}`.toLowerCase();
+  return !queryKeywords.some(kw => text.includes(kw.toLowerCase()));
+}
+
+/**
  * 核心词必命中过滤:结果的 description 或 name 必须包含至少一个核心动作词。
  *
  * 场景:用户搜 "invisible image watermark encryption resistant cropping",
@@ -145,11 +167,21 @@ export function score(wheel: Wheel, intent: Intent, queryKeywords: string[] = []
   const license = m.license ? 0.1 : 0;
   // 描述匹配加分:描述命中 query 核心词的项目更可能是真正相关的轮子
   const descBonus = descriptionMatchBonus(wheel, queryKeywords);
+  // 全词覆盖率打分:description 命中 query 所有实义词的比例(0~0.2)
+  // 覆盖率高的项目更可能真正相关,voicebox/crawl4ai 覆盖率=0 自然排后面
+  const coverage = queryCoverage(wheel, queryKeywords) * 0.2;
+
+  // 高 star 零命中降权:如果一个 query 关键词都不命中,stars 权重砍半
+  // 场景:voicebox(⭐37k)搜 "AI coding monitor" 时零命中,不应靠 star 霸榜
+  if (isZeroHit(wheel, queryKeywords)) {
+    stars *= 0.3;
+  }
+
   if (intent === 'feature') {
     stars *= 0.7;
     downloads *= 1.5;
   }
-  return stars + recency + activity + downloads + license + descBonus;
+  return stars + recency + activity + downloads + license + descBonus + coverage;
 }
 
 export function dedupe(wheels: Wheel[]): Wheel[] {

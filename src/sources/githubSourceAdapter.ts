@@ -98,7 +98,7 @@ export class GitHubSourceAdapter implements SourceAdapter {
     url.searchParams.set('q', q);
     url.searchParams.set('sort', 'stars');
     url.searchParams.set('order', 'desc');
-    url.searchParams.set('per_page', '20');
+    url.searchParams.set('per_page', '50');
 
     try {
       const data = await httpGet<GitHubSearchResponse>(url.toString(), {

@@ -5,11 +5,31 @@ import { parseQuery } from '../../src/classifier/queryParser.js';
 describe('parseQuery', () => {
   it('extracts core phrase from first 2 content words', () => {
     const r = parseQuery('invisible image watermark encryption');
-    // stopword 'image' filtered, core = 'invisible watermark'
+    // corePhrase 用前 2 个实义词(image 是停用词被过滤)
     expect(r.corePhrase).toBe('invisible watermark');
     expect(r.modifiers).toContain('encryption');
-    // coreWords 与 corePhrase 拆词一致
-    expect(r.coreWords).toEqual(['invisible', 'watermark']);
+    // coreWords 动词优先:watermark 是动作动词,排在前面
+    expect(r.coreWords).toEqual(['watermark', 'invisible']);
+  });
+
+  it('coreWords prioritizes action verbs (monitor over coding)', () => {
+    // 用户搜 "AI coding assistant monitor status tracking"
+    // 动词 monitor/status/tracking 应被选为 coreWords,而非 coding/assistant
+    const r = parseQuery('AI coding assistant monitor status tracking');
+    expect(r.coreWords).toContain('monitor');
+    // coding/assistant 不应在 coreWords 里(它们不是动词)
+    expect(r.coreWords).not.toContain('coding');
+    expect(r.coreWords).not.toContain('assistant');
+    // coreWords 应该都是动词
+    expect(r.coreWords.every(w => ['monitor', 'status', 'tracking'].includes(w))).toBe(true);
+  });
+
+  it('generates fuzzyQuery with synonyms', () => {
+    const r = parseQuery('AI coding assistant monitor');
+    // fuzzyQuery 应该用同义词替换:monitor→observer, coding→development, assistant→agent
+    expect(r.fuzzyQuery).toContain('observer');
+    expect(r.fuzzyQuery).toContain('development');
+    expect(r.fuzzyQuery).toContain('agent');
   });
 
   it('extracts format words from query', () => {
