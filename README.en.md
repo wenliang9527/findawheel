@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-1.29-orange.svg?style=flat-square)](https://modelcontextprotocol.io/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](./)
-[![Tests](https://img.shields.io/badge/tests-46%2F46-brightgreen.svg?style=flat-square)](./)
+[![Tests](https://img.shields.io/badge/tests-106%2F106-brightgreen.svg?style=flat-square)](./)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](./LICENSE)
 
 </div>
@@ -24,13 +24,14 @@
 |:---:|:-----|:-----|
 | 🎯 | [Introduction](#-introduction) | What is findawheel |
 | 🤔 | [Why](#-why) | The problem it solves |
-| ✨ | [Core Features](#-core-features) | Six capabilities |
+| ✨ | [Core Features](#-core-features) | Seven capabilities |
 | 🚀 | [Quick Start](#-quick-start) | Three steps |
 | 🤖 | [Connect to AI Client](#-connect-to-ai-client) | Trae / Cursor / Claude |
 | 🔧 | [Environment Variables](#-environment-variables) | Configuration |
 | 🏗️ | [Architecture](#-architecture) | Data flow diagram |
 | 🛠️ | [Development](#-development) | Command reference |
-| 🌐 | [Data Sources](#-data-sources) | Phase 1 coverage |
+| 🌐 | [Data Sources](#-data-sources) | Coverage |
+| 🧰 | [Provided Tools](#-provided-tools) | find_wheel + suggest_queries |
 | 🗺️ | [Roadmap](#-roadmap) | Evolution plan |
 | 📚 | [Further Reading](#-further-reading) | Detailed docs |
 
@@ -65,12 +66,13 @@ In the AI-coding era, everyone can quickly turn ideas into code. But many "new i
 
 | Icon | Feature | Description |
 |:---:|:-----|:-----|
-| 🔎 | **Multi-source search** | GitHub, npm, and crates.io simultaneously |
-| 🧠 | **Intent detection** | Auto-classifies query as feature-level or project-level |
-| 📊 | **Unified model** | Normalizes all sources into a single `Wheel` structure |
-| 🏆 | **Quality ranking** | stars / recency / activity / downloads / license |
-| 🛡️ | **Auto filtering** | Drops archived, stale, or low-info results |
-| ⚡ | **Graceful degradation** | Source failure doesn't block the others |
+| 🔎 | **Multi-source search** | GitHub, Gitee, npm, crates.io, and Web (Exa + Tavily) simultaneously |
+| 🧠 | **Intent detection** | Auto-classifies query as feature-level or project-level; splits into core words / modifiers / antonyms |
+| 📊 | **Unified model** | Normalizes all sources into a single `Wheel` structure with recommendation level and reason |
+| 🏆 | **Quality ranking** | Relevance + stars + activity + downloads + license + description match |
+| 🛡️ | **Smart filtering** | Drops archived / stale / awesome-lists / reverse-intent / core-word-missing results |
+| ⚡ | **Graceful degradation** | Source failure doesn't block others; Web source falls back from Exa to Tavily |
+| 🌏 | **CJK friendly** | 50+ word Chinese↔English translation table; Chinese queries are auto-translated |
 
 ---
 
@@ -103,7 +105,9 @@ Add this to your MCP-compatible client config (Trae / Cursor / Claude Desktop):
       "command": "node",
       "args": ["/absolute/path/to/findawheel/dist/index.js"],
       "env": {
-        "GITHUB_TOKEN": "optional-but-recommended"
+        "GITHUB_TOKEN": "optional but recommended",
+        "EXA_API_KEY": "optional, enables neural Web search (primary)",
+        "TAVILY_API_KEY": "optional, Web search fallback"
       }
     }
   }
@@ -118,8 +122,10 @@ Restart your client, describe your idea in conversation, and the AI will automat
 
 | Variable | Required | Default | Description |
 |:---------|:---:|:------:|:-----|
-| `GITHUB_TOKEN` | no | — | GitHub PAT. Without it, 60 req/h limit. |
-| `FINDAWHEEL_LIMIT` | no | `10` | Default result count. |
+| `GITHUB_TOKEN` | no | — | GitHub PAT. Without it, 60 req/h limit; with it, 5000 req/h. |
+| `EXA_API_KEY` | no | — | Exa API key, enables neural Web search (primary source). [Get one](https://exa.ai) |
+| `TAVILY_API_KEY` | no | — | Tavily API key, Web search fallback (used when Exa fails or quota is exhausted). [Get one](https://tavily.com) |
+| `FINDAWHEEL_LIMIT` | no | `20` | Default result count. |
 | `FINDAWHEEL_TIMEOUT_MS` | no | `8000` | Per-source timeout (ms). |
 | `FINDAWHEEL_LOG_LEVEL` | no | `info` | `error` \| `warn` \| `info` \| `debug`. |
 
@@ -128,26 +134,35 @@ Restart your client, describe your idea in conversation, and the AI will automat
 ## 🏗️ Architecture
 
 ```
-                  AI calls find_wheel(query)
+              AI calls find_wheel(query) or suggest_queries(query)
                             │
                             ▼
                   ┌─────────────────────┐
-                  │  QueryClassifier    │  ← decides feature vs project
+                  │  QueryParser        │  ← splits core/modifier/antonym/format words
+                  │  + QueryClassifier  │  ← decides feature vs project
                   └─────────────────────┘
                             │
-                            ▼
-                  ┌─────────────────────┐
-                  │   SourceAdapters    │  ← GitHub / npm / crates.io parallel search
-                  └─────────────────────┘
-                            │
-                            ▼
-            ┌──────────────────────────────────┐
-            │  Normalizer → MetricsEnricher    │  ← normalize + enrich metrics
-            │           → Ranker               │  ← filter + score + dedupe
-            └──────────────────────────────────┘
-                            │
-                            ▼
-                    Wheel[] returned to AI
+              ┌─────────────┼─────────────┐
+              ▼             ▼             ▼
+    ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+    │ Main search   │ │ Fuzzy search  │ │              │
+    │ (precise q)   │ │ (synonyms)    │ │              │
+    └──────┬───────┘ └──────┬───────┘ │              │
+           └────────┬───────┘         │              │
+                    ▼                 │              │
+    ┌─────────────────────────────────────────────┐  │
+    │  GitHub · Gitee · npm · crates.io · Web    │  │
+    │     (Exa primary + Tavily fallback)         │  │
+    └─────────────────────┬───────────────────────┘  │
+                          ▼                          │
+            ┌──────────────────────────────────┐    │
+            │  Normalizer → MetricsEnricher    │    │
+            │  → Recommender → Ranker          │    │
+            │  (normalize + metrics + recommend │    │
+            │   + filter + rank)               │    │
+            └──────────────────────────────────┘    │
+                          ▼                          │
+                  Wheel[] + summary returned ───────┘
 ```
 
 > 📖 Full internals: [HOW_IT_WORKS.md](./docs/HOW_IT_WORKS.md)
@@ -167,13 +182,27 @@ Restart your client, describe your idea in conversation, and the AI will automat
 
 ## 🌐 Data Sources
 
-| Source | Type | Notes |
-|:------|:-----|:-----|
-| **GitHub** | Open-source repos | `/search/repositories`, sorted by stars |
-| **npm** | JavaScript packages | registry search |
-| **crates.io** | Rust packages | crates search |
+| Source | Type | Token needed | Notes |
+|:------|:-----|:-----|:-----|
+| **GitHub** | Open-source repos | optional | `/search/repositories`; supports quoted phrases and `NOT` antonym exclusion |
+| **Gitee** | Chinese open-source repos | no | Covers domestic projects; fast access from inside China |
+| **npm** | JavaScript packages | no | Auto-enriched with stars + weekly downloads |
+| **crates.io** | Rust packages | no | Returns downloads; richest metrics |
+| **Web (Exa)** | Pages / tutorials / tool sites | API key required | Neural search, code-semantic friendly (primary) |
+| **Web (Tavily)** | Pages / tutorials / tool sites | API key required | Auto-fallback when Exa fails / quota exhausted |
 
-> ℹ️ PyPI has no official search API; Python packages are covered via GitHub mirrors in Phase 1. Phase 2 will add a generic web search source (Exa / Brave).
+> ℹ️ **PyPI strategy**: PyPI has no official search API; Python ecosystem is covered via GitHub `language:Python`.
+>
+> ℹ️ **Zero-config Web search**: If you don't want to sign up for Exa/Tavily keys, you can additionally enable the [Open-WebSearch MCP](https://github.com/OpenWebSearch) — the AI will orchestrate it automatically.
+
+---
+
+## 🧰 Provided Tools
+
+| Tool | Purpose | When to call |
+|:-----|:-----|:-----|
+| `find_wheel` | Search for existing wheels | **First action** when the user says "I want to make/build/create a ..." |
+| `suggest_queries` | Generate 4 search-term variants | Call when the AI is unsure how to construct the query; returns precise / action-oriented / fuzzy / concise variants |
 
 ---
 
@@ -185,12 +214,24 @@ Restart your client, describe your idea in conversation, and the AI will automat
 - [x] Intent classification and quality ranking
 - [x] Multi-source degradation and error handling
 
-### 🚧 Phase 2 (Planned)
+### ✅ Phase 2 (Done)
 
-- [ ] Web search source (Exa / Brave)
+- [x] **Gitee source** — domestic open-source coverage
+- [x] **Web source (Exa primary + Tavily fallback)** — neural search + fallback
+- [x] **npm enriched with stars + weekly downloads** — more accurate ranking
+- [x] **Chinese translation table** — 50+ word Chinese↔English mapping
+- [x] **Quoted core-word mandatory match + `NOT` antonym exclusion** — higher GitHub precision
+- [x] **Ranker multi-filter** — reverse-intent / core-word-missing / format-word-missing filters
+- [x] **Recommendation levels** — each result tagged `highly_recommended` / `recommended` / `optional` / `not_recommended` with reason
+- [x] **suggest_queries tool** — 4 search-term variants
+- [x] **Synonym fuzzy secondary search** — main + fuzzy searches run in parallel for broader recall
+
+### 🚧 Phase 3 (Planned)
+
 - [ ] Result caching and retry logic
-- [ ] npm download counts and README summaries
-- [ ] Scoring formula tuning
+- [ ] ML-based scoring tuning
+- [ ] Standalone GitLab / PyPI (HTML scraping) sources
+- [ ] Multi-user, auth, and server-side hosting
 
 ---
 
