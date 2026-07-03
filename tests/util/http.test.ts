@@ -42,4 +42,52 @@ describe('httpGet', () => {
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     expect((init.headers as Record<string, string>).authorization).toBe('Bearer ghp_xxx');
   });
+
+  it('retries on 5xx then succeeds', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false, status: 503, headers: new Headers(),
+        text: async () => 'service unavailable',
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ ok: true }),
+      } as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+    const data = await httpGet('https://example.com', { timeoutMs: 1000, retry: { retries: 2, baseMs: 10 } });
+    expect(data).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does NOT retry on 4xx (throws immediately)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false, status: 404, headers: new Headers(),
+      text: async () => 'not found',
+    } as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(httpGet('https://example.com', { timeoutMs: 1000, retry: { retries: 2, baseMs: 10 } }))
+      .rejects.toThrow(HttpError);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('retries on network error (fetch rejects) then succeeds', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce({
+        ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ recovered: true }),
+      } as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+    const data = await httpGet('https://example.com', { timeoutMs: 1000, retry: { retries: 2, baseMs: 10 } });
+    expect(data).toEqual({ recovered: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry by default when no retry option', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('fetch failed'));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(httpGet('https://example.com', { timeoutMs: 1000 }))
+      .rejects.toThrow('fetch failed');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
 });
