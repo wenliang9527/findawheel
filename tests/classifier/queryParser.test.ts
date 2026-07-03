@@ -12,6 +12,20 @@ describe('parseQuery', () => {
     expect(r.coreWords).toEqual(['invisible', 'watermark']);
   });
 
+  it('extracts format words from query', () => {
+    const r = parseQuery('pdf to markdown converter word ppt excel');
+    expect(r.formatWords).toContain('pdf');
+    expect(r.formatWords).toContain('markdown');
+    expect(r.formatWords).toContain('word');
+    expect(r.formatWords).toContain('ppt');
+    expect(r.formatWords).toContain('excel');
+  });
+
+  it('formatWords is empty when query has no format word', () => {
+    const r = parseQuery('invisible image watermark');
+    expect(r.formatWords).toEqual([]);
+  });
+
   it('coreWords is empty array when query has no content words', () => {
     // 全是停用词的 query,coreWords 为空(不应触发核心词过滤)
     const r = parseQuery('a tool for library');

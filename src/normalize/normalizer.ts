@@ -34,7 +34,11 @@ export function normalize(raw: RawResult): Wheel {
         url: raw.url,
         description: raw.description,
         type: 'package',
-        metrics: { lastUpdated: raw.date },
+        metrics: {
+          lastUpdated: raw.date,
+          ...(raw.stars !== undefined ? { stars: raw.stars } : {}),
+          ...(raw.downloads !== undefined ? { downloads: raw.downloads } : {}),
+        },
       };
     case 'crates':
       return {

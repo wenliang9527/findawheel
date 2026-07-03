@@ -12,7 +12,7 @@ describe('readEnv', () => {
   it('returns defaults when env vars absent', () => {
     const env = readEnv();
     expect(env.githubToken).toBeUndefined();
-    expect(env.limit).toBe(10);
+    expect(env.limit).toBe(20);
     expect(env.timeoutMs).toBe(8000);
     expect(env.logLevel).toBe('info');
   });
@@ -28,7 +28,7 @@ describe('readEnv', () => {
   it('falls back to default on invalid number', () => {
     process.env.FINDAWHEEL_LIMIT = 'not-a-number';
     const env = readEnv();
-    expect(env.limit).toBe(10);
+    expect(env.limit).toBe(20);
   });
 
   it('reads github token', () => {

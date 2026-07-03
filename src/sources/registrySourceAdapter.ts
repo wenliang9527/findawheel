@@ -19,6 +19,14 @@ interface NpmSearchResponse {
   total: number;
 }
 
+interface NpmDownloadsResponse {
+  downloads: number;
+}
+
+interface GitHubRepoData {
+  stargazers_count: number;
+}
+
 interface CratesSearchResponse {
   crates: Array<{
     id: string;
@@ -38,18 +46,87 @@ async function searchNpm(query: string, timeoutMs: number): Promise<NpmRawResult
   url.searchParams.set('size', '20');
   try {
     const data = await httpGet<NpmSearchResponse>(url.toString(), { timeoutMs });
-    return data.objects.map(o => ({
-      source: 'npm' as const,
-      name: o.package.name,
-      url: o.package.links.npm ?? `https://www.npmjs.com/package/${o.package.name}`,
-      description: o.package.description ?? '',
-      version: o.package.version,
-      keywords: o.package.keywords ?? [],
-      date: o.package.date,
-    }));
+    return data.objects.map(o => {
+      // 从 links.repository 提取 GitHub 仓库地址(如果有)
+      const repoUrl = o.package.links.repository;
+      let githubUrl: string | undefined;
+      if (repoUrl) {
+        const ghMatch = repoUrl.match(/github\.com[:/]([^/]+)\/([^/.?#]+)/);
+        if (ghMatch) {
+          githubUrl = `https://github.com/${ghMatch[1]}/${ghMatch[2]}`;
+        }
+      }
+      return {
+        source: 'npm' as const,
+        name: o.package.name,
+        url: o.package.links.npm ?? `https://www.npmjs.com/package/${o.package.name}`,
+        description: o.package.description ?? '',
+        version: o.package.version,
+        keywords: o.package.keywords ?? [],
+        date: o.package.date,
+        githubUrl,
+      };
+    });
   } catch (err) {
     if (err instanceof HttpError) throw new SourceError('npm', `HTTP ${err.status}`);
     throw new SourceError('npm', (err as Error).message);
+  }
+}
+
+/**
+ * 给 npm 包补充 popularity 指标:
+ * 1. downloads — 周下载量(调 npm downloads API,总是做)
+ * 2. stars — GitHub stars(仅当包关联了 GitHub 仓库且配置了 token 时做,避免无 token 时 60/hour 限流)
+ *
+ * 只对前 10 个包做 enrich(控制 API 调用数),其余保持原样。
+ */
+async function enrichNpmResults(
+  results: NpmRawResult[],
+  timeoutMs: number,
+  githubToken?: string,
+): Promise<NpmRawResult[]> {
+  const ENRICH_LIMIT = 10;
+  const toEnrich = results.slice(0, ENRICH_LIMIT);
+  const rest = results.slice(ENRICH_LIMIT);
+  const enriched = await Promise.all(
+    toEnrich.map(r => enrichSingleNpm(r, timeoutMs, githubToken)),
+  );
+  return [...enriched, ...rest];
+}
+
+async function enrichSingleNpm(
+  result: NpmRawResult,
+  timeoutMs: number,
+  githubToken?: string,
+): Promise<NpmRawResult> {
+  // 有 GitHub 仓库且有 token:并发补 downloads + stars
+  if (result.githubUrl && githubToken) {
+    const ownerRepo = result.githubUrl.replace('https://github.com/', '');
+    const [dlRes, ghRes] = await Promise.allSettled([
+      httpGet<NpmDownloadsResponse>(
+        `https://api.npmjs.org/downloads/point/last-week/${result.name}`,
+        { timeoutMs },
+      ),
+      httpGet<GitHubRepoData>(
+        `https://api.github.com/repos/${ownerRepo}`,
+        { timeoutMs, token: githubToken, extraHeaders: { accept: 'application/vnd.github+json' } },
+      ),
+    ]);
+    return {
+      ...result,
+      downloads: dlRes.status === 'fulfilled' ? dlRes.value.downloads : undefined,
+      stars: ghRes.status === 'fulfilled' ? ghRes.value.stargazers_count : undefined,
+    };
+  }
+  // 无 GitHub 仓库或无 token:只补 downloads
+  try {
+    const dl = await httpGet<NpmDownloadsResponse>(
+      `https://api.npmjs.org/downloads/point/last-week/${result.name}`,
+      { timeoutMs },
+    );
+    return { ...result, downloads: dl.downloads };
+  } catch {
+    return result; // 补充失败也不影响搜索结果
   }
 }
 
@@ -91,7 +168,11 @@ export class RegistrySourceAdapter implements SourceAdapter {
     const expandedQuery = opts.parsedQuery?.expandedQuery ?? translateQuery(query);
     const tasks: Promise<RawResult[]>[] = [];
     if (!eco || eco === 'js' || eco === 'ts') {
-      tasks.push(searchNpm(expandedQuery, opts.timeoutMs).then(r => r as RawResult[]));
+      tasks.push(
+        searchNpm(expandedQuery, opts.timeoutMs)
+          .then(r => enrichNpmResults(r, opts.timeoutMs, opts.githubToken))
+          .then(r => r as RawResult[]),
+      );
     }
     if (!eco || eco === 'rust') {
       tasks.push(searchCrates(expandedQuery, opts.timeoutMs).then(r => r as RawResult[]));

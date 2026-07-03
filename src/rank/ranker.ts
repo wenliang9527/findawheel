@@ -49,19 +49,31 @@ function descriptionMatchBonus(wheel: Wheel, queryKeywords: string[]): number {
  * 核心动作词是 watermark/encrypt,但裁剪工具 react-image-crop 的 description
  * 里既没 watermark 也没 encrypt —— 这类结果应该被剔除。
  *
- * 注意:仅当核心词存在时才过滤;无核心词(如纯项目级 query)时跳过本规则。
+ * 格式词检查:如果 query 里有格式词(pdf/word/ppt/excel 等),
+ * 结果的 description/name 也必须命中至少一个格式词。
+ * 场景:搜 "pdf to markdown" 却返回 HTML 转换器 —— 剔除。
+ *
+ * 注意:仅当核心词/格式词存在时才过滤;都没有时跳过本规则。
  *
  * @param coreWords query 的核心词(动作词优先),来自 queryParser
+ * @param formatWords query 里出现的格式词,来自 queryParser
  */
 export function isMissingCoreConcept(
   wheel: Wheel,
   coreWords: string[] = [],
+  formatWords: string[] = [],
 ): boolean {
-  if (coreWords.length === 0) return false;
   // 包名/仓库名也算"描述"的一部分,避免描述简短但包名精准的工具被误杀
   const text = `${wheel.name} ${wheel.description}`.toLowerCase();
-  // 核心词至少命中一个,否则剔除
-  return !coreWords.some(w => text.includes(w.toLowerCase()));
+  // 核心词:至少命中一个(如果有的话)
+  if (coreWords.length > 0 && !coreWords.some(w => text.includes(w.toLowerCase()))) {
+    return true;
+  }
+  // 格式词:如果 query 里有格式词,结果也必须命中至少一个
+  if (formatWords.length > 0 && !formatWords.some(w => text.includes(w.toLowerCase()))) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -164,11 +176,12 @@ export function rank(
   queryKeywords: string[] = [],
   antonymExcludes: string[] = [],
   coreWords: string[] = [],
+  formatWords: string[] = [],
 ): Wheel[] {
   const filtered = wheels.filter(w =>
     !filterOut(w)
     && !isReverseIntent(w, antonymExcludes, queryKeywords)
-    && !isMissingCoreConcept(w, coreWords)
+    && !isMissingCoreConcept(w, coreWords, formatWords)
   );
   const deduped = dedupe(filtered);
   const scored = deduped

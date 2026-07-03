@@ -16,6 +16,8 @@ export interface ParsedQuery {
   antonymExcludes: string[];
   /** 展开后的完整 query(含中文翻译),用于传给不支持复杂语法的源 */
   expandedQuery: string;
+  /** query 里出现的格式词(pdf/word/ppt/excel 等),用于 Ranker 格式必命中过滤 */
+  formatWords: string[];
 }
 
 /**
@@ -34,6 +36,17 @@ const STOPWORDS = new Set([
   'a', 'an', 'the', 'for', 'with', 'and', 'or', 'to', 'of', 'in', 'on',
   'my', 'i', 'want', 'need', 'looking', 'find', 'search',
   'image', 'tool', 'library', 'lib', 'package', 'pkg', 'project', // 通用词,不当核心
+]);
+
+/**
+ * 文件格式词:当 query 里出现这些词时,结果的 description/name 也必须命中至少一个。
+ * 用于过滤掉"格式不相关"的结果(如搜 "pdf to markdown" 却返回 HTML 转换器)。
+ */
+const FORMAT_WORDS = new Set([
+  'pdf', 'docx', 'doc', 'word', 'ppt', 'pptx', 'powerpoint', 'excel', 'xlsx', 'xls',
+  'csv', 'html', 'markdown', 'md', 'png', 'jpg', 'jpeg', 'gif', 'svg',
+  'video', 'audio', 'mp3', 'mp4', 'json', 'xml', 'yaml', 'txt', 'rtf',
+  'epub', 'mobi', 'tex', 'latex',
 ]);
 
 /**
@@ -63,6 +76,9 @@ export function parseQuery(query: string): ParsedQuery {
   const modifierWords = allWords.slice(2);
   const corePhrase = coreWords.join(' ');
 
+  // 3.5 格式词:query 里出现的所有文件格式词(pdf/word/ppt/excel 等)
+  const formatWords = allWords.filter(w => FORMAT_WORDS.has(w));
+
   // 4. 反义词检测:query 含动作词但不含"反向动作"时,推断用户意图是"做这个动作"
   const antonymExcludes: string[] = [];
   const lowerQuery = query.toLowerCase();
@@ -76,5 +92,8 @@ export function parseQuery(query: string): ParsedQuery {
     }
   }
 
-  return { corePhrase, coreWords: coreWords, modifiers: modifierWords, antonymExcludes, expandedQuery };
+  return {
+    corePhrase, coreWords: coreWords, modifiers: modifierWords,
+    antonymExcludes, expandedQuery, formatWords,
+  };
 }

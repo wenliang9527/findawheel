@@ -60,6 +60,9 @@ export interface NpmRawResult {
   version: string;
   keywords: string[];
   date: string; // last publish
+  downloads?: number; // 周下载量(来自 npm downloads API)
+  stars?: number; // GitHub stars(如果包关联了 GitHub 仓库)
+  githubUrl?: string; // 关联的 GitHub 仓库地址
 }
 
 export interface CratesRawResult {

@@ -115,6 +115,38 @@ describe('isMissingCoreConcept', () => {
     const w = makeWheel({ description: 'Add WATERMARK to image' });
     expect(isMissingCoreConcept(w, coreWords)).toBe(false);
   });
+
+  // --- 格式词测试 ---
+  it('flags result that lacks any format word from query', () => {
+    // query 含 pdf/markdown,但结果是 HTML 转换器,应被剔除
+    const formatWords = ['pdf', 'markdown'];
+    const w = makeWheel({ name: 'asciidoc-converter', description: 'Converts AsciiDoc to HTML' });
+    expect(isMissingCoreConcept(w, [], formatWords)).toBe(true);
+  });
+  it('keeps result that contains a format word from query', () => {
+    const formatWords = ['pdf', 'markdown'];
+    const w = makeWheel({ name: 'pdf2md', description: 'Convert PDF to Markdown' });
+    expect(isMissingCoreConcept(w, [], formatWords)).toBe(false);
+  });
+  it('skips format filtering when formatWords is empty', () => {
+    // 无格式词的 query 不触发格式过滤
+    const w = makeWheel({ description: 'A generic tool' });
+    expect(isMissingCoreConcept(w, [], [])).toBe(false);
+  });
+  it('core AND format both checked (must hit at least one of each)', () => {
+    // 核心词和格式词是 AND 关系:两个条件都要满足
+    const coreWords = ['converter'];
+    const formatWords = ['pdf', 'markdown'];
+    // 命中核心词但没命中格式词 → 剔除
+    const w1 = makeWheel({ description: 'A converter for HTML' });
+    expect(isMissingCoreConcept(w1, coreWords, formatWords)).toBe(true);
+    // 命中格式词但没命中核心词 → 剔除
+    const w2 = makeWheel({ description: 'A pdf parser' });
+    expect(isMissingCoreConcept(w2, coreWords, formatWords)).toBe(true);
+    // 两个都命中 → 保留
+    const w3 = makeWheel({ description: 'A converter from pdf to markdown' });
+    expect(isMissingCoreConcept(w3, coreWords, formatWords)).toBe(false);
+  });
 });
 
 describe('dedupe', () => {
