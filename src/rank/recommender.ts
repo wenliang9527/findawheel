@@ -63,7 +63,8 @@ export function computeMatch(
   return { score, recommendation, reason, matchedKeywords };
 }
 
-function gradeRecommendation(score: number, stars: number): Recommendation {
+/** 根据分数和 stars 计算推荐等级。导出供 feedback 调整后重新分级使用。 */
+export function gradeRecommendation(score: number, stars: number): Recommendation {
   if (score >= 0.6 && stars >= 1000) return 'highly_recommended';
   if (score >= 0.4) return 'recommended';
   if (score >= 0.2) return 'optional';

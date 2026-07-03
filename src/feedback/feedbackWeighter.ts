@@ -1,7 +1,9 @@
 // src/feedback/feedbackWeighter.ts
-// 反馈加权计算: 将用户反馈(like/hide/click)转换为 score 调整量, 叠加到 matchScore 上。
+// 反馈加权计算: 将用户反馈(like/hide/click)转换为 score 调整量,叠加到 matchScore 上。
 // 策略: 固定分值加减, 累加上限防刷, hide 无上限(强负面信号)。
 import type { FeedbackRecord } from './feedbackStore.js';
+import type { Wheel } from '../normalize/types.js';
+import { gradeRecommendation } from '../rank/recommender.js';
 
 /** 单次动作的分值 */
 export const FEEDBACK_WEIGHTS = {
@@ -70,4 +72,49 @@ export function applyFeedbackScore(
     feedbackDelta,
     breakdown: { likeDelta, clickDelta, hideDelta },
   };
+}
+
+/**
+ * 批量对 Wheel 列表应用 feedback 加权, 重新排序并重新分级。
+ *
+ * 流程:
+ * 1. 对每个 wheel 查 feedbackMap, 调 applyFeedbackScore 调整 matchScore
+ * 2. 更新 wheel.match.score = adjustedScore, 填 feedbackDelta
+ * 3. 用调整后 score 重新计算 recommendation 等级 (gradeRecommendation)
+ * 4. 按 adjustedScore 降序重新排序
+ *
+ * @param wheels 已 enrichWithMatch 的 wheel 列表
+ * @param feedbackMap name → FeedbackRecord 索引 (由 getAllFeedback 构建)
+ * @returns 调整并重排后的新数组 (不修改原数组)
+ */
+export function applyFeedbackToWheels(
+  wheels: Wheel[],
+  feedbackMap: Map<string, FeedbackRecord>,
+): Wheel[] {
+  if (feedbackMap.size === 0) return wheels;
+
+  const adjusted = wheels.map(w => {
+    if (!w.match) return w;
+    const feedback = feedbackMap.get(w.name) ?? null;
+    // 无反馈记录: 不调整
+    if (!feedback) return w;
+    const result = applyFeedbackScore(w.match.score, feedback);
+    const stars = w.metrics.stars ?? 0;
+    return {
+      ...w,
+      match: {
+        ...w.match,
+        score: result.adjustedScore,
+        feedbackDelta: result.feedbackDelta,
+        recommendation: gradeRecommendation(result.adjustedScore, stars),
+      },
+    };
+  });
+
+  // 按调整后 score 降序排序
+  return adjusted.sort((a, b) => {
+    const sa = a.match?.score ?? 0;
+    const sb = b.match?.score ?? 0;
+    return sb - sa;
+  });
 }

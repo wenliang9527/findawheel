@@ -16,14 +16,16 @@ export type Recommendation =
 
 /** 查询相关的匹配信息,搜索结果里填充 */
 export interface WheelMatch {
-  /** 综合匹配分 0~1,结合相关度+热度+活跃度 */
+  /** 综合匹配分 0~1,结合相关度+热度+活跃度 (feedback 调整后的最终值) */
   score: number;
-  /** 推荐等级 */
+  /** 推荐等级 (基于 feedback 调整后的 score 重新分级) */
   recommendation: Recommendation;
   /** 推荐理由(中文简述),给 AI 总结时引用 */
   reason: string;
   /** 命中的 query 关键词列表 */
   matchedKeywords: string[];
+  /** 反馈调整量(可选): 用户历史反馈(like/hide/click)带来的 score 增减, 正数=加分负数=扣分 */
+  feedbackDelta?: number;
 }
 
 export interface WheelMetrics {

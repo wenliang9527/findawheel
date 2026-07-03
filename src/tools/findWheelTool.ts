@@ -19,6 +19,8 @@ import {
   type EnrichDetailsOpts,
 } from '../enrich/wheelDetailsEnricher.js';
 import { detailsCacheKey } from './getWheelDetailsTool.js';
+import type { FeedbackStore } from '../feedback/feedbackStore.js';
+import { applyFeedbackToWheels } from '../feedback/feedbackWeighter.js';
 
 export interface McpToolResult {
   content: Array<{ type: 'text'; text: string }>;
@@ -33,6 +35,8 @@ export interface CreateToolOpts {
   detailsCache?: Cache<WheelDetails>;
   /** 可选详情抓取配置;未提供时不做预抓取(保持原行为,向后兼容) */
   enrichOpts?: EnrichDetailsOpts;
+  /** 可选反馈存储实例;提供时搜索结果按用户历史反馈(like/hide/click)调整排序 */
+  feedbackStore?: FeedbackStore;
 }
 
 /** 搜索流程的中间结果 */
@@ -86,22 +90,41 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     }
 
     // 成功才写缓存(失败结果不缓存,避免下次命中错误响应)
+    // 顺序: feedback 加权(重新排序) → 详情预抓取(top 10 按新排序) → 写缓存
+    // 缓存存最终结果(含 feedback 调整和 details), 命中时直接返回; feedback 变化等 TTL 刷新
+    let finalWheels = result.wheels;
+    if (opts.feedbackStore) {
+      finalWheels = await applyFeedback(finalWheels);
+    }
     // 混合呈现:enrichOpts 配置时对 top 10 预抓取详情,top 3 内联,4-10 加 hasDetails 标记
     // 预抓取失败不阻断主流程(容错);缓存里存的是已内联 details 的 wheels,命中时直接返回
     if (opts.enrichOpts) {
-      await enrichTopWheels(result.wheels, opts.enrichOpts, opts.detailsCache);
+      await enrichTopWheels(finalWheels, opts.enrichOpts, opts.detailsCache);
     }
-    await cache.set(key, result.wheels);
+    await cache.set(key, finalWheels);
 
     const output: FindWheelOutput = {
       query: input.query,
       intent,
-      total: result.wheels.length,
-      wheels: result.wheels,
-      summary: buildSummary(result.wheels),
+      total: finalWheels.length,
+      wheels: finalWheels,
+      summary: buildSummary(finalWheels),
       ...(result.degraded.length > 0 ? { degradedSources: result.degraded } : {}),
     };
     return { content: [{ type: 'text', text: JSON.stringify(output) }] };
+  }
+
+  /**
+   * 应用用户历史反馈调整 score 和排序。
+   * 加载所有 feedback, 对 wheels 批量应用 feedbackWeighter, 重新排序和分级。
+   * feedbackStore 未提供或无反馈记录时原样返回。
+   */
+  async function applyFeedback(wheels: Wheel[]): Promise<Wheel[]> {
+    if (!opts.feedbackStore) return wheels;
+    const allFeedback = await opts.feedbackStore.getAllFeedback();
+    if (allFeedback.length === 0) return wheels;
+    const feedbackMap = new Map(allFeedback.map(f => [f.name, f]));
+    return applyFeedbackToWheels(wheels, feedbackMap);
   }
 
   /** 执行主搜索 + 副搜索,归一化、排序、填充推荐信息 */
