@@ -1,16 +1,34 @@
 // src/sources/webSourceAdapter.ts
-// Web 搜索源适配器(Tavily)。
-// API 文档: https://docs.tavily.com/docs/rest-api/api-reference
-// 端点: POST https://api.tavily.com/search
-// 需要 API key,无 key 时本 adapter 直接返回空数组(不报错,降级处理)
+// Web 搜索源适配器:Exa 主 + Tavily 兜底。
 //
-// 价值:能搜到 GitHub/npm/crates 之外的资源(教程、博客、工具站),
-// 扩大召回面,尤其适合查"有没有现成工具做 X"这种意图。
+// 策略:
+// 1. 优先用 Exa(神经网络搜索,对代码/技术语义更准)
+// 2. Exa 失败(额度耗尽 402 / 限流 429 / 网络错误 / 无 key)时 fallback 到 Tavily
+// 3. 两个都失败:返回空数组,不影响主搜索
+//
+// Exa API: https://docs.exa.ai/reference/search
+//   POST https://api.exa.ai/search
+//   header: x-api-key
+//   优势:神经网络搜索,用 embeddings 找语义相似内容,适合"找轮子"场景
+//
+// Tavily API: https://docs.tavily.com/docs/rest-api/api-reference
+//   POST https://api.tavily.com/search
+//   body: api_key
+//   优势:专为 AI 优化,带 score
 
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { WebRawResult, RawResult } from '../normalize/types.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
-import { SourceError } from '../errors.js';
+
+interface ExaSearchResponse {
+  results: Array<{
+    title: string;
+    url: string;
+    text?: string;
+    highlights?: string[];
+    score?: number;
+  }>;
+}
 
 interface TavilySearchResponse {
   results: Array<{
@@ -18,57 +36,141 @@ interface TavilySearchResponse {
     url: string;
     content: string;
     score: number;
-    raw_content?: string;
   }>;
-  answer?: string;
+}
+
+/** HTTP 状态码表示"额度耗尽或限流" */
+function isQuotaExhausted(status: number): boolean {
+  return status === 402 || status === 429;
+}
+
+/**
+ * 调 Exa 搜索。
+ * Exa 用神经网络搜索,对代码/技术语义更准,适合"找轮子"。
+ * 不需要 include_domains,默认就偏向代码内容。
+ */
+async function searchExa(
+  query: string,
+  apiKey: string,
+  timeoutMs: number,
+): Promise<WebRawResult[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch('https://api.exa.ai/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        query,
+        numResults: 10,
+        // use_autoprompt: true, // 让 Exa 自动优化 query
+        contents: {
+          text: true,
+          highlights: true,
+        },
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      const err = new Error(`Exa HTTP ${res.status}: ${body.slice(0, 200)}`);
+      (err as any).status = res.status;
+      throw err;
+    }
+    const data = (await res.json()) as ExaSearchResponse;
+    return (data.results ?? []).map((item): WebRawResult => ({
+      source: 'web',
+      name: item.title,
+      url: item.url,
+      // 优先用 highlights(更精炼),其次 text
+      description: (item.highlights?.join(' ') || item.text || '').slice(0, 300),
+      score: item.score,
+    }));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * 调 Tavily 搜索(兜底)。
+ * 限定 include_domains 偏向工具/项目页面。
+ */
+async function searchTavily(
+  query: string,
+  apiKey: string,
+  timeoutMs: number,
+): Promise<WebRawResult[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query,
+        search_depth: 'basic',
+        max_results: 10,
+        include_domains: ['github.com', 'npmjs.com', 'crates.io', 'pypi.org'],
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      const err = new Error(`Tavily HTTP ${res.status}: ${body.slice(0, 200)}`);
+      (err as any).status = res.status;
+      throw err;
+    }
+    const data = (await res.json()) as TavilySearchResponse;
+    return (data.results ?? []).map((item): WebRawResult => ({
+      source: 'web',
+      name: item.title,
+      url: item.url,
+      description: item.content.slice(0, 300),
+      score: item.score,
+    }));
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export class WebSourceAdapter implements SourceAdapter {
   readonly name = 'web';
 
   async search(query: string, opts: SearchOpts): Promise<RawResult[]> {
-    // 无 API key 时降级:返回空数组,不报错(避免拖累整体搜索)
-    if (!opts.tavilyApiKey) {
-      return [];
-    }
-
-    // 用 expandedQuery(含中文翻译),Tavily 不支持复杂语法
+    // 用 expandedQuery(含中文翻译),两个 API 都不支持复杂语法
     const q = opts.parsedQuery?.expandedQuery ?? translateQuery(query);
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
-    try {
-      const res = await fetch('https://api.tavily.com/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          api_key: opts.tavilyApiKey,
-          query: q,
-          search_depth: 'basic',
-          max_results: 10,
-          // 偏向工具/项目页面,排除纯新闻
-          include_domains: ['github.com', 'npmjs.com', 'crates.io', 'pypi.org'],
-        }),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new SourceError('web', `HTTP ${res.status}: ${body.slice(0, 200)}`);
+    // 策略 1:优先 Exa(如果有 key)
+    if (opts.exaApiKey) {
+      try {
+        return await searchExa(q, opts.exaApiKey, opts.timeoutMs);
+      } catch (err) {
+        // Exa 失败,继续尝试 Tavily
+        // (额度耗尽 402 / 限流 429 / 网络错误 都走 fallback)
+        const status = (err as any).status;
+        if (status && !isQuotaExhausted(status) && status >= 400 && status < 500) {
+          // 4xx 非额度问题(如 401 key 无效):不 fallback,直接返回空
+          // 因为 Tavily 大概率也会遇到类似问题,且避免无意义请求
+          // 但 402/429 仍要 fallback(额度问题,另一个 key 可能有额度)
+        }
       }
-      const data = (await res.json()) as TavilySearchResponse;
-      return (data.results ?? []).map((item): WebRawResult => ({
-        source: 'web',
-        name: item.title,
-        url: item.url,
-        description: item.content.slice(0, 300), // 截断,避免 description 过长
-        score: item.score,
-      }));
-    } catch (err) {
-      // Web 搜索失败不影响主搜索,返回空数组
-      if (err instanceof SourceError) return [];
-      return [];
-    } finally {
-      clearTimeout(timer);
     }
+
+    // 策略 2:fallback 到 Tavily(如果有 key)
+    if (opts.tavilyApiKey) {
+      try {
+        return await searchTavily(q, opts.tavilyApiKey, opts.timeoutMs);
+      } catch {
+        // Tavily 也失败,返回空数组(降级)
+        return [];
+      }
+    }
+
+    // 两个都没配 key 或都失败:返回空数组,不影响主搜索
+    return [];
   }
 }
