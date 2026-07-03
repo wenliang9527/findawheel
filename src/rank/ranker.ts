@@ -1,8 +1,16 @@
 // src/rank/ranker.ts
 import type { Wheel, Intent, WheelMetrics } from '../normalize/types.js';
+import { isAggregateRepo } from '../sources/githubSourceAdapter.js';
 
 const THREE_YEARS_MS = 3 * 365 * 24 * 3600 * 1000;
 const NOW = Date.now();
+
+// 聚合类仓库关键词(awesome-xxx、public-apis、free-for-dev 等)
+// 这些是"资源列表",不是具体可用的轮子
+const AGGREGATE_DESC_PATTERNS = [
+  'awesome list', 'curated list', 'collection of', 'list of',
+  'public apis', 'free for dev', 'resources for',
+];
 
 export function filterOut(wheel: Wheel): boolean {
   const m = wheel.metrics;
@@ -12,7 +20,26 @@ export function filterOut(wheel: Wheel): boolean {
     if (!Number.isNaN(t) && NOW - t > THREE_YEARS_MS) return true;
   }
   if ((!wheel.description || wheel.description.trim() === '') && (m.stars ?? 0) < 10) return true;
+
+  // 过滤聚合类仓库(awesome-xxx、public-apis 等)
+  if (isAggregateRepo(wheel.name, wheel.description)) return true;
+  const descLower = wheel.description.toLowerCase();
+  if (AGGREGATE_DESC_PATTERNS.some(p => descLower.includes(p))) return true;
+
   return false;
+}
+
+/**
+ * 描述匹配加分:检查 description 是否包含 query 的核心关键词。
+ * 真正相关的项目描述里通常会包含 query 的关键词,
+ * 而靠 README 关键词堆砌匹配上的项目描述里往往没有。
+ */
+function descriptionMatchBonus(wheel: Wheel, queryKeywords: string[]): number {
+  if (!wheel.description || queryKeywords.length === 0) return 0;
+  const descLower = wheel.description.toLowerCase();
+  const hitCount = queryKeywords.filter(kw => descLower.includes(kw.toLowerCase())).length;
+  // 命中率 × 0.15 加分(最多加 0.15)
+  return Math.min(hitCount / Math.max(queryKeywords.length, 1), 1) * 0.15;
 }
 
 function normalize(v: number | undefined, max: number): number {
@@ -41,18 +68,20 @@ function activityScore(activity?: WheelMetrics['activity']): number {
   }
 }
 
-export function score(wheel: Wheel, intent: Intent): number {
+export function score(wheel: Wheel, intent: Intent, queryKeywords: string[] = []): number {
   const m = wheel.metrics;
   let stars = normalize(m.stars, 50000) * 0.3;
   const recency = recencyScore(m.lastUpdated) * 0.3;
   const activity = activityScore(m.activity) * 0.2;
   let downloads = normalize(m.downloads, 100000) * 0.1;
   const license = m.license ? 0.1 : 0;
+  // 描述匹配加分:描述命中 query 核心词的项目更可能是真正相关的轮子
+  const descBonus = descriptionMatchBonus(wheel, queryKeywords);
   if (intent === 'feature') {
     stars *= 0.7;
     downloads *= 1.5;
   }
-  return stars + recency + activity + downloads + license;
+  return stars + recency + activity + downloads + license + descBonus;
 }
 
 export function dedupe(wheels: Wheel[]): Wheel[] {
@@ -72,11 +101,11 @@ export function dedupe(wheels: Wheel[]): Wheel[] {
   return [...map.values()];
 }
 
-export function rank(wheels: Wheel[], intent: Intent, limit: number): Wheel[] {
+export function rank(wheels: Wheel[], intent: Intent, limit: number, queryKeywords: string[] = []): Wheel[] {
   const filtered = wheels.filter(w => !filterOut(w));
   const deduped = dedupe(filtered);
   const scored = deduped
-    .map(w => ({ w, s: score(w, intent) }))
+    .map(w => ({ w, s: score(w, intent, queryKeywords) }))
     .sort((a, b) => b.s - a.s);
   return scored.slice(0, limit).map(x => x.w);
 }

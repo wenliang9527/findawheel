@@ -1,6 +1,6 @@
 // tests/sources/githubSourceAdapter.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GitHubSourceAdapter, buildGithubQuery } from '../../src/sources/githubSourceAdapter.js';
+import { GitHubSourceAdapter, buildGithubQuery, isAggregateRepo } from '../../src/sources/githubSourceAdapter.js';
 
 describe('buildGithubQuery', () => {
   it('project intent searches name+description', () => {
@@ -17,6 +17,30 @@ describe('buildGithubQuery', () => {
   it('adds language filter when ecosystem provided', () => {
     const q = buildGithubQuery('markdown editor', 'project', 'js');
     expect(q).toContain('language:JavaScript');
+  });
+
+  it('excludes awesome repos with NOT clause', () => {
+    const q = buildGithubQuery('markdown editor', 'project', undefined);
+    expect(q).toContain('NOT awesome in:name');
+  });
+
+  it('translates Chinese keywords to English', () => {
+    const q = buildGithubQuery('图片水印', 'feature', undefined);
+    expect(q).toContain('图片水印');
+    expect(q).toContain('image');
+    expect(q).toContain('watermark');
+  });
+});
+
+describe('isAggregateRepo', () => {
+  it('detects awesome-xxx repos', () => {
+    expect(isAggregateRepo('awesome-python', 'A curated list')).toBe(true);
+  });
+  it('detects public-apis repos', () => {
+    expect(isAggregateRepo('public-apis', 'Collective list of APIs')).toBe(true);
+  });
+  it('does not flag normal repos', () => {
+    expect(isAggregateRepo('lodash', 'A utility library')).toBe(false);
   });
 });
 

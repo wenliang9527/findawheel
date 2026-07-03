@@ -28,6 +28,14 @@ describe('filterOut', () => {
   it('keeps active repo with description', () => {
     expect(filterOut(makeWheel())).toBe(false);
   });
+  it('removes awesome-xxx aggregate repos', () => {
+    const w = makeWheel({ name: 'awesome-python', description: 'A curated list of Python packages' });
+    expect(filterOut(w)).toBe(true);
+  });
+  it('removes public-apis aggregate repos', () => {
+    const w = makeWheel({ name: 'public-apis', description: 'A collective list of free APIs' });
+    expect(filterOut(w)).toBe(true);
+  });
 });
 
 describe('score', () => {
@@ -41,6 +49,13 @@ describe('score', () => {
     const f = score(w, 'feature');
     const p = score(w, 'project');
     expect(f).toBeGreaterThan(p);
+  });
+  it('description matching query keywords gets bonus', () => {
+    const noMatch = makeWheel({ description: 'A file upload library', metrics: { stars: 1000 } });
+    const match = makeWheel({ description: 'Image watermark tool', name: 'watermark', metrics: { stars: 1000 } });
+    const sNo = score(noMatch, 'project', ['image', 'watermark']);
+    const sYes = score(match, 'project', ['image', 'watermark']);
+    expect(sYes).toBeGreaterThan(sNo);
   });
 });
 

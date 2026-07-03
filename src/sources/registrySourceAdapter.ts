@@ -3,6 +3,7 @@ import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { NpmRawResult, CratesRawResult, RawResult } from '../normalize/types.js';
 import { httpGet, HttpError } from '../util/http.js';
 import { SourceError } from '../errors.js';
+import { translateQuery } from '../classifier/queryTranslator.js';
 
 interface NpmSearchResponse {
   objects: Array<{
@@ -85,12 +86,14 @@ export class RegistrySourceAdapter implements SourceAdapter {
     const eco = opts.ecosystem;
     // PyPI has no search API — skip, GitHub adapter covers Python via mirror repos
     if (eco === 'python') return [];
+    // 翻译中文关键词,中英合并搜索扩大覆盖
+    const expandedQuery = translateQuery(query);
     const tasks: Promise<RawResult[]>[] = [];
     if (!eco || eco === 'js' || eco === 'ts') {
-      tasks.push(searchNpm(query, opts.timeoutMs).then(r => r as RawResult[]));
+      tasks.push(searchNpm(expandedQuery, opts.timeoutMs).then(r => r as RawResult[]));
     }
     if (!eco || eco === 'rust') {
-      tasks.push(searchCrates(query, opts.timeoutMs).then(r => r as RawResult[]));
+      tasks.push(searchCrates(expandedQuery, opts.timeoutMs).then(r => r as RawResult[]));
     }
     const settled = await Promise.allSettled(tasks);
     const ok: RawResult[] = [];

@@ -4,6 +4,7 @@ import type {
   FindWheelInput, FindWheelOutput, Intent, RawResult, Wheel,
 } from '../normalize/types.js';
 import { classify } from '../classifier/queryClassifier.js';
+import { extractKeywords } from '../classifier/queryTranslator.js';
 import { normalize } from '../normalize/normalizer.js';
 import { enrich } from '../enrich/metricsEnricher.js';
 import { rank } from '../rank/ranker.js';
@@ -66,7 +67,9 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     }
 
     const wheels: Wheel[] = allRaw.map(normalize).map(enrich);
-    const ranked = rank(wheels, intent, limit);
+    // 提取 query 关键词(含中文翻译后的英文),用于排序时描述匹配加分
+    const queryKeywords = extractKeywords(input.query);
+    const ranked = rank(wheels, intent, limit, queryKeywords);
     const output: FindWheelOutput = {
       query: input.query,
       intent,
