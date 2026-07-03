@@ -15,11 +15,11 @@ export interface CacheOpts {
   enabled: boolean;
 }
 
-export interface CacheEntry {
+export interface CacheEntry<T = Wheel[]> {
   /** 写入时间戳(ms) */
   writtenAt: number;
-  /** 缓存的最终排序结果 */
-  wheels: Wheel[];
+  /** 缓存值(字段名保留 wheels 以向后兼容,实际可为任意类型) */
+  wheels: T;
 }
 
 /** 计算 cache key:sha1(query + intent + ecosystem + limit) */
@@ -30,17 +30,17 @@ export function cacheKey(
   return crypto.createHash('sha1').update(raw).digest('hex').slice(0, 24);
 }
 
-export interface Cache {
-  get(key: string): Promise<Wheel[] | undefined>;
-  set(key: string, wheels: Wheel[]): Promise<void>;
+export interface Cache<T = Wheel[]> {
+  get(key: string): Promise<T | undefined>;
+  set(key: string, value: T): Promise<void>;
   /** 同 key 并发只执行一次 fn,其他复用结果 */
-  dedupe<T>(key: string, fn: () => Promise<T>): Promise<T>;
+  dedupe<U>(key: string, fn: () => Promise<U>): Promise<U>;
 }
 
-export function createCache(opts: CacheOpts): Cache {
+export function createCache<T = Wheel[]>(opts: CacheOpts): Cache<T> {
   const inFlight = new Map<string, Promise<unknown>>();
 
-  async function get(key: string): Promise<Wheel[] | undefined> {
+  async function get(key: string): Promise<T | undefined> {
     if (!opts.enabled) return undefined;
     const file = path.join(opts.dir, `${key}.json`);
     let raw: string;
@@ -49,9 +49,9 @@ export function createCache(opts: CacheOpts): Cache {
     } catch {
       return undefined;
     }
-    let entry: CacheEntry;
+    let entry: CacheEntry<T>;
     try {
-      entry = JSON.parse(raw) as CacheEntry;
+      entry = JSON.parse(raw) as CacheEntry<T>;
     } catch {
       return undefined;
     }
@@ -60,10 +60,10 @@ export function createCache(opts: CacheOpts): Cache {
     return entry.wheels;
   }
 
-  async function set(key: string, wheels: Wheel[]): Promise<void> {
+  async function set(key: string, value: T): Promise<void> {
     if (!opts.enabled) return;
     const file = path.join(opts.dir, `${key}.json`);
-    const entry: CacheEntry = { writtenAt: Date.now(), wheels };
+    const entry: CacheEntry<T> = { writtenAt: Date.now(), wheels: value };
     try {
       await fs.promises.mkdir(opts.dir, { recursive: true });
       await fs.promises.writeFile(file, JSON.stringify(entry), 'utf8');
@@ -72,10 +72,10 @@ export function createCache(opts: CacheOpts): Cache {
     }
   }
 
-  async function dedupe<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  async function dedupe<U>(key: string, fn: () => Promise<U>): Promise<U> {
     // 已有 in-flight 请求则复用
     const existing = inFlight.get(key);
-    if (existing) return existing as Promise<T>;
+    if (existing) return existing as Promise<U>;
     const p = fn();
     inFlight.set(key, p);
     try {
