@@ -110,7 +110,8 @@ function buildDescription(m: HfModel): string {
   const parts: string[] = [];
   if (m.pipeline_tag) parts.push(m.pipeline_tag);
   if (m.library_name) parts.push(`(${m.library_name})`);
-  if (m.tags && m.tags.length > 0) {
+  // 防御:tags 可能不是数组(API 异常或字段类型变化)
+  if (Array.isArray(m.tags) && m.tags.length > 0) {
     // 只取前 5 个 tag,避免描述过长
     const tagPreview = m.tags.slice(0, 5).join(', ');
     parts.push(`tags: ${tagPreview}`);

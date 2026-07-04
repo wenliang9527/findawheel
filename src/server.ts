@@ -32,6 +32,7 @@ const FindWheelSchema = z.object({
   intent: z.enum(['feature', 'project', 'auto']).optional(),
   ecosystem: z.string().optional(),
   limit: z.number().int().positive().optional(),
+  exclude: z.array(z.string()).optional(),
 });
 
 const SuggestQueriesSchema = z.object({
@@ -100,13 +101,17 @@ export function createServer() {
       {
         name: 'suggest_queries',
         description:
-          'Call this FIRST to generate precise English search queries before calling find_wheel. ' +
-          'Input the user\'s original request (Chinese/English/any language), and it returns 4 search query variants from different angles (precise/action-oriented/fuzzy/concise) plus a recommended one. ' +
-          '\n\nWHY CALL THIS FIRST: AI knowledge has a training cutoff and may hallucinate libraries or use outdated APIs. ' +
-          'Searching real wheels (npm/GitHub/PyPI/...) gives you: (1) real existing libraries (no hallucination), (2) current API usage from README, (3) community-vetted choices (stars/active maintenance), (4) license compatibility info. ' +
-          'Searching first then coding with a reference wheel dramatically reduces AI mistakes vs. generating code from memory. ' +
-          '\n\nWorkflow: (1) user says "I want to make X" / "我想做一个..." → (2) call suggest_queries with user\'s original words → (3) pick the recommended query or combine variants → (4) call find_wheel with the refined English query → (5) review results, compare 2-3 candidates, recommend the best fit to user → (6) THEN start coding with the chosen wheel as reference. ' +
-          '\n\nDO NOT pass user\'s raw words directly to find_wheel — generate precise English search terms first via this tool.',
+          'Generate 4 precise English search query variants (precise/action-oriented/fuzzy/concise) from user\'s original request. CALL THIS FIRST before find_wheel.\n' +
+          '\n== CORE RULES ==\n' +
+          '1. Pass user\'s original words (Chinese/English/any language) as input.\n' +
+          '2. Returns 4 variants + 1 recommended — pick recommended or combine variants for find_wheel.\n' +
+          '3. NEVER pass raw user words to find_wheel — always go through this tool first.\n' +
+          '\n== WHY CALL THIS FIRST ==\n' +
+          '- AI knowledge has training cutoff → may hallucinate libraries or use outdated APIs.\n' +
+          '- Real search (npm/GitHub/PyPI/...) returns real libraries, current APIs, community-vetted choices.\n' +
+          '- Searching first then coding with reference = dramatically fewer AI mistakes.\n' +
+          '\n== WORKFLOW ==\n' +
+          '(1) user says "I want to make X" / "我想做一个..." → (2) call suggest_queries → (3) pick recommended query → (4) call find_wheel → (5) recommend 2-3 to user → (6) code with chosen wheel as reference.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -119,29 +124,27 @@ export function createServer() {
       {
         name: 'find_wheel',
         description:
-          'MUST CALL THIS FIRST before any creative work — before brainstorming, before designing, before planning, before writing any code for a new feature, new module, new project, or new code snippet. ' +
-          'Search for existing reusable wheels (open-source projects, packages, APIs, CLIs, SDKs, code snippets, algorithms) so you avoid reinventing the wheel. ' +
-          '\n\nWHEN TO CALL (mandatory triggers):\n' +
-          '- User says "I want to make/build/create a ..." / "我想做一个/实现一个..."\n' +
-          '- User asks for a new feature, new module, new project, new functionality\n' +
-          '- User asks "help me write a ..." / "帮我写一个..."\n' +
-          '- Any time you\'re about to generate code for something that might already exist as a library/package\n' +
-          '\nWHY SEARCH FIRST (not generate from memory):\n' +
-          '- AI knowledge has a training cutoff → may use outdated APIs or deprecated patterns\n' +
-          '- AI may hallucinate libraries that don\'t exist → real search returns only real libraries\n' +
-          '- AI may reinvent the wheel → searching shows existing solutions (don\'t write a debounce from scratch when lodash exists)\n' +
-          '- AI may pick the wrong library → stars/maintenance/recency help pick the right one\n' +
-          '- Searching first then coding with reference = dramatically fewer mistakes\n' +
-          '\nWORKFLOW: (1) call suggest_queries first to get precise English search terms → (2) call find_wheel with the refined query → (3) review top 5 results, compare stars/lastUpdated/description → (4) recommend 2-3 best fits to user with reasons → (5) THEN start coding, referencing the chosen wheel\'s README/API.\n' +
-          '\nIMPORTANT: Do NOT pass user\'s raw words as query. Use suggest_queries first to generate precise English search terms. ' +
-          'Example: user says "我想做AI串口监控" → suggest_queries → query should be "serial port monitor tool", NOT "AI串口监控".\n' +
-          '\nRESULT FORMAT: Each result includes a "match" field with recommendation level (highly_recommended/recommended/optional/not_recommended), matchScore (0-1), reason, and matchedKeywords. ' +
-          'HYBRID PRESENTATION: top 3 results include inline "details" (README snippet, code examples, latest release, license check); results 4-10 have "hasDetails": true (call get_wheel_details for full details). ' +
-          '\nIMPORTANT: findawheel does NOT filter results by relevance — it returns top N by popularity + recency + keyword match. ' +
-          'YOU (the AI) must judge relevance yourself: skip irrelevant results (e.g., "remove watermark" when user wants to ADD watermark), pick the best fit for the user\'s scenario. ' +
-          '\nAI COLLABORATION: Each result includes a "match.recallReason" field explaining why it was recalled (e.g., "命中 stepper/motor;3.0k stars;活跃维护"). Use this to quickly judge relevance. ' +
-          'If you identify irrelevant results, call find_wheel again with the "exclude" parameter listing the wheel names to skip — this filters them out without re-querying APIs. ' +
-          '\nWhen presenting to user: list ALL results grouped by recommendation level (highly_recommended first), include stars + reason — do NOT only show 1 result, give the user choices to compare.',
+          'Search for existing reusable wheels (libraries, packages, APIs, CLIs, SDKs, models, snippets) BEFORE writing new code. ' +
+          '\n\n== CORE RULES (must follow) ==\n' +
+          '1. CALL FIRST: When user says "I want to make/build/create a ..." → call suggest_queries → find_wheel → THEN code.\n' +
+          '2. DO NOT pass raw user input as query. Use suggest_queries first to get precise English search terms.\n' +
+          '   Example: user says "我想做AI串口监控" → query should be "serial port monitor tool", NOT "AI串口监控".\n' +
+          '3. findawheel does NOT filter by relevance — YOU judge relevance. Skip irrelevant results (e.g., "remove watermark" when user wants to ADD).\n' +
+          '4. List ALL results grouped by recommendation level to user. Do NOT only show 1 — give user choices.\n' +
+          '5. Recommend 2-3 best fits with reasons (compare stars/lastUpdated/description), then code with reference.\n' +
+          '\n== DO NOT ==\n' +
+          '- DO NOT generate code from memory without searching first (may hallucinate or use outdated APIs).\n' +
+          '- DO NOT pass Chinese/raw words as query — translate via suggest_queries first.\n' +
+          '- DO NOT only recommend 1 result — always give 2-3 options.\n' +
+          '- DO NOT skip find_wheel because you "know" the answer — search verifies it still exists and is maintained.\n' +
+          '\n== RESULT FORMAT ==\n' +
+          'Each result has "match" field with: recommendation level (highly_recommended/recommended/optional/not_recommended), score (0-1), reason, matchedKeywords, recallReason.\n' +
+          'recallReason explains why recalled (e.g., "命中 stepper/motor;3.0k stars;活跃维护") — use it to quickly judge relevance.\n' +
+          'HYBRID PRESENTATION: top 3 include inline "details" (README/code/release/license); results 4-10 have "hasDetails": true (call get_wheel_details for details).\n' +
+          '\n== AI COLLABORATION (exclude parameter) ==\n' +
+          'If you identify irrelevant results, call find_wheel again with "exclude" param listing wheel names to skip — filters them without re-querying APIs. Case-insensitive match.\n' +
+          '\n== WORKFLOW ==\n' +
+          '(1) suggest_queries → (2) find_wheel → (3) review top 5, compare stars/lastUpdated/description → (4) recommend 2-3 with reasons → (5) code with chosen wheel as reference.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -152,7 +155,7 @@ export function createServer() {
             exclude: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Wheel names to exclude from results (e.g., ["owner/repo", "package-name"]). Use this to filter out irrelevant results you identified in a previous call, without re-querying APIs. Names are matched case-insensitively.',
+              description: 'Wheel names to exclude (e.g., ["owner/repo", "package-name"]). Filter out irrelevant results from a previous call without re-querying APIs. Case-insensitive.',
             },
           },
           required: ['query'],
