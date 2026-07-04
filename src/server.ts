@@ -25,6 +25,7 @@ import { createCache } from './cache/cache.js';
 import type { WheelDetails } from './enrich/wheelDetailsEnricher.js';
 import { createFeedbackStore } from './feedback/feedbackStore.js';
 import { createRecordFeedbackTool } from './tools/recordFeedbackTool.js';
+import { searchKnowledge, type SearchKnowledgeInput } from './tools/searchKnowledgeTool.js';
 import { readEnv } from './util/env.js';
 
 const FindWheelSchema = z.object({
@@ -47,6 +48,11 @@ const GetWheelDetailsSchema = z.object({
 const RecordFeedbackSchema = z.object({
   name: z.string(),
   action: z.enum(['like', 'hide', 'click']),
+});
+
+const SearchKnowledgeSchema = z.object({
+  query: z.string(),
+  limit: z.number().int().positive().optional(),
 });
 
 export function createServer() {
@@ -192,6 +198,35 @@ export function createServer() {
           required: ['name', 'action'],
         },
       },
+      {
+        name: 'search_knowledge',
+        description:
+          'Search user\'s personal knowledge base (local Markdown notes: Obsidian vault, Logseq, plain .md folders). ' +
+          'Returns documents whose title/path/tags/content match the query, with snippets and file:// URLs.\n' +
+          '\n' +
+          'WHEN TO CALL:\n' +
+          '- User asks "what does my team\'s wiki say about X" / "团队有没有 X 的文档"\n' +
+          '- User asks "find my notes on X" / "查一下我的笔记里关于 X"\n' +
+          '- User asks about project ADR / architecture decisions / team conventions\n' +
+          '- User mentions "internal docs" / "内部文档" / "团队规范"\n' +
+          '\n' +
+          'WHEN NOT TO CALL:\n' +
+          '- User asks for open-source libraries → use find_wheel instead\n' +
+          '- User asks how to use a library → use find_wheel + get_wheel_details\n' +
+          '\n' +
+          'CONFIG: Requires FINDAWHEEL_KB_ENABLED=true and FINDAWHEEL_KB_ROOT=<path> (comma-separated for multiple vaults). ' +
+          'If not configured, returns a hint explaining how to enable. ' +
+          'Tags are extracted from YAML frontmatter (tags:/categories:) and inline #tag. ' +
+          'Search priority: title > path > tag > content.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Search query in any language (Chinese/English). Will be split into keywords for matching.' },
+            limit: { type: 'number', description: 'Max results (default 10, max 50)' },
+          },
+          required: ['query'],
+        },
+      },
     ],
   }));
 
@@ -224,6 +259,17 @@ export function createServer() {
         return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
       }
       return recordFeedbackTool.handle(parsed.data) as unknown as CallToolResult;
+    }
+    if (name === 'search_knowledge') {
+      const parsed = SearchKnowledgeSchema.safeParse(req.params.arguments);
+      if (!parsed.success) {
+        return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
+      }
+      const result = await searchKnowledge(parsed.data as SearchKnowledgeInput, env);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        isError: false,
+      };
     }
     return { content: [{ type: 'text', text: `unknown tool: ${name}` }], isError: true };
   });
