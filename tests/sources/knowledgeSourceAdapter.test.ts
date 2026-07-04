@@ -300,4 +300,217 @@ describe('knowledgeSourceAdapter', () => {
       expect(items.find(i => i.relativePath.includes('.obsidian'))).toBeUndefined();
     });
   });
+
+  describe('[[wiki-link]] parsing', () => {
+    beforeAll(async () => {
+      await writeMd(
+        'wiki-test/wiki-links.md',
+        `# Wiki Link Test
+
+References:
+- [[redis-notes]]
+- [[auth-module|auth-alias]]
+- [[design-doc#architecture]]
+- [[block-ref#^block-id-1]]
+
+Some inline [[another-note]] here.
+`,
+      );
+    });
+
+    it('extracts [[note]] as tag', async () => {
+      const items = await searchKnowledgeBase([tmpDir], {
+        keywords: ['redis-notes'],
+        limit: 10,
+        maxFileKb: 100,
+      });
+      const item = items.find(i => i.relativePath.includes('wiki-links'));
+      expect(item).toBeDefined();
+      expect(item!.tags).toContain('redis-notes');
+      expect(item!.matchedField).toBe('tag');
+    });
+
+    it('extracts [[note|alias]] as tag (drops alias)', async () => {
+      const items = await searchKnowledgeBase([tmpDir], {
+        keywords: ['auth-module'],
+        limit: 10,
+        maxFileKb: 100,
+      });
+      const item = items.find(i => i.relativePath.includes('wiki-links'));
+      expect(item).toBeDefined();
+      expect(item!.tags).toContain('auth-module');
+      expect(item!.tags).not.toContain('auth-alias');
+    });
+
+    it('extracts [[note#heading]] as tag (drops heading)', async () => {
+      const items = await searchKnowledgeBase([tmpDir], {
+        keywords: ['design-doc'],
+        limit: 10,
+        maxFileKb: 100,
+      });
+      const item = items.find(i => i.relativePath.includes('wiki-links'));
+      expect(item).toBeDefined();
+      expect(item!.tags).toContain('design-doc');
+      expect(item!.tags).not.toContain('architecture');
+    });
+
+    it('extracts [[note#^block-id]] as tag (drops block-id)', async () => {
+      const items = await searchKnowledgeBase([tmpDir], {
+        keywords: ['block-ref'],
+        limit: 10,
+        maxFileKb: 100,
+      });
+      const item = items.find(i => i.relativePath.includes('wiki-links'));
+      expect(item).toBeDefined();
+      expect(item!.tags).toContain('block-ref');
+      expect(item!.tags).not.toContain('block-id-1');
+    });
+  });
+
+  describe('aliases frontmatter field', () => {
+    beforeAll(async () => {
+      await writeMd(
+        'alias-test/array-format.md',
+        `---
+aliases: [js-framework, frontend-lib]
+---
+
+# React Notes
+
+React is a UI library.
+`,
+      );
+      await writeMd(
+        'alias-test/multiline-format.md',
+        `---
+aliases:
+  - database-system
+  - data-store
+---
+
+# PostgreSQL Guide
+
+PostgreSQL is a powerful database.
+`,
+      );
+    });
+
+    it('extracts aliases from array format [name1, name2]', async () => {
+      const items = await searchKnowledgeBase([tmpDir], {
+        keywords: ['js-framework'],
+        limit: 10,
+        maxFileKb: 100,
+      });
+      const item = items.find(i => i.relativePath.includes('array-format'));
+      expect(item).toBeDefined();
+      expect(item!.tags).toContain('js-framework');
+      expect(item!.tags).toContain('frontend-lib');
+    });
+
+    it('extracts aliases from multiline format', async () => {
+      const items = await searchKnowledgeBase([tmpDir], {
+        keywords: ['database-system'],
+        limit: 10,
+        maxFileKb: 100,
+      });
+      const item = items.find(i => i.relativePath.includes('multiline-format'));
+      expect(item).toBeDefined();
+      expect(item!.tags).toContain('database-system');
+      expect(item!.tags).toContain('data-store');
+    });
+  });
+
+  describe('knowledge base type detection', () => {
+    let obsidianDir: string;
+    let logseqDir: string;
+    let siyuanDir: string;
+    let plainDir: string;
+
+    beforeAll(async () => {
+      obsidianDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kb-obsidian-'));
+      logseqDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kb-logseq-'));
+      siyuanDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kb-siyuan-'));
+      plainDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kb-plain-'));
+
+      // Obsidian: .obsidian/ 配置目录
+      await fs.mkdir(path.join(obsidianDir, '.obsidian'), { recursive: true });
+      await fs.mkdir(path.join(obsidianDir, 'notes'), { recursive: true });
+      await fs.writeFile(
+        path.join(obsidianDir, 'notes', 'obsidian-note.md'),
+        '# Obsidian Note\n\nContent about obsidian setup.',
+      );
+
+      // Logseq: logseq/ + pages/ 目录
+      await fs.mkdir(path.join(logseqDir, 'logseq'), { recursive: true });
+      await fs.mkdir(path.join(logseqDir, 'pages'), { recursive: true });
+      await fs.writeFile(
+        path.join(logseqDir, 'pages', 'logseq-note.md'),
+        '# Logseq Page\n\nContent about logseq workflow.',
+      );
+
+      // 思源: conf/ + data/ 目录
+      await fs.mkdir(path.join(siyuanDir, 'conf'), { recursive: true });
+      await fs.mkdir(path.join(siyuanDir, 'data'), { recursive: true });
+      await fs.writeFile(
+        path.join(siyuanDir, 'data', 'siyuan-note.md'),
+        '# Siyuan Note\n\nContent about siyuan note taking.',
+      );
+
+      // plain: 普通 .md 文件夹
+      await fs.mkdir(path.join(plainDir, 'docs'), { recursive: true });
+      await fs.writeFile(
+        path.join(plainDir, 'docs', 'plain-note.md'),
+        '# Plain Note\n\nJust a regular markdown folder.',
+      );
+    });
+
+    afterAll(async () => {
+      await Promise.all([
+        fs.rm(obsidianDir, { recursive: true, force: true }),
+        fs.rm(logseqDir, { recursive: true, force: true }),
+        fs.rm(siyuanDir, { recursive: true, force: true }),
+        fs.rm(plainDir, { recursive: true, force: true }),
+      ]);
+    });
+
+    it('detects Obsidian by .obsidian/ directory', async () => {
+      const items = await searchKnowledgeBase([obsidianDir], {
+        keywords: ['obsidian'],
+        limit: 10,
+        maxFileKb: 100,
+      });
+      expect(items.length).toBeGreaterThan(0);
+      expect(items[0].kbType).toBe('obsidian');
+    });
+
+    it('detects Logseq by logseq/ + pages/ directories', async () => {
+      const items = await searchKnowledgeBase([logseqDir], {
+        keywords: ['logseq'],
+        limit: 10,
+        maxFileKb: 100,
+      });
+      expect(items.length).toBeGreaterThan(0);
+      expect(items[0].kbType).toBe('logseq');
+    });
+
+    it('detects Siyuan by conf/ + data/ directories', async () => {
+      const items = await searchKnowledgeBase([siyuanDir], {
+        keywords: ['siyuan'],
+        limit: 10,
+        maxFileKb: 100,
+      });
+      expect(items.length).toBeGreaterThan(0);
+      expect(items[0].kbType).toBe('siyuan');
+    });
+
+    it('detects plain for ordinary .md folder', async () => {
+      const items = await searchKnowledgeBase([plainDir], {
+        keywords: ['plain'],
+        limit: 10,
+        maxFileKb: 100,
+      });
+      expect(items.length).toBeGreaterThan(0);
+      expect(items[0].kbType).toBe('plain');
+    });
+  });
 });

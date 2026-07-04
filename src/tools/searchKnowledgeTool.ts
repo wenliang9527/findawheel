@@ -6,7 +6,7 @@
 // - search_knowledge 用于搜索用户自己的笔记/wiki/ADR/内部文档
 // AI 根据用户意图自行决定调用哪个工具。
 
-import { searchKnowledgeBase, type KnowledgeItem } from '../sources/knowledgeSourceAdapter.js';
+import { searchKnowledgeBase, type KnowledgeItem, type KbType } from '../sources/knowledgeSourceAdapter.js';
 import type { EnvConfig } from '../util/env.js';
 import { BASE_STOPWORDS } from '../util/stopwords.js';
 
@@ -19,6 +19,8 @@ export interface SearchKnowledgeOutput {
   query: string;
   total: number;
   items: KnowledgeItem[];
+  /** 识别到的知识库类型(去重,如 ['obsidian'] 或 ['plain', 'obsidian']) */
+  kbTypes?: KbType[];
   /** 提示信息:知识库未启用 / 没有匹配结果 等 */
   hint?: string;
 }
@@ -80,10 +82,16 @@ export async function searchKnowledge(
     maxFileKb: env.kbMaxFileKb,
   });
 
+  // 从结果中提取识别到的知识库类型(去重)
+  const kbTypes = items.length > 0
+    ? [...new Set(items.map(i => i.kbType))]
+    : undefined;
+
   return {
     query: input.query,
     total: items.length,
     items,
+    kbTypes,
     hint: items.length === 0
       ? 'No matching documents found in knowledge base.'
       : undefined,

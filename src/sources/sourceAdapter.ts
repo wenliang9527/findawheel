@@ -14,6 +14,8 @@ export interface SearchOpts {
   githubToken?: string;
   /** GitLab token(可选,提升限流额度) */
   gitlabToken?: string;
+  /** Gitee token(可选,提升限流额度:匿名 60/hour,认证 5000/hour) */
+  giteeToken?: string;
   /** Libraries.io API key(必需,未配置时 adapter 跳过) */
   librariesIoApiKey?: string;
   /** Exa API key(Web 搜索主源),可选 */

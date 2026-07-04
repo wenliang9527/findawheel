@@ -4,15 +4,28 @@
 // 设计:
 // 1. 多根支持(FINDAWHEEL_KB_ROOT 逗号分隔多个路径)
 // 2. 扫描 .md 文件,提取标题/路径/snippet/tags
-// 3. 标签来源:YAML frontmatter 的 tags/categories + 正文 inline #tag
-// 4. 缓存可选(FINDAWHEEL_KB_CACHE_ENABLED,默认 false 每次扫描保证最新)
-// 5. 单文件大小上限(FINDAWHEEL_KB_MAX_FILE_KB,默认 100KB)
+// 3. 标签来源:
+//    a. YAML frontmatter 的 tags / categories 字段
+//    b. frontmatter 的 aliases 字段(Obsidian 别名,也作为可搜索标签)
+//    c. 正文 inline #tag(排除 ## 标题语法)
+//    d. 正文 [[wiki-link]] 双向链接 → 提取为 tags(提升召回)
+// 4. 智能识别知识库类型(Obsidian/Logseq/思源/普通),只读不写,无副作用
+// 5. 缓存可选(FINDAWHEEL_KB_CACHE_ENABLED,默认 false 每次扫描保证最新)
+// 6. 单文件大小上限(FINDAWHEEL_KB_MAX_FILE_KB,默认 100KB)
 //
-// 搜索字段优先级:title > path > tags > content
+// 搜索字段优先级:title > path > tag > content
 // 不做全文搜索/向量检索,保持零依赖和与"不调 LLM"约束一致。
+//
+// 与专用 MCP 服务器(如 obsidian-mcp)的共存策略:
+// - 本工具只读、零依赖、即装即用、支持任意 .md 文件夹
+// - 专用 MCP 需目标软件运行 + 插件 + token,但支持写操作/全文搜索/向量检索
+// - 两者可同时配置,findawheel 负责轻量快速搜索,专用 MCP 处理深度集成
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+
+/** 知识库类型(自动识别) */
+export type KbType = 'obsidian' | 'logseq' | 'siyuan' | 'plain';
 
 export interface KnowledgeItem {
   /** 文档标题(第一行 H1 或文件名不含扩展名) */
@@ -25,7 +38,7 @@ export interface KnowledgeItem {
   url: string;
   /** 正文摘要(前 500 字符,去掉 frontmatter) */
   snippet: string;
-  /** 从 frontmatter 和 inline #tag 提取的标签 */
+  /** 从 frontmatter 和 inline #tag 和 [[wiki-link]] 提取的标签 */
   tags: string[];
   /** 文件最后修改时间(ISO date) */
   lastUpdated?: string;
@@ -33,6 +46,8 @@ export interface KnowledgeItem {
   matchedField: 'title' | 'path' | 'tag' | 'content';
   /** 所属知识库根目录(用于多根场景区分来源) */
   kbRoot: string;
+  /** 知识库类型(自动识别) */
+  kbType: KbType;
 }
 
 export interface KnowledgeSearchOpts {
@@ -48,7 +63,45 @@ interface ParsedMarkdown {
   title: string;
   frontmatterTags: string[];
   inlineTags: string[];
+  wikiLinkTags: string[];
   bodyWithoutFrontmatter: string;
+}
+
+/**
+ * 识别知识库类型(通过目录结构特征)。
+ *
+ * Obsidian: 顶层有 .obsidian/ 配置目录
+ * Logseq:  顶层有 logseq/ 配置目录,且包含 pages/ 和 journals/
+ * 思源:    顶层有 conf/ 和 data/ 目录,data/ 下有 notebooks/
+ * plain:   普通 .md 文件夹,无特定结构
+ *
+ * 检测只读目录,不写入任何文件,无副作用。
+ */
+async function detectKbType(rootDir: string): Promise<KbType> {
+  try {
+    const entries = await fs.readdir(rootDir, { withFileTypes: true });
+    const dirs = new Set(entries.filter(e => e.isDirectory()).map(e => e.name));
+
+    // Obsidian: 有 .obsidian/ 配置目录(虽然扫描时跳过隐藏目录,但此处检测根目录)
+    if (entries.some(e => e.isDirectory() && e.name === '.obsidian')) {
+      return 'obsidian';
+    }
+    // Logseq: 有 logseq/ 目录 + (pages/ 或 journals/)
+    if (dirs.has('logseq') && (dirs.has('pages') || dirs.has('journals'))) {
+      return 'logseq';
+    }
+    // 思源笔记: 有 conf/ + data/ 目录
+    if (dirs.has('conf') && dirs.has('data')) {
+      return 'siyuan';
+    }
+    // Logseq 也可能没 logseq/ 目录,但通常有 pages/journals
+    if (dirs.has('pages') && dirs.has('journals')) {
+      return 'logseq';
+    }
+    return 'plain';
+  } catch {
+    return 'plain';
+  }
 }
 
 /** 解析 Markdown 文件,提取标题/标签/正文 */
@@ -88,6 +141,23 @@ function parseMarkdown(content: string, fileName: string): ParsedMarkdown {
         if (cleaned) frontmatterTags.push(cleaned);
       });
     }
+    // aliases: 字段(Obsidian 别名,也作为可搜索标签)
+    // 支持 aliases: [name1, name2] / aliases:\n  - name1\n  - name2
+    const aliasLine = fm.match(/^aliases:\s*\[(.+?)\]\s*$/m);
+    if (aliasLine) {
+      aliasLine[1].split(',').forEach(t => {
+        const cleaned = t.trim().replace(/^["']|["']$/g, '');
+        if (cleaned) frontmatterTags.push(cleaned);
+      });
+    } else {
+      const aliasBlock = fm.match(/^aliases:\s*\n((?:\s+-\s+.+\n?)+)/m);
+      if (aliasBlock) {
+        aliasBlock[1].split('\n').forEach(line => {
+          const m = line.match(/^\s+-\s+(.+?)\s*$/);
+          if (m) frontmatterTags.push(m[1].replace(/^["']|["']$/g, ''));
+        });
+      }
+    }
   }
 
   // 2. 提取标题:第一行 H1,或文件名
@@ -107,10 +177,28 @@ function parseMarkdown(content: string, fileName: string): ParsedMarkdown {
     inlineTags.add(tagMatch[1].toLowerCase());
   }
 
+  // 4. 提取 [[wiki-link]] 双向链接 → 作为 tags(提升召回)
+  // 支持:
+  //   [[note-name]]          → note-name
+  //   [[note-name|alias]]     → note-name (丢弃 alias)
+  //   [[note-name#heading]]   → note-name (丢弃 heading)
+  //   [[note-name#^block-id]] → note-name (丢弃 block-id)
+  // 大小写保留(因为 wiki-link 通常是文件名,大小写敏感)
+  const wikiLinkTags = new Set<string>();
+  const wikiRegex = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
+  let wikiMatch;
+  while ((wikiMatch = wikiRegex.exec(body)) !== null) {
+    const name = wikiMatch[1].trim();
+    if (name && name.length <= 100) { // 防止异常长链接
+      wikiLinkTags.add(name);
+    }
+  }
+
   return {
     title,
     frontmatterTags,
     inlineTags: [...inlineTags],
+    wikiLinkTags: [...wikiLinkTags],
     bodyWithoutFrontmatter: body,
   };
 }
@@ -121,7 +209,7 @@ async function scanMarkdownFiles(rootDir: string): Promise<string[]> {
   try {
     const entries = await fs.readdir(rootDir, { withFileTypes: true });
     for (const entry of entries) {
-      // 跳过隐藏目录(.git, .obsidian, .trash 等)
+      // 跳过隐藏目录(.git, .obsidian, .trash, .vscode 等)
       if (entry.name.startsWith('.')) continue;
       const fullPath = path.join(rootDir, entry.name);
       if (entry.isDirectory()) {
@@ -175,18 +263,19 @@ export async function searchKnowledgeBase(
   const maxFileBytes = maxFileKb * 1024;
   const items: KnowledgeItem[] = [];
 
-  // 并行扫描所有根目录
+  // 并行扫描所有根目录 + 识别知识库类型
   const allFiles = await Promise.all(
     kbRoots.map(async root => {
       const normalizedRoot = path.resolve(root);
       const files = await scanMarkdownFiles(normalizedRoot);
-      return { root: normalizedRoot, files };
+      const kbType = await detectKbType(normalizedRoot);
+      return { root: normalizedRoot, files, kbType };
     }),
   );
 
   // 并行读取并匹配所有文件
   const readTasks: Promise<void>[] = [];
-  for (const { root, files } of allFiles) {
+  for (const { root, files, kbType } of allFiles) {
     for (const file of files) {
       readTasks.push((async () => {
         try {
@@ -198,7 +287,8 @@ export async function searchKnowledgeBase(
           const parsed = parseMarkdown(content, fileName);
 
           const relativePath = path.relative(root, file);
-          const allTags = [...parsed.frontmatterTags, ...parsed.inlineTags];
+          // 合并所有 tags 来源:frontmatter + inline #tag + [[wiki-link]]
+          const allTags = [...parsed.frontmatterTags, ...parsed.inlineTags, ...parsed.wikiLinkTags];
 
           const matchedField = findMatchedField(
             parsed.title,
@@ -219,6 +309,7 @@ export async function searchKnowledgeBase(
             lastUpdated: stat.mtime.toISOString(),
             matchedField,
             kbRoot: root,
+            kbType,
           });
         } catch {
           // 单文件读取失败:跳过,不阻断
