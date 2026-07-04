@@ -3,8 +3,8 @@
 // (wheelDetailsEnricher 反向 import type Wheel,同为 type-only,TS 能正确处理)
 import type { WheelDetails } from '../enrich/wheelDetailsEnricher.js';
 
-export type WheelSource = 'github' | 'gitlab' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'librariesio' | 'web';
-export type WheelType = 'project' | 'package' | 'api' | 'cli' | 'sdk';
+export type WheelSource = 'github' | 'gitlab' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'librariesio' | 'web' | 'github-code' | 'vscode-marketplace' | 'paperswithcode';
+export type WheelType = 'project' | 'package' | 'api' | 'cli' | 'sdk' | 'snippet' | 'extension' | 'paper';
 export type Activity = 'high' | 'medium' | 'low';
 
 /** 推荐等级:从高到低 */
@@ -187,4 +187,65 @@ export interface WebRawResult {
   score?: number;
 }
 
-export type RawResult = GitHubRawResult | NpmRawResult | CratesRawResult | GiteeRawResult | GitlabRawResult | PypiRawResult | LibrariesIoRawResult | WebRawResult;
+/** GitHub Code Search 结果(代码片段),对应 /search/code endpoint */
+export interface GitHubCodeRawResult {
+  source: 'github-code';
+  /** 完整仓库名(owner/repo) */
+  name: string;
+  /** 文件在 GitHub 上的 html_url */
+  url: string;
+  /** 文件路径(如 src/utils/parser.ts) */
+  path: string;
+  /** 仓序述述(可能为空) */
+  description: string;
+  /** 仓库 stars */
+  stars: number;
+  /** 文件语言(如 TypeScript/Python) */
+  language: string | null;
+  /** 命中的代码片段(text_matches 里的 fragment,可能为空) */
+  textFragment?: string;
+  /** 仓库最近 push 时间 */
+  pushedAt: string;
+}
+
+/** VS Code Marketplace 扩展结果 */
+export interface VscodeExtensionRawResult {
+  source: 'vscode-marketplace';
+  /** 扩展 ID(publisher.name,如 ms-python.python) */
+  name: string;
+  /** 扩展详情页 URL */
+  url: string;
+  /** 扩展简介(displayName + shortDescription) */
+  description: string;
+  /** 安装数 */
+  installCount: number;
+  /** 评分(0~5) */
+  averageRating?: number;
+  /** 评分人数 */
+  ratingCount?: number;
+  /** 最近更新时间 */
+  lastUpdated: string;
+  /** publisher 名 */
+  publisher: string;
+}
+
+/** Papers with Code 论文/算法结果 */
+export interface PaperRawResult {
+  source: 'paperswithcode';
+  /** 论文标题 */
+  name: string;
+  /** 论文详情页 URL */
+  url: string;
+  /** 论文摘要 */
+  description: string;
+  /** 发表年份 */
+  year?: number;
+  /** 关联的 GitHub 仓库 URL(可能为空) */
+  repoUrl?: string;
+  /** 论文 stars(关联 repo 的) */
+  stars?: number;
+  /** 所属任务/领域(如 image-classification) */
+  area?: string;
+}
+
+export type RawResult = GitHubRawResult | NpmRawResult | CratesRawResult | GiteeRawResult | GitlabRawResult | PypiRawResult | LibrariesIoRawResult | WebRawResult | GitHubCodeRawResult | VscodeExtensionRawResult | PaperRawResult;

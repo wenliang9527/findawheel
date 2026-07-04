@@ -111,5 +111,45 @@ export function normalize(raw: RawResult): Wheel {
         type: 'project', // 网页结果默认归类为 project(可能是工具站/教程/博客)
         metrics: {},
       };
+    case 'github-code':
+      return {
+        // name 用 owner/repo#path 形式,既唯一又能体现归属
+        name: `${raw.name}#${raw.path}`,
+        source: 'github-code',
+        url: raw.url,
+        // description 拼接仓库描述 + 命中片段,便于 Ranker 关键词匹配
+        description: raw.textFragment
+          ? `${raw.description} ${raw.textFragment}`.trim()
+          : raw.description,
+        type: 'snippet',
+        metrics: {
+          stars: raw.stars,
+          lastUpdated: raw.pushedAt,
+        },
+      };
+    case 'vscode-marketplace':
+      return {
+        name: raw.name,
+        source: 'vscode-marketplace',
+        url: raw.url,
+        description: raw.description,
+        type: 'extension',
+        metrics: {
+          // 安装数映射到 downloads,复用现有评分逻辑
+          downloads: raw.installCount,
+          lastUpdated: raw.lastUpdated,
+        },
+      };
+    case 'paperswithcode':
+      return {
+        name: raw.name,
+        source: 'paperswithcode',
+        url: raw.url,
+        description: raw.description,
+        type: 'paper',
+        metrics: {
+          ...(raw.stars !== undefined ? { stars: raw.stars } : {}),
+        },
+      };
   }
 }

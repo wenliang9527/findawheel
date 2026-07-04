@@ -66,4 +66,79 @@ describe('normalize', () => {
     };
     expect(normalize(raw).metrics.archived).toBe(true);
   });
+
+  it('maps github-code result as snippet type with owner/repo#path name', () => {
+    const raw: RawResult = {
+      source: 'github-code',
+      name: 'foo/bar',
+      url: 'https://github.com/foo/bar/blob/main/src/parser.ts',
+      path: 'src/parser.ts',
+      description: 'A parser library',
+      stars: 100,
+      language: 'TypeScript',
+      textFragment: 'function parse(input) { ... }',
+      pushedAt: '2025-06-01T00:00:00Z',
+    };
+    const w = normalize(raw);
+    expect(w.source).toBe('github-code');
+    expect(w.type).toBe('snippet');
+    expect(w.name).toBe('foo/bar#src/parser.ts');
+    expect(w.metrics.stars).toBe(100);
+    expect(w.metrics.lastUpdated).toBe('2025-06-01T00:00:00Z');
+    // description 应拼接仓库描述 + 命中片段
+    expect(w.description).toContain('parser library');
+    expect(w.description).toContain('function parse');
+  });
+
+  it('maps github-code result without textFragment', () => {
+    const raw: RawResult = {
+      source: 'github-code',
+      name: 'foo/baz',
+      url: 'https://github.com/foo/baz/blob/main/x.ts',
+      path: 'x.ts',
+      description: 'only desc',
+      stars: 0,
+      language: null,
+      pushedAt: '2025-01-01T00:00:00Z',
+    };
+    const w = normalize(raw);
+    expect(w.description).toBe('only desc');
+    expect(w.type).toBe('snippet');
+  });
+
+  it('maps vscode-marketplace result as extension type with installCount as downloads', () => {
+    const raw: RawResult = {
+      source: 'vscode-marketplace',
+      name: 'ms-python.python',
+      url: 'https://marketplace.visualstudio.com/items?itemName=ms-python.python',
+      description: 'Python extension',
+      installCount: 100000000,
+      averageRating: 4.5,
+      ratingCount: 1000,
+      lastUpdated: '2025-06-01T00:00:00Z',
+      publisher: 'ms-python',
+    };
+    const w = normalize(raw);
+    expect(w.source).toBe('vscode-marketplace');
+    expect(w.type).toBe('extension');
+    expect(w.metrics.downloads).toBe(100000000);
+    expect(w.metrics.lastUpdated).toBe('2025-06-01T00:00:00Z');
+  });
+
+  it('maps paperswithcode result as paper type', () => {
+    const raw: RawResult = {
+      source: 'paperswithcode',
+      name: 'Attention Is All You Need',
+      url: 'https://paperswithcode.com/paper/attention-is-all-you-need',
+      description: 'The Transformer architecture',
+      year: 2017,
+      repoUrl: 'https://github.com/tensorflow/tensor2tensor',
+      stars: 5000,
+      area: 'sequence-modeling',
+    };
+    const w = normalize(raw);
+    expect(w.source).toBe('paperswithcode');
+    expect(w.type).toBe('paper');
+    expect(w.metrics.stars).toBe(5000);
+  });
 });
