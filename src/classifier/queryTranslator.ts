@@ -84,6 +84,14 @@ const ZH_TO_EN: Record<string, string[]> = {
   '神经网络': ['neural-network'],
   '自然语言处理': ['nlp'],
   '计算机视觉': ['computer-vision', 'cv'],
+
+  // 算法/论文类(补 Papers with Code 盲区)
+  '算法': ['algorithm'],
+  '论文': ['paper', 'research'],
+  '模型': ['model'],
+  '训练': ['training', 'train'],
+  '推理': ['inference'],
+  '最新进展': ['state-of-the-art', 'sota'],
 };
 
 /**
