@@ -2,7 +2,7 @@
 // HuggingFace Hub 适配器 —— 补「AI 模型/数据集」盲区。
 //
 // 关键差异(对比其他源):
-// 1. 无需 key(公开 API,但有限流;带 token 可提升额度)
+// 1. 无需 key(公开 API,匿名限流约 1000 req/h,配合磁盘缓存足够)
 // 2. GET 请求,可用 httpGet
 // 3. 主要补 AI/ML 场景:用户搜"图像分割模型""语音识别模型"时能找到 pretrained model
 // 4. 返回模型名/下载数/点赞数/最近更新时间
@@ -61,7 +61,9 @@ export interface HuggingfaceRawResult {
  * 触发场景:用户搜"图像分割模型""语音识别""LLM 微调"等 AI/ML 相关 query 时,
  * 补充 pretrained model 召回,避免只找到代码库而找不到现成模型。
  *
- * 限流:无 token 时有较严格的限流(约 1000 req/h);带 token 可提升。
+ * 限流:匿名调用限流约 1000 req/h(配合磁盘缓存足够)。如需提升,
+ * 可在请求头加 `Authorization: Bearer hf_xxx`(需单独配置 HuggingFace token,
+ * 与 GitHub PAT 格式不同,目前未单独支持,保持匿名调用)。
  * 容错:API 失败时抛 SourceError,由 findWheelTool 标记为 degraded 不阻断主流程。
  */
 export class HuggingfaceSourceAdapter implements SourceAdapter {
@@ -77,10 +79,10 @@ export class HuggingfaceSourceAdapter implements SourceAdapter {
     url.searchParams.set('direction', '-1');
 
     try {
+      // HuggingFace 公开 API,匿名调用即可(限流约 1000 req/h,配合磁盘缓存足够)
+      // 注:不注入 githubToken —— HF token 格式是 hf_xxx,与 GitHub PAT 完全不同
       const data = await httpGet<HfSearchResponse>(url.toString(), {
         timeoutMs: opts.timeoutMs,
-        // token 可选,带 token 提升限流额度
-        ...(opts.githubToken ? { token: opts.githubToken } : {}),
       });
 
       // HuggingFace API 直接返回数组(非 { results: [...] } 结构)

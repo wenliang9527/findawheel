@@ -265,12 +265,10 @@ export interface PaperRawResult {
   description: string;
   /** 发表年份 */
   year?: number;
-  /** 关联的 GitHub 仓库 URL(可能为空) */
+  /** 关联的 GitHub 仓库 URL 或 arxiv 链接(可能为空) */
   repoUrl?: string;
-  /** 论文 stars(关联 repo 的) */
+  /** 论文 stars(关联 repo 的,适配器暂未填充,留作未来扩展) */
   stars?: number;
-  /** 所属任务/领域(如 image-classification) */
-  area?: string;
 }
 
 /** HuggingFace Hub 模型结果(D 阶段新增,补 AI 模型盲区) */

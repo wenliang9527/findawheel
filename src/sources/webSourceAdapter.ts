@@ -21,7 +21,7 @@
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { WebRawResult, RawResult } from '../normalize/types.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
-import { httpPost, HttpError } from '../util/http.js';
+import { httpPost } from '../util/http.js';
 
 interface ExaSearchResponse {
   results: Array<{
@@ -40,11 +40,6 @@ interface TavilySearchResponse {
     content: string;
     score: number;
   }>;
-}
-
-/** HTTP 状态码表示"额度耗尽或限流" */
-function isQuotaExhausted(status: number): boolean {
-  return status === 402 || status === 429;
 }
 
 /**
@@ -128,13 +123,11 @@ export class WebSourceAdapter implements SourceAdapter {
         return await searchExa(q, opts.exaApiKey, opts.timeoutMs);
       } catch (err) {
         // Exa 失败,继续尝试 Tavily
-        // (额度耗尽 402 / 限流 429 / 网络错误 都走 fallback)
-        const status = err instanceof HttpError ? err.status : undefined;
-        if (status && !isQuotaExhausted(status) && status >= 400 && status < 500) {
-          // 4xx 非额度问题(如 401 key 无效):不 fallback,直接返回空
-          // 因为 Tavily 大概率也会遇到类似问题,且避免无意义请求
-          // 但 402/429 仍要 fallback(额度问题,另一个 key 可能有额度)
-        }
+        // Exa 与 Tavily 是独立服务的独立 key,任一失败都应尝试另一个:
+        // - 402/429:Exa 额度耗尽或限流,Tavily 可能有额度
+        // - 401/403:Exa key 无效,Tavily key 仍可能有效(独立账号)
+        // - 5xx/网络:服务端故障或网络抖动,Tavily 可能仍可用
+        // 4xx 非额度问题不在此提前 return,继续走 Tavily fallback
       }
     }
 

@@ -151,6 +151,8 @@ export function normalize(raw: RawResult): Wheel {
         description: raw.description,
         type: 'paper',
         metrics: {
+          // stars 字段适配器暂未填充(paperswithcode API 不直接返回,需额外查关联 repo)
+          // 留作未来扩展:若后续补充 repo stars 抓取,此处自动生效
           ...(raw.stars !== undefined ? { stars: raw.stars } : {}),
         },
       };
