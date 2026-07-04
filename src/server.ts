@@ -19,6 +19,7 @@ import { PypiSourceAdapter } from './sources/pypiSourceAdapter.js';
 import { LibrariesIoSourceAdapter } from './sources/librariesIoSourceAdapter.js';
 import { GitHubCodeSourceAdapter } from './sources/githubCodeSourceAdapter.js';
 import { VscodeMarketplaceSourceAdapter } from './sources/vscodeMarketplaceSourceAdapter.js';
+import { PapersWithCodeSourceAdapter } from './sources/papersWithCodeSourceAdapter.js';
 import { createCache } from './cache/cache.js';
 import type { WheelDetails } from './enrich/wheelDetailsEnricher.js';
 import { createFeedbackStore } from './feedback/feedbackStore.js';
@@ -77,6 +78,7 @@ export function createServer() {
       new LibrariesIoSourceAdapter(),
       new GitHubCodeSourceAdapter(),
       new VscodeMarketplaceSourceAdapter(),
+      new PapersWithCodeSourceAdapter(),
     ],
     detailsCache,
     enrichOpts,

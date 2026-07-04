@@ -161,12 +161,13 @@ findWheelTool 同时发起两组搜索：
 **每个适配器内部**也是并行调用各自的子源：
 
 ```
-GitHubSourceAdapter.search()        ← GitHub Search API（引号短语 + NOT 排除）
-GitHubCodeSourceAdapter.search()    ← GitHub Code Search（/search/code,代码片段,text-match）
-GiteeSourceAdapter.search()         ← Gitee OpenAPI
-RegistrySourceAdapter.search()      ← npm + crates.io API（内部也并行）
-WebSourceAdapter.search()           ← Exa 主，失败 fallback Tavily
+GitHubSourceAdapter.search()            ← GitHub Search API（引号短语 + NOT 排除）
+GitHubCodeSourceAdapter.search()        ← GitHub Code Search（/search/code,代码片段,text-match）
+GiteeSourceAdapter.search()             ← Gitee OpenAPI
+RegistrySourceAdapter.search()          ← npm + crates.io API（内部也并行）
+WebSourceAdapter.search()               ← Exa 主，失败 fallback Tavily
 VscodeMarketplaceSourceAdapter.search() ← VS Code Marketplace（extensionquery POST）
+PapersWithCodeSourceAdapter.search()    ← Papers with Code（/api/v1/papers/,论文/算法）
 ```
 
 每个适配器返回各自格式的 `RawResult[]`。使用 `Promise.allSettled` 聚合——任一源失败不影响其他源。
@@ -548,6 +549,102 @@ interface SourceAdapter {
 - 限定域名到主流代码托管和包管理站点，避免无关结果
 
 > 💡 **零配置兼容**：两个 key 都未配置时，WebSourceAdapter 直接返回空数组，findawheel 仍可正常使用其他四个源。
+
+#### 4.8 GitHubCodeSourceAdapter
+
+| | |
+|:---|:---|
+| 📄 **文件** | `src/sources/githubCodeSourceAdapter.ts` |
+| 🌐 **API** | `GET https://api.github.com/search/code` |
+
+**用途**：搜代码片段而非仓库，补「代码片段」盲区（如"想找 parser 实现示例"）。
+
+**关键差异**（对比 `githubSourceAdapter`）：
+- 调用 `/search/code` 而非 `/search/repositories`
+- **强制认证**：无 `GITHUB_TOKEN` 直接返回空数组（Code Search API 要求登录）
+- 限流更严格：10 req/min（认证后），无匿名访问
+- 结果是「文件级」而非「仓库级」，`RawResult` 包含文件路径 `path` 和命中片段 `textFragment`
+- 只搜默认分支、<384KB 文件
+- 需主动请求 `application/vnd.github.text-match+json` media type 才能拿到代码片段
+
+**查询构造**：`query + language:<ecosystem映射>`（如 `addClass in:file language:js`）。
+
+**字段映射**：
+- `name` = `owner/repo`（仓库名）
+- `url` = 文件 `html_url`
+- `path` = 文件路径（如 `src/utils/parser.ts`）
+- `textFragment` = 命中的代码片段（第一个 `text_matches` 的 `fragment`）
+- `stars` = 仓库 `stargazers_count`
+- 归一化后 `name` 拼接成 `owner/repo#path`，`description` 拼接仓库描述 + `textFragment`
+
+**限流处理**：403 → 抛 `RateLimitError`，其他 HTTP 错误 → 抛 `SourceError`。
+
+#### 4.9 VscodeMarketplaceSourceAdapter
+
+| | |
+|:---|:---|
+| 📄 **文件** | `src/sources/vscodeMarketplaceSourceAdapter.ts` |
+| 🌐 **API** | `POST https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery` |
+
+**用途**：搜 VS Code 插件，补「IDE 插件」盲区。
+
+**关键差异**：
+- **POST 请求**（`http.ts` 只有 `httpGet`，这里直接用 `fetch`）
+- **无需 key**（路径含 `_apis/public`，公开 API）
+- 非官方文档化 API，微软未承诺 SLA，结构可能变更
+- 请求体是 GraphQL-like 结构，`filterType=8` 是 SearchText，`filterType=12` 是 TargetVSCode
+- `flags=914` 让 Marketplace 返回统计信息（installCount/rating）
+
+**请求体**：
+```json
+{
+  "filters": [{
+    "criteria": [
+      { "filterType": 8, "value": "<query>" },
+      { "filterType": 12, "value": "Microsoft.VisualStudio.Code" }
+    ]
+  }],
+  "assetTypes": [],
+  "flags": 914
+}
+```
+
+**字段映射**：
+- `name` = `publisher.extensionName`（如 `ms-python.python`）
+- `url` = `https://marketplace.visualstudio.com/items?itemName=<fullName>`
+- `description` = `displayName - shortDescription`
+- `installCount` = statistics 数组里 `install` 项的值
+- `averageRating` / `ratingCount` = statistics 数组里 `averagerating` / `ratingcount`
+- `lastUpdated` = `versions[0].lastUpdated`
+
+**错误处理**：HTTP 非 2xx → 抛 `SourceError`；网络错误/abort → 抛 `SourceError`。
+
+#### 4.10 PapersWithCodeSourceAdapter
+
+| | |
+|:---|:---|
+| 📄 **文件** | `src/sources/papersWithCodeSourceAdapter.ts` |
+| 🌐 **API** | `GET https://paperswithcode.com/api/v1/papers/` |
+
+**用途**：搜论文与算法实现，补「算法」盲区（如"想找最新的图像分割算法"）。
+
+**关键差异**：
+- **无需 key**（公开 API）
+- GET 请求，可用 `httpGet`
+- API 文档质量较差（老旧），结构可能不稳定，代码做防御性解析
+- 论文没有 stars 概念，但有关联 repo（本期暂不抓 stars，留空）
+- 返回论文标题/摘要/年份，以及 arxiv 链接
+
+**查询参数**：`q=<query>&page=1&items_per_page=20`。
+
+**字段映射**：
+- `name` = 论文 `title`
+- `url` = `https://paperswithcode.com/paper/<id>`
+- `description` = `abstract`
+- `year` = 从 `published` 字段提取（可能是 `2017-06-12` 或 `2017`）
+- `repoUrl` = `url_abs`（arxiv 链接，便于用户进一步查看）
+
+**错误处理**：HTTP 错误 → 抛 `SourceError`；网络错误 → 抛 `SourceError`。
 
 ---
 

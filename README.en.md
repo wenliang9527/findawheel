@@ -159,7 +159,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
            └────────┬───────┘         │              │
                     ▼                 │              │
     ┌─────────────────────────────────────────────┐  │
-    │  GitHub · Gitee · npm · crates · GitLab · PyPI · Libraries.io · GitHub Code · VS Code Market · Web    │  │
+    │  GitHub · Gitee · npm · crates · GitLab · PyPI · Libraries.io · GitHub Code · VS Code Market · Papers with Code · Web    │  │
     │     (Exa primary + Tavily fallback)         │  │
     └─────────────────────┬───────────────────────┘  │
                           ▼                          │
@@ -203,6 +203,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
 | **Libraries.io** | Multi-platform packages | API key required | One query covers 30+ package managers (npm/pypi/cargo/maven...) |
 | **GitHub Code** | Code snippets | reuses `GITHUB_TOKEN` | `/search/code`, searches code snippets instead of repos; auth required, 10 req/min rate limit; returns `textFragment` with matched code |
 | **VS Code Marketplace** | IDE extensions | not required | `extensionquery` POST API, searches VS Code extensions; returns install count/rating; unofficially-documented API |
+| **Papers with Code** | Papers / algorithms | not required | `/api/v1/papers/`, searches papers and algorithm implementations; returns title/abstract/year/arxiv link; fills the algorithm gap |
 
 > ℹ️ **PyPI strategy**: PyPI has no official search JSON API. We parse the HTML of `pypi.org/search` to extract package info (no stars/downloads data).
 >
@@ -290,6 +291,13 @@ Three batches — see [Phase 3 plan](./docs/superpowers/plans/2026-07-03-phase3.
 - [x] Feedback-weighted ranking (like +0.2/click +0.05/hide -0.5, accumulation caps, re-sort + re-grade)
 - [x] `feedbackDelta` field (shows feedback adjustment in results, transparent and auditable)
 - [~] ML scoring model (deferred per YAGNI; will evaluate after real feedback data accumulates)
+
+### ✅ Phase 4 (Done)
+
+- [x] **GitHub Code Search source** — `/search/code`, fills the code-snippet gap; auth required, 10 req/min, text-match media type returns matched fragments
+- [x] **VS Code Marketplace source** — `extensionquery` POST API, fills the IDE-extension gap; returns install count/rating
+- [x] **Papers with Code source** — `/api/v1/papers/`, fills the algorithm/paper gap; returns title/abstract/year/arxiv link
+- [x] **Keyword expansion** — queryTranslator (implement/function/code/snippet/example/source/plugin/extension/algorithm/paper/model/training/inference) + queryParser (ACTION_VERBS + SYNONYMS) updated in sync
 
 ---
 
