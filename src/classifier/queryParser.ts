@@ -135,34 +135,89 @@ const SYNONYMS: Record<string, string[]> = {
 };
 
 /**
- * 嵌入式领域信号词:query 含这些词时,识别为嵌入式领域。
- * 用于让 buildGithubQuery 去掉引号(让词干匹配单复数,如 motor→motors),
- * 并让 fuzzyQuery 追加平台扩展词(扩大召回)。
+ * 领域配置表:每个领域的信号词 + 平台扩展词。
+ * - 信号词:query 含这些词时识别为该领域,触发领域特定优化
+ *   (buildGithubQuery 去引号 + recommender stars 分母调整 + 泛词过滤)
+ * - 平台扩展词:追加到 fuzzyQuery 让副搜索扩大召回
+ *   (主流库 description 常含平台名而非泛词)
+ *
+ * 添加新领域只需在此表加一项,无需改其他代码。
  */
-const EMBEDDED_DOMAIN_WORDS = new Set([
-  'stepper', 'motor', 'servo', 'encoder', 'pwm', 'mcu', 'microcontroller',
-  '单片机', '电机', '马达', '驱动', '嵌入式', '舵机', '伺服', '编码器',
-  'arduino', 'esp32', 'esp8266', 'stm32', 'rp2040', 'pico', 'avr', '8051',
-]);
+interface DomainConfig {
+  /** 信号词:query 含任一词即识别为该领域 */
+  signalWords: string[];
+  /** 平台扩展词:追加到 fuzzyQuery 扩大副搜索召回 */
+  platforms: string[];
+}
 
-/**
- * 领域 → 平台扩展词表。检测到对应领域时,把平台名追加到 fuzzyQuery,
- * 让副搜索扩大召回(主流库 description 常含平台名而非泛词 microcontroller)。
- */
-const DOMAIN_PLATFORMS: Record<string, string[]> = {
-  embedded: ['arduino', 'esp32', 'stm32', 'rp2040', 'pico', 'avr', 'pic', '8051'],
+const DOMAINS: Record<string, DomainConfig> = {
+  embedded: {
+    signalWords: [
+      'stepper', 'motor', 'servo', 'encoder', 'pwm', 'mcu', 'microcontroller',
+      '单片机', '电机', '马达', '驱动', '嵌入式', '舵机', '伺服', '编码器',
+      'arduino', 'esp32', 'esp8266', 'stm32', 'rp2040', 'pico', 'avr', '8051',
+    ],
+    platforms: ['arduino', 'esp32', 'stm32', 'rp2040', 'pico', 'avr', 'pic', '8051'],
+  },
+  frontend: {
+    signalWords: [
+      'react', 'vue', 'angular', 'svelte', 'solid', 'component', 'ui-library',
+      'css', 'tailwind', 'styled', 'frontend', '前端', '组件', '样式',
+    ],
+    platforms: ['react', 'vue', 'angular', 'svelte', 'solid', 'tailwind', 'bootstrap'],
+  },
+  'data-science': {
+    signalWords: [
+      'pandas', 'numpy', 'matplotlib', 'jupyter', 'notebook', 'dataframe',
+      'tensorflow', 'pytorch', 'sklearn', 'scikit', 'dataset', 'visualization',
+      '数据分析', '数据科学', '机器学习', '深度学习',
+    ],
+    platforms: ['python', 'jupyter', 'pandas', 'numpy', 'matplotlib', 'tensorflow', 'pytorch'],
+  },
+  devops: {
+    signalWords: [
+      'docker', 'kubernetes', 'k8s', 'ci-cd', 'pipeline', 'terraform',
+      'ansible', 'helm', 'prometheus', 'grafana', '部署', '运维', '容器', '编排',
+    ],
+    platforms: ['docker', 'kubernetes', 'terraform', 'ansible', 'helm', 'prometheus', 'grafana'],
+  },
+  game: {
+    signalWords: [
+      'unity', 'unreal', 'godot', 'game', 'engine', 'shader', 'renderer',
+      'physics', 'collision', 'sprite', '游戏', '引擎', '着色器', '物理',
+    ],
+    platforms: ['unity', 'unreal', 'godot', 'opengl', 'vulkan', 'directx'],
+  },
+  security: {
+    signalWords: [
+      'security', 'vulnerability', 'pentest', 'ctf', 'exploit', 'crypto',
+      'forensic', 'malware', 'scanner', '安全', '漏洞', '渗透', '逆向',
+    ],
+    platforms: ['burp', 'metasploit', 'nmap', 'wireshark', 'ghidra', 'ida'],
+  },
 };
 
 /**
  * 检测 query 所属领域。返回领域名(如 'embedded')或 null。
- * 用于让 buildGithubQuery / fuzzyQuery 做领域特定优化。
+ * 优先级:按 DOMAINS 表定义顺序,首个命中的领域胜出。
+ * 用于让 buildGithubQuery / fuzzyQuery / recommender 做领域特定优化。
  */
 function detectDomain(query: string): string | null {
   const lowerQuery = query.toLowerCase();
-  for (const word of EMBEDDED_DOMAIN_WORDS) {
-    if (lowerQuery.includes(word)) return 'embedded';
+  for (const [domainName, config] of Object.entries(DOMAINS)) {
+    for (const word of config.signalWords) {
+      if (lowerQuery.includes(word)) return domainName;
+    }
   }
   return null;
+}
+
+/**
+ * 获取指定领域的平台扩展词。领域不存在或无平台词时返回空数组。
+ */
+export function getDomainPlatforms(domain: string | null): string[] {
+  if (!domain) return [];
+  return DOMAINS[domain]?.platforms ?? [];
 }
 
 /**
@@ -234,12 +289,13 @@ export function parseQuery(query: string): ParsedQuery {
   });
   let fuzzyQuery = fuzzyWords.join(' ');
 
-  // 7. 领域识别:检测到嵌入式领域时,把平台扩展词追加到 fuzzyQuery
-  // 主流库 description 常含平台名(arduino/esp32)而非泛词 microcontroller,
+  // 7. 领域识别:检测到领域时,把平台扩展词追加到 fuzzyQuery
+  // 主流库 description 常含平台名(arduino/esp32/react/vue)而非泛词,
   // 追加平台词让副搜索扩大召回。
   const domain = detectDomain(query);
-  if (domain && DOMAIN_PLATFORMS[domain]) {
-    fuzzyQuery = `${fuzzyQuery} ${DOMAIN_PLATFORMS[domain].join(' ')}`;
+  const platforms = getDomainPlatforms(domain);
+  if (platforms.length > 0) {
+    fuzzyQuery = `${fuzzyQuery} ${platforms.join(' ')}`;
   }
 
   return {

@@ -124,6 +124,22 @@ const ZH_TO_EN: Record<string, string[]> = {
   // 平台名(中文 → 英文)
   '树莓派': ['raspberry-pi', 'rpi'],
   // 注:Arduino/STM32/ESP32/AVR/8051/Pico 通常用英文原名,不需翻译
+
+  // 前端/数据科学/DevOps/游戏/安全领域(补多领域盲区)
+  '组件库': ['component-library', 'ui-library'],
+  '组件': ['component'],
+  '样式': ['style', 'css'],
+  '数据帧': ['dataframe'],
+  '数据集': ['dataset'],
+  '可视化': ['visualization'],
+  '容器': ['container', 'docker'],
+  '编排': ['orchestration', 'kubernetes'],
+  '着色器': ['shader'],
+  '物理引擎': ['physics-engine'],
+  '碰撞': ['collision'],
+  '漏洞': ['vulnerability', 'cve'],
+  '渗透测试': ['pentest', 'penetration-test'],
+  '逆向': ['reverse-engineering'],
 };
 
 /**

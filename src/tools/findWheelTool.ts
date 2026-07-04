@@ -47,14 +47,41 @@ interface SearchResult {
 }
 
 /**
- * 嵌入式领域泛词:这些词在 query 里是"领域标签",但主流库 description 通常不含。
+ * 领域 → 泛词表:这些词在 query 里是"领域标签",但主流库 description 通常不含。
  * 评分时过滤掉,避免拉低 hitRate 导致主流库被低估。
  * 例:"stepper motor driver microcontroller" → 评分时只看 stepper/motor/driver。
+ *
+ * 添加新领域在此表加一项即可。
  */
-const DOMAIN_GENERIC_WORDS = new Set([
-  'microcontroller', 'mcu', 'embedded', 'microprocessor',
-  '单片机', '微控制器', '微处理器', '嵌入式',
-]);
+const DOMAIN_GENERIC_WORDS: Record<string, Set<string>> = {
+  embedded: new Set([
+    'microcontroller', 'mcu', 'embedded', 'microprocessor',
+    '单片机', '微控制器', '微处理器', '嵌入式',
+  ]),
+  frontend: new Set([
+    'frontend', '前端', 'web', 'ui', 'component', '组件',
+  ]),
+  'data-science': new Set([
+    'data-science', '数据科学', 'machine-learning', 'ml',
+  ]),
+  devops: new Set([
+    'devops', '运维', 'infrastructure', 'infra',
+  ]),
+  game: new Set([
+    'game', '游戏', 'engine', '引擎',
+  ]),
+  security: new Set([
+    'security', '安全', 'cybersecurity',
+  ]),
+};
+
+/**
+ * 获取指定领域的泛词集合。领域不存在时返回空集合。
+ */
+function getDomainGenericWords(domain: string | null): Set<string> {
+  if (!domain) return new Set();
+  return DOMAIN_GENERIC_WORDS[domain] ?? new Set();
+}
 
 export function createFindWheelTool(opts: CreateToolOpts) {
   const env = readEnv();
@@ -204,12 +231,15 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     const wheels: Wheel[] = allRaw.map(normalize).map(enrich);
     // 提取 query 关键词(含中文翻译后的英文),用于排序时描述匹配加分
     let queryKeywords = extractKeywords(input.query);
-    // 嵌入式领域:过滤掉领域泛词(microcontroller/mcu/embedded),
-    // 主流库 description 用平台名(arduino/esp32)而非泛词,留着泛词会拉低 hitRate。
+    // 领域特定:过滤掉领域泛词(microcontroller/frontend/data-science 等),
+    // 主流库 description 用平台名/具体技术名而非泛词,留着泛词会拉低 hitRate。
     // 例:joshr120/PD-Stepper(912 stars) description 含 stepper/motor/driver 但不含
     // microcontroller,若不过滤 hitRate=3/4,过滤后 hitRate=3/3=1.0,推荐等级从 optional 升到 recommended。
-    if (parsedQuery.domain === 'embedded') {
-      queryKeywords = queryKeywords.filter(kw => !DOMAIN_GENERIC_WORDS.has(kw.toLowerCase()));
+    if (parsedQuery.domain) {
+      const genericWords = getDomainGenericWords(parsedQuery.domain);
+      if (genericWords.size > 0) {
+        queryKeywords = queryKeywords.filter(kw => !genericWords.has(kw.toLowerCase()));
+      }
     }
     // 反义词排除列表传给 Ranker 过滤反向意图;核心词和格式词用于必命中过滤
     const ranked = rank(

@@ -167,3 +167,74 @@ describe('enrichWithMatch - embedded domain', () => {
     expect(enriched[0].match!.score).toBeCloseTo(0.5 + 0.05 + 0.2, 2);
   });
 });
+
+// ===== Phase 5 P4 新增:多领域 stars 分母 =====
+describe('computeMatch - multi-domain stars denominator', () => {
+  const keywords = ['test'];
+
+  it('uses 3000 denominator for game domain', () => {
+    const w = makeWheel({
+      description: 'test game engine',
+      metrics: { stars: 1500, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false, activity: 'high' },
+    });
+    const m = computeMatch(w, keywords, 'game');
+    // game 分母 3000: 1500/3000*0.3 = 0.15
+    // 通用分母 10000: 1500/10000*0.3 = 0.045
+    const mGeneral = computeMatch(w, keywords, null);
+    expect(m.score).toBeGreaterThan(mGeneral.score);
+  });
+
+  it('uses 5000 denominator for devops domain', () => {
+    const w = makeWheel({
+      description: 'test devops tool',
+      metrics: { stars: 2500, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false, activity: 'high' },
+    });
+    const m = computeMatch(w, keywords, 'devops');
+    // devops 分母 5000: 2500/5000*0.3 = 0.15
+    const mGeneral = computeMatch(w, keywords, null);
+    expect(m.score).toBeGreaterThan(mGeneral.score);
+  });
+
+  it('uses 5000 denominator for data-science domain', () => {
+    const w = makeWheel({
+      description: 'test data analysis',
+      metrics: { stars: 2500, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false, activity: 'high' },
+    });
+    const m = computeMatch(w, keywords, 'data-science');
+    const mGeneral = computeMatch(w, keywords, null);
+    expect(m.score).toBeGreaterThan(mGeneral.score);
+  });
+
+  it('uses 10000 denominator for frontend domain (same as default)', () => {
+    // frontend 分母 10000,与默认相同,所以分数应相等
+    const w = makeWheel({
+      description: 'test frontend component',
+      metrics: { stars: 5000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false, activity: 'high' },
+    });
+    const m = computeMatch(w, keywords, 'frontend');
+    const mGeneral = computeMatch(w, keywords, null);
+    expect(m.score).toBeCloseTo(mGeneral.score, 5);
+  });
+
+  it('uses 3000 denominator for security domain', () => {
+    const w = makeWheel({
+      description: 'test security scanner',
+      metrics: { stars: 900, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false, activity: 'high' },
+    });
+    const m = computeMatch(w, keywords, 'security');
+    // security 分母 3000: 900/3000*0.3 = 0.09
+    // 通用分母 10000: 900/10000*0.3 = 0.027
+    const mGeneral = computeMatch(w, keywords, null);
+    expect(m.score).toBeGreaterThan(mGeneral.score);
+  });
+
+  it('unknown domain falls back to default 10000 denominator', () => {
+    const w = makeWheel({
+      description: 'test unknown',
+      metrics: { stars: 5000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false, activity: 'high' },
+    });
+    const m = computeMatch(w, keywords, 'nonexistent-domain');
+    const mGeneral = computeMatch(w, keywords, null);
+    expect(m.score).toBeCloseTo(mGeneral.score, 5);
+  });
+});

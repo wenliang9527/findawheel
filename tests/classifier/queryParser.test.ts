@@ -162,6 +162,67 @@ describe('parseQuery', () => {
     expect(r.fuzzyQuery).toContain('rp2040');
   });
 
+  // ===== Phase 5 P4 新增:多领域识别 =====
+
+  it('detects frontend domain when query contains react/vue', () => {
+    expect(parseQuery('react component library').domain).toBe('frontend');
+    expect(parseQuery('vue ui components').domain).toBe('frontend');
+    expect(parseQuery('tailwind css').domain).toBe('frontend');
+  });
+
+  it('detects data-science domain when query contains pandas/jupyter', () => {
+    expect(parseQuery('pandas dataframe analysis').domain).toBe('data-science');
+    expect(parseQuery('jupyter notebook visualization').domain).toBe('data-science');
+    expect(parseQuery('pytorch model training').domain).toBe('data-science');
+  });
+
+  it('detects devops domain when query contains docker/kubernetes', () => {
+    expect(parseQuery('docker container orchestration').domain).toBe('devops');
+    expect(parseQuery('kubernetes helm chart').domain).toBe('devops');
+    expect(parseQuery('terraform infrastructure').domain).toBe('devops');
+  });
+
+  it('detects game domain when query contains unity/godot', () => {
+    expect(parseQuery('unity game engine').domain).toBe('game');
+    expect(parseQuery('godot shader').domain).toBe('game');
+    expect(parseQuery('opengl physics engine').domain).toBe('game');
+  });
+
+  it('detects security domain when query contains pentest/vulnerability', () => {
+    expect(parseQuery('pentest vulnerability scanner').domain).toBe('security');
+    expect(parseQuery('ctf exploit tool').domain).toBe('security');
+    expect(parseQuery('malware forensic').domain).toBe('security');
+  });
+
+  it('appends platform words to fuzzyQuery for frontend domain', () => {
+    const r = parseQuery('react component library');
+    expect(r.fuzzyQuery).toContain('react');
+    expect(r.fuzzyQuery).toContain('vue');
+    expect(r.fuzzyQuery).toContain('tailwind');
+  });
+
+  it('appends platform words to fuzzyQuery for data-science domain', () => {
+    const r = parseQuery('pandas dataframe');
+    expect(r.fuzzyQuery).toContain('python');
+    expect(r.fuzzyQuery).toContain('jupyter');
+    expect(r.fuzzyQuery).toContain('numpy');
+  });
+
+  it('detects Chinese 部署/运维 as devops domain', () => {
+    expect(parseQuery('docker 部署工具').domain).toBe('devops');
+    expect(parseQuery('运维 监控').domain).toBe('devops');
+  });
+
+  it('detects Chinese 游戏/引擎 as game domain', () => {
+    expect(parseQuery('unity 游戏引擎').domain).toBe('game');
+    expect(parseQuery('物理引擎 碰撞检测').domain).toBe('game');
+  });
+
+  it('detects Chinese 安全/漏洞 as security domain', () => {
+    expect(parseQuery('安全漏洞扫描').domain).toBe('security');
+    expect(parseQuery('渗透测试工具').domain).toBe('security');
+  });
+
   it('uses synonyms for fuzzyQuery on motor/driver/microcontroller', () => {
     const r = parseQuery('motor driver microcontroller');
     // motor→actuator, driver→controller, microcontroller→mcu 应出现在 fuzzyQuery

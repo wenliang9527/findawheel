@@ -6,6 +6,28 @@
 import type { Wheel, Recommendation, WheelMatch } from '../normalize/types.js';
 
 /**
+ * 领域 → stars 归一化分母配置。
+ * 不同领域 stars 天花板不同,用不同分母让分数公平:
+ * - 通用软件:10000 stars 才算主流(如 react/vue)
+ * - 嵌入式:3000 stars 已是主流(硬件库受众小)
+ * - 数据科学:5000 stars(python 生态中等)
+ * - DevOps:5000 stars(运维工具中等)
+ * - 游戏:3000 stars(游戏库小众)
+ * - 安全:3000 stars(安全工具小众)
+ * - 前端:10000 stars(组件库天花板高)
+ *
+ * 添加新领域在此表加一项即可。
+ */
+const DOMAIN_STARS_DENOMINATOR: Record<string, number> = {
+  embedded: 3000,
+  'data-science': 5000,
+  devops: 5000,
+  game: 3000,
+  security: 3000,
+  frontend: 10000,
+};
+
+/**
  * 计算单个 Wheel 的匹配信息。
  *
  * matchScore 构成(0~1):
@@ -40,11 +62,11 @@ export function computeMatch(
   const relevanceScore = hitRate * 0.5;
 
   // 2. 热度(0~0.3):stars 归一化
-  // 嵌入式领域 stars 普遍偏低(1k stars 已是主流库),用更小分母让分数合理
+  // 不同领域 stars 天花板不同,用领域特定分母让分数公平
   // 例:simplefoc 2886 stars:通用 0.0866 vs 嵌入式 0.289
   //     joshr120 912 stars:通用 0.027 vs 嵌入式 0.091
   const stars = wheel.metrics.stars ?? 0;
-  const starsDenominator = domain === 'embedded' ? 3000 : 10000;
+  const starsDenominator = (domain && DOMAIN_STARS_DENOMINATOR[domain]) || 10000;
   const popularityScore = Math.min(stars / starsDenominator, 1) * 0.3;
 
   // 3. 活跃度(0~0.2):最近更新 + activity
