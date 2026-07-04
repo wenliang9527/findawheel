@@ -166,6 +166,7 @@ GitHubCodeSourceAdapter.search()    ← GitHub Code Search（/search/code,代码
 GiteeSourceAdapter.search()         ← Gitee OpenAPI
 RegistrySourceAdapter.search()      ← npm + crates.io API（内部也并行）
 WebSourceAdapter.search()           ← Exa 主，失败 fallback Tavily
+VscodeMarketplaceSourceAdapter.search() ← VS Code Marketplace（extensionquery POST）
 ```
 
 每个适配器返回各自格式的 `RawResult[]`。使用 `Promise.allSettled` 聚合——任一源失败不影响其他源。

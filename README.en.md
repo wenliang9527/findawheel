@@ -159,7 +159,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
            └────────┬───────┘         │              │
                     ▼                 │              │
     ┌─────────────────────────────────────────────┐  │
-    │  GitHub · Gitee · npm · crates · GitLab · PyPI · Libraries.io · GitHub Code · Web    │  │
+    │  GitHub · Gitee · npm · crates · GitLab · PyPI · Libraries.io · GitHub Code · VS Code Market · Web    │  │
     │     (Exa primary + Tavily fallback)         │  │
     └─────────────────────┬───────────────────────┘  │
                           ▼                          │
@@ -202,6 +202,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
 | **PyPI** | Python packages | Not required | Parses `pypi.org/search` HTML, no stars/downloads data |
 | **Libraries.io** | Multi-platform packages | API key required | One query covers 30+ package managers (npm/pypi/cargo/maven...) |
 | **GitHub Code** | Code snippets | reuses `GITHUB_TOKEN` | `/search/code`, searches code snippets instead of repos; auth required, 10 req/min rate limit; returns `textFragment` with matched code |
+| **VS Code Marketplace** | IDE extensions | not required | `extensionquery` POST API, searches VS Code extensions; returns install count/rating; unofficially-documented API |
 
 > ℹ️ **PyPI strategy**: PyPI has no official search JSON API. We parse the HTML of `pypi.org/search` to extract package info (no stars/downloads data).
 >
