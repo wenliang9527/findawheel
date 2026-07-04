@@ -543,6 +543,143 @@ npm run test:watch # 测试监听模式
 
 </details>
 
+<details>
+<summary><b>🇨🇳 国内网络环境能否使用?Exa/Tavily key 在哪申请?</b></summary>
+
+**简短回答**：能用。findawheel 设计了降级机制，部分源失败不影响整体。Exa/Tavily 是可选的，不配也能跑。
+
+**Exa / Tavily key 在哪添加**
+
+两种方式：
+
+*方式一：MCP 配置 GUI（推荐生产接入）*
+
+在 Trae / Cursor / Claude Desktop 的 MCP 配置文件 `env` 字段添加：
+
+```json
+"env": {
+  "EXA_API_KEY": "your_exa_key_here",
+  "TAVILY_API_KEY": "your_tavily_key_here"
+}
+```
+
+*方式二：.env 文件（仅开发时用）*
+
+复制 `.env.example` 为 `.env`，填入 key。**注意：Trae 不会自动读取 .env**，生产接入必须用方式一。
+
+**key 申请地址**：
+
+| 服务 | 申请地址 | 免费额度 |
+|:-----|:-----|:-----|
+| Exa（主源，神经网络搜索） | https://exa.ai | 1000 次/月 |
+| Tavily（兜底） | https://tavily.com | 1000 次/月 |
+
+**国内有没有类似替代？**
+
+直接答案：没有完全等价的国内 AI Web 搜索 API。Exa/Tavily 是专为 AI 优化的神经网络搜索，国内现状：
+
+| 服务 | 状态 |
+|:-----|:-----|
+| Bing Web Search API | ❌ 2025-08 停服 |
+| 百度搜索 API | ⚠️ 需企业认证，个人难用 |
+| 搜狗搜索 API | ❌ 已停服 |
+| 360 搜索 | ❌ 无公开 API |
+
+**但好消息是**：findawheel 的核心价值在代码托管平台和包管理器，Web 搜索只是补充覆盖教程站/博客。
+
+**12 个数据源的国内可达性**：
+
+| 源 | 域名 | 国内可达 | 需要 key |
+|:-----|:-----|:------:|:------:|
+| Gitee | gitee.com | ✅ 国内 | 否 |
+| npm | registry.npmjs.org | ✅ | 否 |
+| crates.io | crates.io | ✅ | 否 |
+| PyPI | pypi.org | ✅ | 否 |
+| VS Code Marketplace | marketplace.visualstudio.com | ✅ | 否 |
+| GitHub | api.github.com | ⚠️ 慢但通 | 可选 |
+| GitLab | gitlab.com | ⚠️ 慢但通 | 可选 |
+| Exa | api.exa.ai | ❌ 国外 | 必需 |
+| Tavily | api.tavily.com | ❌ 国外 | 必需 |
+| Libraries.io | libraries.io | ❌ 国外 | 必需 |
+| HuggingFace | huggingface.co | ❌ 时通时断 | 否 |
+| Papers with Code | paperswithcode.com | ❌ 国外 | 否 |
+| GitHub Code Search | api.github.com | ⚠️ 同 GitHub | 必需 |
+
+**纯国内网络下仍可用的源**：Gitee + npm + crates.io + PyPI + VS Code Marketplace + GitHub（慢但通）+ GitLab（慢但通）
+
+**失去的**：Web 教程搜索、AI 模型、论文、多包管理器聚合
+
+**替代方案**：
+
+| 方案 | 说明 |
+|:-----|:-----|
+| **A. 零配置默认** | 所有 key 可选，不配 Exa/Tavily 时 WebSourceAdapter 返回空，findawheel 仍能用 GitHub/Gitee/npm/crates 等核心源 |
+| **B. 配置 GitHub Token** | 强烈推荐。Token 后 GitHub 限流从 60/h 提到 5000/h，GitHub 是最大数据源，token 能极大提升体验 |
+| **C. 开启磁盘缓存** | 默认已开，TTL 1 小时。相同 query 在 TTL 内不重复请求，减少对外网依赖 |
+| **D. 配置代理** | 如本机有代理，在 MCP 配置 `env` 加 `HTTPS_PROXY=http://127.0.0.1:7890`，所有国外源都能访问 |
+| **E. 内网完全隔离** | 只能用 Gitee + 缓存，搜索覆盖有限，但基础功能仍可用 |
+
+**总结建议**：
+
+| 场景 | 推荐配置 |
+|:-----|:-----|
+| 纯国内网络，不想折腾 | 只配 `GITHUB_TOKEN`（GitHub 慢但通），零配置也能用 |
+| 有代理 | 配代理 + 全部 key，体验最佳 |
+| 企业内网完全隔离 | 只能用 Gitee + 缓存，搜索覆盖有限 |
+
+</details>
+
+<details>
+<summary><b>📝 FINDAWHEEL_USER_LICENSE 和 FINDAWHEEL_FEEDBACK_DIR 怎么填?</b></summary>
+
+这两个环境变量都是**可选**的，留空即用默认值。
+
+**`FINDAWHEEL_USER_LICENSE`**：你项目的 license SPDX ID
+
+```bash
+# 留空（默认，跳过 license 兼容性检查）
+FINDAWHEEL_USER_LICENSE=
+
+# 常见填法：
+FINDAWHEEL_USER_LICENSE=MIT           # 最宽松，几乎所有都兼容
+FINDAWHEEL_USER_LICENSE=Apache-2.0    # 宽松，但不兼容 GPLv2
+FINDAWHEEL_USER_LICENSE=GPL-3.0       # 传染性，要求依赖也是 GPL
+FINDAWHEEL_USER_LICENSE=BSD-2-Clause
+FINDAWHEEL_USER_LICENSE=ISC
+```
+
+**填了之后的效果**：`find_wheel` 结果的 `details.licenseCheck` 字段会标注：
+- `"compatible"` — 该 wheel 的 license 和你项目兼容
+- `"incompatible"` — 不兼容（如你用 MIT，wheel 是 GPL-3.0）
+- `"unknown"` — wheel 无 license 或 SPDX ID 无法识别
+
+**建议**：个人项目填 `MIT`，企业项目按公司法务要求填。不确定就留空。
+
+---
+
+**`FINDAWHEEL_FEEDBACK_DIR`**：用户反馈存储目录
+
+```bash
+# 留空（默认 ~/.findawheel/feedback/，推荐）
+FINDAWHEEL_FEEDBACK_DIR=
+
+# 自定义路径（Windows 示例，注意双反斜杠）
+FINDAWHEEL_FEEDBACK_DIR=D:\\mydata\\findawheel-feedback
+
+# 自定义路径（macOS/Linux 示例）
+FINDAWHEEL_FEEDBACK_DIR=/home/user/my-findawheel-feedback
+```
+
+**注意**：
+- 留空时默认 `~/.findawheel/feedback/`（`~` 是用户主目录，Windows 是 `C:\Users\你的用户名\.findawheel\feedback\`）
+- 目录不存在会自动创建
+- **无 TTL**，反馈文件永久累积，直到手动删除
+- 每个 wheel 一个 JSON 文件，很小（几百字节）
+
+**建议**：留空用默认即可。只有需要把反馈数据放到其他位置（如 NAS 备份目录）时才填。
+
+</details>
+
 ---
 
 <div align="center">
