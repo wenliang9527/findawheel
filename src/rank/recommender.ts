@@ -43,10 +43,33 @@ export function computeMatch(
   );
 
   // 1. 相关度(0~0.5):命中率
+  // R1/R2 增强:topics 和 name 命中也算相关度,加权计算
   const hitRate = queryKeywords.length > 0
     ? matchedKeywords.length / queryKeywords.length
     : 0;
-  const relevanceScore = hitRate * 0.5;
+  let relevanceScore = hitRate * 0.5;
+
+  // R1:topics 命中额外加分(最多 +0.1)
+  if (wheel.topics && wheel.topics.length > 0 && queryKeywords.length > 0) {
+    const topicsLower = wheel.topics.map(t => t.toLowerCase());
+    const topicsHits = queryKeywords.filter(kw =>
+      topicsLower.some(t => t.includes(kw.toLowerCase()) || kw.toLowerCase().includes(t)),
+    ).length;
+    if (topicsHits > 0) {
+      relevanceScore += Math.min(topicsHits / queryKeywords.length, 1) * 0.1;
+    }
+  }
+
+  // R2:name 命中额外加分(最多 +0.1)
+  if (wheel.name && queryKeywords.length > 0) {
+    const nameLower = wheel.name.toLowerCase();
+    const nameHits = queryKeywords.filter(kw => nameLower.includes(kw.toLowerCase())).length;
+    if (nameHits > 0) {
+      relevanceScore += Math.min(nameHits / queryKeywords.length, 1) * 0.1;
+    }
+  }
+  // 相关度上限 0.5(原值)+ 0.1(topics) + 0.1(name) = 0.7,但钳制到 0.6 避免过度
+  relevanceScore = Math.min(relevanceScore, 0.6);
 
   // 2. 热度(0~0.3):stars 归一化(统一分母)
   const stars = wheel.metrics.stars ?? 0;

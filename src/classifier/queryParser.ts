@@ -33,6 +33,12 @@ export interface ParsedQuery {
   formatWords: string[];
   /** 模糊化语义 query(同义词/上位词泛化),用于副搜索扩大召回 */
   fuzzyQuery: string;
+  /**
+   * Q1:从 query 自动识别的 ecosystem(如 'python'/'js'/'rust'/'go'/'java')。
+   * 识别模式:"python 库"/"js 包"/"rust crate"/"npm 包"/"go module" 等。
+   * 缺失时为 undefined(用户未指定 ecosystem)。
+   */
+  ecosystem?: string;
 }
 
 /** 通用停用词/填充词,不作为核心短语的一部分 */
@@ -40,7 +46,33 @@ const STOPWORDS = new Set([
   'a', 'an', 'the', 'for', 'with', 'and', 'or', 'to', 'of', 'in', 'on',
   'my', 'i', 'want', 'need', 'looking', 'find', 'search',
   'image', 'tool', 'library', 'lib', 'package', 'pkg', 'project', // 通用词,不当核心
+  // Q2:意图触发词 —— 这些词表达用户想做什么,但不是搜索对象本身,应从核心词里剥离
+  // 注意:implement/function/snippet/example/sample 已在 ACTION_VERBS,这里不再列入
+  // STOPWORDS,否则会在过滤阶段被剔除,无法成为 coreWords(参见 queryParser 测试)
+  'want', 'wants', 'wanna', 'make', 'build', 'create', 'write', 'develop',
+  'help', 'please', 'could', 'would', 'should', 'can', 'may',
+  'good', 'best', 'popular', 'recommend', 'recommended',
+  'some', 'any', 'all', 'every', 'this', 'that', 'these', 'those',
+  // 中文意图词(翻译后可能仍是中文,需要过滤)
+  '想做', '想要', '帮我', '帮助', '实现', '开发', '编写', '创建', '构建',
+  '一个', '这个', '那种', '这种',
 ]);
+
+/**
+ * Q3:复合词拆分 —— 把 "image-watermark"/"serial_port" 等连字符/下划线连接的词拆成多个词。
+ * 场景:用户输入 "image-watermark-removal" 时,拆为 image/watermark/removal 三个词,
+ * 让每个词都能独立匹配 description 和 topics。
+ */
+function splitCompoundWords(query: string): string {
+  // 把连字符/下划线/斜杠连接的词用空格分隔
+  // 但保留 GitHub owner/repo 格式(如 a/b),这种格式在 GitHub 搜索里有特殊含义
+  // 简单策略:只在非 owner/repo 上下文拆分
+  return query
+    .replace(/([a-z])-([a-z])/gi, '$1 $2')  // image-watermark → image watermark
+    .replace(/([a-z])_([a-z])/gi, '$1 $2')   // serial_port → serial port
+    .replace(/([a-z])\/([a-z])/gi, '$1 $2')  // image/watermark → image watermark(但 owner/repo 也会被拆,可接受)
+    .trim();
+}
 
 /**
  * 文件格式词:query 里出现这些词时,suggest_queries 会把它们拼进动作导向搜索词。
@@ -159,7 +191,75 @@ const SYNONYMS: Record<string, string[]> = {
   recommend: ['suggestion', 'recommendation'],
   convert: ['transform', 'export', 'convert'],
   parse: ['extract', 'analyze', 'parse'],
+  // Q6:继续扩展 —— 高频技术词的同义词泛化(只列 B 段未覆盖的新词,
+  // 重复键已在 B 段定义:cache/queue/deploy/pipeline/proxy/train/inference/
+  // model/encrypt/hash/ui/form/table/chart/animation/drag/llm/prompt/embedding/agent/chat/translation)
+  // 状态/数据类
+  state: ['store', 'state-management'],
+  store: ['state', 'repository'],
+  // 测试/质量类
+  test: ['testing', 'spec', 'unit-test'],
+  mock: ['fake', 'stub', 'mock'],
+  coverage: ['coverage-report', 'codecov'],
+  // 部署/运维类
+  container: ['docker', 'podman', 'container'],
+  // 协议/通信类
+  websocket: ['ws', 'socket', 'websocket'],
+  http: ['rest', 'http-client', 'http'],
+  grpc: ['rpc', 'protobuf', 'grpc'],
+  // 数据科学类
+  dataset: ['corpus', 'data', 'dataset'],
+  // 安全类
+  auth: ['authentication', 'authn', 'auth'],
 };
+
+/**
+ * Q1:从 query 识别 ecosystem。
+ * 识别模式:
+ * - 中文:"python 库"/"js 包"/"rust 框架" 等
+ * - 英文:"python library"/"js package"/"rust crate" 等
+ * - 包管理器名:"npm 包"/"pypi 包"/"cargo crate" 等
+ * 返回标准化的 ecosystem 名('python'/'js'/'ts'/'rust'/'go'/'java'/'csharp'/'cpp'/'php'/'ruby'/'swift'/'kotlin'),
+ * 未识别返回 undefined。
+ */
+const ECOSYSTEM_PATTERNS: Array<{ pattern: RegExp; ecosystem: string }> = [
+  // Python 类
+  { pattern: /\b(python|py)\b[\s_-]*(库|包|框架|模块|module|library|package|framework)/i, ecosystem: 'python' },
+  { pattern: /\bpypi\b[\s_-]*(包|package)/i, ecosystem: 'python' },
+  // JavaScript/TypeScript 类
+  { pattern: /\b(js|javascript)\b[\s_-]*(库|包|框架|模块|module|library|package|framework)/i, ecosystem: 'js' },
+  { pattern: /\b(ts|typescript)\b[\s_-]*(库|包|框架|模块|module|library|package|framework)/i, ecosystem: 'ts' },
+  { pattern: /\bnode(\.js|js)?\b[\s_-]*(库|包|框架|module|library|package)/i, ecosystem: 'js' },
+  { pattern: /\bnpm\b[\s_-]*(包|package)/i, ecosystem: 'js' },
+  // Rust 类
+  { pattern: /\brust\b[\s_-]*(库|包|框架|crate|module|library|package|framework)/i, ecosystem: 'rust' },
+  { pattern: /\bcargo\b[\s_-]*(crate|package)/i, ecosystem: 'rust' },
+  // Go 类
+  { pattern: /\bgo(lang)?\b[\s_-]*(库|包|框架|module|library|package|framework)/i, ecosystem: 'go' },
+  // Java 类
+  { pattern: /\bjava\b[\s_-]*(库|包|框架|module|library|package|framework)/i, ecosystem: 'java' },
+  { pattern: /\bmaven\b[\s_-]*(package|artifact)/i, ecosystem: 'java' },
+  // C# 类
+  { pattern: /\b(c#|csharp|dotnet|\.net)\b[\s_-]*(库|包|框架|module|library|package|framework)/i, ecosystem: 'csharp' },
+  // C/C++ 类
+  { pattern: /\bc\+\+\b[\s_-]*(库|包|框架|module|library|package|framework)/i, ecosystem: 'cpp' },
+  // PHP 类
+  { pattern: /\bphp\b[\s_-]*(库|包|框架|module|library|package|framework)/i, ecosystem: 'php' },
+  { pattern: /\bcomposer\b[\s_-]*(package)/i, ecosystem: 'php' },
+  // Ruby 类
+  { pattern: /\bruby\b[\s_-]*(库|包|框架|gem|module|library|package|framework)/i, ecosystem: 'ruby' },
+  // Swift 类
+  { pattern: /\bswift\b[\s_-]*(库|包|框架|module|library|package|framework)/i, ecosystem: 'swift' },
+  // Kotlin 类
+  { pattern: /\bkotlin\b[\s_-]*(库|包|框架|module|library|package|framework)/i, ecosystem: 'kotlin' },
+];
+
+function detectEcosystem(query: string): string | undefined {
+  for (const { pattern, ecosystem } of ECOSYSTEM_PATTERNS) {
+    if (pattern.test(query)) return ecosystem;
+  }
+  return undefined;
+}
 
 /**
  * 解析 query,拆分核心词/修饰词。
@@ -176,8 +276,14 @@ const SYNONYMS: Record<string, string[]> = {
  * // }
  */
 export function parseQuery(query: string): ParsedQuery {
+  // Q3:先拆分复合词(image-watermark → image watermark)
+  const splitQuery = splitCompoundWords(query);
+
   // 1. 先翻译中文,中英合并
-  const expandedQuery = translateQuery(query);
+  const expandedQuery = translateQuery(splitQuery);
+
+  // Q1:识别 ecosystem(用原始 query,因为翻译可能丢失上下文)
+  const ecosystem = detectEcosystem(query);
 
   // 2. 拆词,过滤停用词和短词
   const allWords = expandedQuery
@@ -222,5 +328,6 @@ export function parseQuery(query: string): ParsedQuery {
   return {
     corePhrase, coreWords, modifiers: modifierWords,
     expandedQuery, formatWords, fuzzyQuery,
+    ecosystem,
   };
 }

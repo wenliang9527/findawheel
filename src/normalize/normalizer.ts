@@ -25,6 +25,7 @@ export function normalize(raw: RawResult): Wheel {
           license: raw.license ?? undefined,
           archived: raw.archived,
         },
+        topics: raw.topics,
       };
     }
     case 'npm':
@@ -39,6 +40,7 @@ export function normalize(raw: RawResult): Wheel {
           ...(raw.stars !== undefined ? { stars: raw.stars } : {}),
           ...(raw.downloads !== undefined ? { downloads: raw.downloads } : {}),
         },
+        topics: raw.keywords,
       };
     case 'crates':
       return {
@@ -79,6 +81,7 @@ export function normalize(raw: RawResult): Wheel {
           lastUpdated: raw.lastActivityAt,
           archived: raw.archived,
         },
+        topics: raw.topics,
       };
     }
     case 'pypi':

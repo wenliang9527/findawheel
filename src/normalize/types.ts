@@ -50,6 +50,12 @@ export interface Wheel {
   description: string;
   type: WheelType;
   metrics: WheelMetrics;
+  /**
+   * 仓库/包的标签(GitHub topics / GitLab topics / npm keywords 等)。
+   * 用于排序加分:topics 命中 query 关键词的项目更可能真正相关。
+   * 缺失时为 undefined(部分源无 topics 字段)。
+   */
+  topics?: string[];
   /** 查询相关的匹配信息(可选,只在搜索结果里填充) */
   match?: WheelMatch;
   /** 详情(可选):仅 top N 结果内联填充,供 AI 直接展示 README 摘要/代码示例/release/license */

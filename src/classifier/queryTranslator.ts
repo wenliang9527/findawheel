@@ -145,7 +145,7 @@ const ZH_TO_EN: Record<string, string[]> = {
   '数据集': ['dataset'],
   '可视化': ['visualization'],
   '容器': ['container', 'docker'],
-  '编排': ['orchestration', 'kubernetes'],
+  '编排': ['orchestration', 'kubernetes', 'k8s'],
   '着色器': ['shader'],
   '物理引擎': ['physics-engine'],
   '碰撞': ['collision'],
@@ -195,7 +195,7 @@ const ZH_TO_EN: Record<string, string[]> = {
   '加密算法': ['encryption-algorithm', 'cipher'],
   '哈希': ['hash', 'hashing'],
   '签名': ['signature'],
-  '证书': ['certificate', 'cert'],
+  '证书': ['certificate', 'cert', 'tls'],
   '防火墙': ['firewall'],
   '沙箱': ['sandbox'],
   '注入': ['injection'],
@@ -230,6 +230,56 @@ const ZH_TO_EN: Record<string, string[]> = {
   '文档数据库': ['document-database'],
   '图数据库': ['graph-database'],
   '时序数据库': ['time-series-database'],
+
+  // Q5:继续扩展 —— 实战中常见但尚未覆盖的术语
+  // 协议/通信类
+  '串行': ['serial'],
+  '并行': ['parallel'],
+  '异步': ['async', 'asynchronous'],
+  '同步': ['sync', 'synchronous'],
+  '协议': ['protocol'],
+  '消息队列': ['message-queue', 'mq'],
+  '发布订阅': ['pubsub', 'publish-subscribe'],
+  // 工具/工程类
+  '打包': ['bundler', 'bundle', 'webpack'],
+  '部署': ['deploy', 'deployment'],
+  '测试': ['test', 'testing', 'unit-test'],
+  '断言': ['assert', 'assertion'],
+  '模拟': ['mock', 'fake', 'stub'],
+  '覆盖率': ['coverage'],
+  // 安全/加密类
+  '鉴权': ['auth', 'authentication'],
+  '授权': ['authorization', 'authz'],
+  '令牌': ['token', 'jwt'],
+  // 数据处理类
+  '清洗': ['clean', 'cleaning', 'preprocess'],
+  '标注': ['annotate', 'annotation', 'label'],
+  '特征': ['feature'],
+  '降维': ['dimensionality-reduction', 'pca'],
+  '聚类': ['clustering', 'cluster'],
+  '分类': ['classification', 'classifier'],
+  '回归': ['regression'],
+  '检测': ['detection', 'detector'],
+  '分割': ['segmentation', 'segment'],
+  '识别': ['recognition', 'recognize'],
+  // 部署/运维类
+  '镜像': ['image', 'container-image'],
+  '配置': ['config', 'configuration'],
+  '环境变量': ['env', 'environment-variable'],
+  // 前端补充
+  '响应式': ['responsive', 'reactive'],
+  '服务端渲染': ['ssr', 'server-side-rendering'],
+  '静态站点': ['static-site', 'ssg'],
+  // 通用概念
+  '中间件': ['middleware'],
+  '微服务': ['microservice', 'microservices'],
+  '分布式': ['distributed'],
+  '高可用': ['high-availability', 'ha'],
+  '负载': ['load'],
+  '限流': ['rate-limit', 'throttle'],
+  '熔断': ['circuit-breaker'],
+  '重试': ['retry'],
+  '降级': ['degrade', 'fallback'],
 };
 
 /**

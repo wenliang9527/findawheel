@@ -80,6 +80,128 @@ describe('score', () => {
     const sHit = score(hitLowStar, 'feature', keywords);
     expect(sHit).toBeGreaterThan(sZero);
   });
+
+  // ===== R1:topics 命中加分 =====
+  it('R1: topics matching query keywords gets bonus', () => {
+    const noTopics = makeWheel({
+      name: 'lib-a', description: 'A library for motor control',
+      metrics: { stars: 1000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const withTopics = makeWheel({
+      name: 'lib-b', description: 'A library for motor control',
+      topics: ['stepper-motor', 'driver', 'embedded'],
+      metrics: { stars: 1000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const keywords = ['stepper', 'motor', 'driver'];
+    const sNo = score(noTopics, 'project', keywords);
+    const sYes = score(withTopics, 'project', keywords);
+    // topics 命中 stepper/motor/driver 的项目应得分更高
+    expect(sYes).toBeGreaterThan(sNo);
+  });
+
+  it('R1: topics bonus is zero when wheel has no topics', () => {
+    // 无 topics 字段(如 pypi/librariesio 源)不应加分
+    const w = makeWheel({ topics: undefined });
+    const withTopics = makeWheel({
+      topics: ['stepper', 'motor'],
+    });
+    const keywords = ['stepper', 'motor'];
+    expect(score(withTopics, 'project', keywords)).toBeGreaterThan(score(w, 'project', keywords));
+  });
+
+  // ===== R2:name 命中权重高于 description =====
+  it('R2: name match scores higher than description-only match', () => {
+    // 用 2 个关键词,各自只命中 1 个:
+    // - nameHit: name 含 'lodash'(nameBonus=0.125),desc 不含任何关键词(descBonus=0)
+    // - descOnly: desc 含 'parser'(descBonus=0.075),name 不含任何关键词(nameBonus=0)
+    // coverage 相同(都 1/2 命中),其他项相同 → nameBonus(0.125) > descBonus(0.075)
+    const nameHit = makeWheel({
+      name: 'lodash-helper', description: 'A utility library',
+      metrics: { stars: 1000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const descOnly = makeWheel({
+      name: 'utils', description: 'parser library with tools',
+      metrics: { stars: 1000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const keywords = ['lodash', 'parser'];
+    const sName = score(nameHit, 'project', keywords);
+    const sDesc = score(descOnly, 'project', keywords);
+    // name 命中(0.125)应高于 description 命中(0.075),R2: name 权重 > description
+    expect(sName).toBeGreaterThan(sDesc);
+  });
+
+  // ===== R3:精确短语匹配加分 =====
+  it('R3: exact phrase match in description gets bonus', () => {
+    // description 含完整 "markdown editor" 短语 vs 单词散落命中
+    const phraseHit = makeWheel({
+      name: 'lib-a', description: 'A lightweight markdown editor for developers',
+      metrics: { stars: 1000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const scatteredHit = makeWheel({
+      name: 'lib-b', description: 'Editor for markdown and other text formats',
+      metrics: { stars: 1000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const keywords = ['markdown', 'editor'];
+    const sPhrase = score(phraseHit, 'project', keywords);
+    const sScattered = score(scatteredHit, 'project', keywords);
+    // 精确短语命中("markdown editor" 连续出现)应得分更高
+    expect(sPhrase).toBeGreaterThan(sScattered);
+  });
+
+  it('R3: phrase bonus is zero when queryKeywords has only 1 word', () => {
+    // 单关键词不触发短语匹配(至少 2 个词才有"短语"概念)
+    const w = makeWheel({ description: 'markdown tool' });
+    // 不应抛错,score 应正常计算
+    expect(() => score(w, 'project', ['markdown'])).not.toThrow();
+  });
+
+  // ===== R4:downloads 分母提到 1000000 =====
+  it('R4: downloads denominator is 1000000 (covers million-level weekly downloads)', () => {
+    // 100k downloads 在旧分母(100k)下是满分 1.0,在新分母(1M)下是 0.1
+    // 1M downloads 在新分母下才是满分
+    const w100k = makeWheel({
+      source: 'npm', type: 'package',
+      metrics: { downloads: 100000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const w1m = makeWheel({
+      source: 'npm', type: 'package',
+      metrics: { downloads: 1000000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const s100k = score(w100k, 'feature');
+    const s1m = score(w1m, 'feature');
+    // 1M downloads 应明显高于 100k(R4 调整分母后,100k 不再是满分)
+    expect(s1m).toBeGreaterThan(s100k);
+  });
+
+  // ===== R5:连续线性衰减 =====
+  it('R5: recency is 1.0 for updates within 1 year', () => {
+    // 6 个月前的更新应得满分 recency(1年内=1.0)
+    const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 3600 * 1000).toISOString();
+    const w = makeWheel({
+      metrics: { stars: 1000, lastUpdated: sixMonthsAgo, license: 'MIT', archived: false },
+    });
+    const sRecent = score(w, 'project');
+    // 对比 2.5 年前的更新(应衰减到约 0.55)
+    const twoAndHalfYearsAgo = new Date(Date.now() - 2.5 * 365 * 24 * 3600 * 1000).toISOString();
+    const wOld = makeWheel({
+      metrics: { stars: 1000, lastUpdated: twoAndHalfYearsAgo, license: 'MIT', archived: false },
+    });
+    const sOld = score(wOld, 'project');
+    expect(sRecent).toBeGreaterThan(sOld);
+  });
+
+  it('R5: recency linear decay between 1 and 3 years (no step jump)', () => {
+    // 1.5 年前 vs 2.5 年前:连续衰减,2.5 年应得分更低
+    const oneAndHalfYears = new Date(Date.now() - 1.5 * 365 * 24 * 3600 * 1000).toISOString();
+    const twoAndHalfYears = new Date(Date.now() - 2.5 * 365 * 24 * 3600 * 1000).toISOString();
+    const w1_5 = makeWheel({
+      metrics: { stars: 1000, lastUpdated: oneAndHalfYears, license: 'MIT', archived: false },
+    });
+    const w2_5 = makeWheel({
+      metrics: { stars: 1000, lastUpdated: twoAndHalfYears, license: 'MIT', archived: false },
+    });
+    expect(score(w1_5, 'project')).toBeGreaterThan(score(w2_5, 'project'));
+  });
 });
 
 // Phase 6 简化:删除 isReverseIntent 和 isMissingCoreConcept 的测试。
