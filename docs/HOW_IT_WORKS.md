@@ -28,7 +28,7 @@
 
 ## 🏛️ 整体架构
 
-findawheel 是一个基于 [MCP（Model Context Protocol）](https://modelcontextprotocol.io/) 的 stdio 服务。它对外暴露四个工具 `find_wheel`、`suggest_queries`、`get_wheel_details` 和 `record_feedback`，内部采用**适配器模式（Adapter Pattern）**组织数据源。
+findawheel 是一个基于 [MCP（Model Context Protocol）](https://modelcontextprotocol.io/) 的 stdio 服务。它对外暴露五个工具 `find_wheel`、`suggest_queries`、`get_wheel_details`、`record_feedback` 和 `search_knowledge`，内部采用**适配器模式（Adapter Pattern）**组织数据源。
 
 > 🎯 **RAG 范式定位**：findawheel 是 AI 编程的"上下文增强器"——**检索器只负责召回，判断权交给 AI**。工具描述中明确声明"findawheel does NOT filter results by relevance — YOU must judge relevance yourself"。findawheel 不做硬性相关性过滤，反向意图/核心词缺失等判断由 AI 调用方自行完成。
 
@@ -213,11 +213,11 @@ HuggingfaceSourceAdapter.search()      ← HuggingFace Hub（/api/models,pretrai
 
 **6.0 推荐等级计算**（Recommender）：
 
-基于 stars、活跃度、描述命中数等综合计算 `matchScore`，映射到四个等级：
+基于 stars、活跃度、描述命中数等综合计算 `matchScore`（0~1.1），映射到四个等级：
 
 | 等级 | matchScore | 含义 |
 |:-----|:-----|:-----|
-| `highly_recommended` | ≥ 0.7 | 强烈推荐，命中药准、质量高 |
+| `highly_recommended` | ≥ 0.6 且 stars ≥ 1000 | 强烈推荐，命中药准、质量高 |
 | `recommended` | ≥ 0.4 | 推荐，相关但稍弱 |
 | `optional` | ≥ 0.2 | 可选，仅供参考 |
 | `not_recommended` | < 0.2 | 不推荐，相关性低 |
@@ -837,7 +837,7 @@ interface Wheel {
 }
 
 interface WheelMatch {
-  score: number;                  // 0~1，匹配度
+  score: number;                  // 0~1.1，匹配度（0.6 相关度 + 0.3 热度 + 0.2 活跃度）
   recommendation: 'highly_recommended' | 'recommended' | 'optional' | 'not_recommended';
   reason: string;                 // 中文推荐理由
   matchedKeywords: string[];      // 命中的查询词
@@ -995,7 +995,7 @@ P0-2 重构后采用**基础分归一化(1.0) + bonus(上限 0.5)**结构,总分
 
 | 等级 | score 阈值 | 含义 |
 |:-----|:-----|:-----|
-| `highly_recommended` | ≥ 0.7 | 命中精准、质量高、活跃维护 |
+| `highly_recommended` | ≥ 0.6 且 stars ≥ 1000 | 命中精准、质量高、活跃维护 |
 | `recommended` | ≥ 0.4 | 相关但稍弱 |
 | `optional` | ≥ 0.2 | 仅供参考 |
 | `not_recommended` | < 0.2 | 相关性低 |
@@ -1178,6 +1178,23 @@ findawheel 注册了五个工具：
 }
 ```
 
+**search_knowledge**（知识库搜索工具）：
+
+```json
+{
+  "name": "search_knowledge",
+  "description": "Search user's personal knowledge base (local Markdown notes: Obsidian vault, Logseq, plain .md folders). Returns documents whose title/path/tags/content match the query, with snippets and file:// URLs. WHEN TO CALL: user asks about internal docs/team wiki/personal notes. CONFIG: Requires FINDAWHEEL_KB_ENABLED=true and FINDAWHEEL_KB_ROOT=<path>.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {"type": "string", "description": "Search query in any language (Chinese/English). Will be split into keywords for matching."},
+      "limit": {"type": "number", "description": "Max results (default 10, max 50)"}
+    },
+    "required": ["query"]
+  }
+}
+```
+
 #### 混合呈现（Hybrid Presentation）
 
 `find_wheel` 返回结果时采用混合呈现策略，由 `enrichTopWheels()` 实现：
@@ -1236,7 +1253,7 @@ findawheel 注册了五个工具：
 | 硬规则相关性过滤 | Phase 6 已删除——判断交给 AI 调用方（RAG 范式） |
 | 领域特化配置表 | Phase 6 已删除 DOMAINS/GENERIC_WORDS/STARS_DENOMINATOR——统一处理 |
 
-> ✅ **Phase 6 简化（RAG 范式）**：findawheel 重新定位为"AI 编程的上下文增强器"。检索器只负责召回，相关性判断交给 AI。删除了 isMissingCoreConcept / isReverseIntent 等硬过滤函数、6 领域配置表、embedded 4 处特殊逻辑。保留翻译表/同义词表/ACTION_VERBS/feedback 加权/详情预抓取等纯增益机制。417 测试全通过。
+> ✅ **Phase 6 简化（RAG 范式）**：findawheel 重新定位为"AI 编程的上下文增强器"。检索器只负责召回，相关性判断交给 AI。删除了 isMissingCoreConcept / isReverseIntent 等硬过滤函数、6 领域配置表、embedded 4 处特殊逻辑。保留翻译表/同义词表/ACTION_VERBS/feedback 加权/详情预抓取等纯增益机制。444 测试全通过。
 
 这些会在三期按需加入，见 [README 路线图](../README.md#-路线图)。
 

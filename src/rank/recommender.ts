@@ -21,10 +21,13 @@ const STARS_DENOMINATOR = 10000;
 /**
  * 计算单个 Wheel 的匹配信息。
  *
- * matchScore 构成(0~1):
- * - 相关度(0~0.5):description/name 命中 query 关键词的比例
+ * matchScore 构成(0~1.1):
+ * - 相关度(0~0.6):description/name/topics 命中 query 关键词的比例(原 0.5 + topics 0.1 + name 0.1,钳制到 0.6)
  * - 热度(0~0.3):stars 归一化(stars 本身已被 Ranker 降权过,这里只看绝对值)
  * - 活跃度(0~0.2):最近更新时间 + activity
+ *
+ * 注:理论上限 0.6+0.3+0.2=1.1,但 feedbackWeighter 钳制到 [0, 1.5]
+ * (1.1 满分 + 0.4 反馈空间),避免热门项目因反馈累积霸榜。
  *
  * recommendation 等级:
  * - highly_recommended: score >= 0.6 且 stars >= 1000

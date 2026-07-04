@@ -123,7 +123,7 @@ export function createServer() {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'User\'s original request in any language (Chinese/English/...)' },
-            ecosystem: { type: 'string', description: 'js | ts | python | rust | go | java (optional)' },
+            ecosystem: { type: 'string', description: 'js | ts | python | rust | go | java | cpp | arduino (optional)' },
           },
           required: ['query'],
         },
@@ -157,7 +157,7 @@ export function createServer() {
           properties: {
             query: { type: 'string', description: 'Precise English search query (NOT raw user input). Call suggest_queries first to generate this.' },
             intent: { type: 'string', enum: ['feature', 'project', 'auto'], default: 'auto' },
-            ecosystem: { type: 'string', description: 'js | ts | python | rust | go | java' },
+            ecosystem: { type: 'string', description: 'js | ts | python | rust | go | java | cpp | arduino' },
             limit: { type: 'number', minimum: 1, default: 20 },
             exclude: {
               type: 'array',
