@@ -1103,7 +1103,7 @@ AI 客户端                              findawheel
 
 ### 工具注册信息
 
-findawheel 注册了四个工具：
+findawheel 注册了五个工具：
 
 **find_wheel**（主工具）：
 
@@ -1236,7 +1236,7 @@ findawheel 注册了四个工具：
 | 硬规则相关性过滤 | Phase 6 已删除——判断交给 AI 调用方（RAG 范式） |
 | 领域特化配置表 | Phase 6 已删除 DOMAINS/GENERIC_WORDS/STARS_DENOMINATOR——统一处理 |
 
-> ✅ **Phase 6 简化（RAG 范式）**：findawheel 重新定位为"AI 编程的上下文增强器"。检索器只负责召回，相关性判断交给 AI。删除了 isMissingCoreConcept / isReverseIntent 等硬过滤函数、6 领域配置表、embedded 4 处特殊逻辑。保留翻译表/同义词表/ACTION_VERBS/feedback 加权/详情预抓取等纯增益机制。295 测试全通过。
+> ✅ **Phase 6 简化（RAG 范式）**：findawheel 重新定位为"AI 编程的上下文增强器"。检索器只负责召回，相关性判断交给 AI。删除了 isMissingCoreConcept / isReverseIntent 等硬过滤函数、6 领域配置表、embedded 4 处特殊逻辑。保留翻译表/同义词表/ACTION_VERBS/feedback 加权/详情预抓取等纯增益机制。417 测试全通过。
 
 这些会在三期按需加入，见 [README 路线图](../README.md#-路线图)。
 

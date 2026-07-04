@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-1.29-orange.svg?style=flat-square)](https://modelcontextprotocol.io/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](./)
-[![Tests](https://img.shields.io/badge/tests-393%2F393-brightgreen.svg?style=flat-square)](./)
+[![Tests](https://img.shields.io/badge/tests-417%2F417-brightgreen.svg?style=flat-square)](./)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](./LICENSE)
 
 </div>
@@ -115,6 +115,7 @@ Add this to your MCP-compatible client config (Trae / Cursor / Claude Desktop):
         "EXA_API_KEY": "optional, enables neural Web search (primary)",
         "TAVILY_API_KEY": "optional, Web search fallback",
         "GITLAB_TOKEN": "optional, improves GitLab rate limit",
+        "GITEE_TOKEN": "optional, improves Gitee rate limit",
         "LIBRARIES_IO_API_KEY": "optional, enables 30+ package manager search"
       }
     }
@@ -134,6 +135,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
 | `EXA_API_KEY` | no | — | Exa API key, enables neural Web search (primary source). [Get one](https://exa.ai) |
 | `TAVILY_API_KEY` | no | — | Tavily API key, Web search fallback (used when Exa fails or quota is exhausted). [Get one](https://tavily.com) |
 | `GITLAB_TOKEN` | No | — | GitLab token (optional, improves GitLab rate limit; anonymous search works without it). |
+| `GITEE_TOKEN` | No | — | Gitee token (optional, improves Gitee rate limit: 60/hour anonymous → 5000/hour authenticated; anonymous search works without it). [Get one](https://gitee.com/profile/personal_access_tokens) |
 | `LIBRARIES_IO_API_KEY` | No | — | Libraries.io API key, enables multi-package-manager search (covers npm/pypi/rubygems/cargo/maven and 30+ platforms). [Get one](https://libraries.io/account) |
 | `FINDAWHEEL_USER_LICENSE` | No | — | Your project's license (e.g., `MIT`/`Apache-2.0`/`GPL-3.0`). When set, each wheel's details include a `licenseCheck` field showing whether its license is compatible with yours (avoids license contamination). |
 | `FINDAWHEEL_CACHE_ENABLED` | No | `true` | Enable local cache (`~/.findawheel/cache/`). Set to `false` to disable. |
@@ -230,6 +232,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
 | `suggest_queries` | Generate 4 search-term variants | Call when the AI is unsure how to construct the query; returns precise / action-oriented / fuzzy / concise variants |
 | `get_wheel_details` | Fetch details for a single wheel | When a `find_wheel` result has `hasDetails: true`, call this on demand to get README snippet, code examples, latest release, and license compatibility |
 | `record_feedback` | Record user feedback | After showing results, call based on user reaction: praise→`like`, irrelevant→`hide`, opened link→`click`. Feedback persists and adjusts future search ranking |
+| `search_knowledge` | Search local Markdown knowledge base | Call when user asks about "team docs / personal notes / internal conventions". Searches Obsidian vault / Logseq / any `.md` folders. Requires `FINDAWHEEL_KB_ENABLED=true` + `FINDAWHEEL_KB_ROOT=<path>` (disabled by default). See [USAGE.md §3.6](./docs/USAGE.md) |
 
 > 💡 **RAG workflow (encoded in tool descriptions)**
 >

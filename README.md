@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-1.29-orange.svg?style=flat-square)](https://modelcontextprotocol.io/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](./)
-[![Tests](https://img.shields.io/badge/tests-393%2F393-brightgreen.svg?style=flat-square)](./)
+[![Tests](https://img.shields.io/badge/tests-417%2F417-brightgreen.svg?style=flat-square)](./)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](./LICENSE)
 
 </div>
@@ -113,6 +113,7 @@ npm run build
         "EXA_API_KEY": "可选，启用 Web 神经搜索（主源）",
         "TAVILY_API_KEY": "可选，Web 搜索兜底",
         "GITLAB_TOKEN": "可选，提升 GitLab 限流",
+        "GITEE_TOKEN": "可选，提升 Gitee 限流",
         "LIBRARIES_IO_API_KEY": "可选，启用 30+ 包管理器搜索"
       }
     }
@@ -132,6 +133,7 @@ npm run build
 | `EXA_API_KEY` | 否 | — | Exa API key，启用 Web 神经网络搜索（主源）。[获取](https://exa.ai) |
 | `TAVILY_API_KEY` | 否 | — | Tavily API key，Web 搜索兜底（Exa 失败/额度耗尽时使用）。[获取](https://tavily.com) |
 | `GITLAB_TOKEN` | 否 | — | GitLab token（可选，提升 GitLab 搜索限流，匿名也可搜）。 |
+| `GITEE_TOKEN` | 否 | — | Gitee token（可选，提升 Gitee 搜索限流：匿名 60/hour，认证 5000/hour，匿名也可搜）。[获取](https://gitee.com/profile/personal_access_tokens) |
 | `LIBRARIES_IO_API_KEY` | 否 | — | Libraries.io API key，启用多包管理器搜索（覆盖 npm/pypi/rubygems/cargo/maven 等 30+ 平台）。[获取](https://libraries.io/account) |
 | `FINDAWHEEL_USER_LICENSE` | 否 | — | 你的项目 license（如 `MIT`/`Apache-2.0`/`GPL-3.0`）。配置后，搜索结果的详情里会包含 `licenseCheck` 字段，标注每个轮子的 license 是否与你的项目兼容（避免 license 传染）。 |
 | `FINDAWHEEL_CACHE_ENABLED` | 否 | `true` | 是否启用本地缓存（`~/.findawheel/cache/`）。设为 `false` 可禁用。 |
@@ -227,6 +229,7 @@ npm run build
 | `suggest_queries` | 生成 4 个搜索词建议 | AI 不确定怎么构造搜索词时调用，拿到精准/动作导向/模糊/简洁 4 个角度的建议 |
 | `get_wheel_details` | 拉取单个轮子的详情 | `find_wheel` 结果里带 `hasDetails: true` 标记时，按需调用拿到 README 摘要、代码示例、最新 release、license 兼容性 |
 | `record_feedback` | 记录用户反馈 | AI 展示结果后，根据用户反应调用：点赞→`like`、说不相关→`hide`、点开链接→`click`。反馈持久化累积，影响后续搜索排序 |
+| `search_knowledge` | 搜索本地 Markdown 知识库 | 用户问"团队文档/个人笔记/内部规范"时调用，搜索 Obsidian vault / Logseq / 任意 `.md` 文件夹。需配置 `FINDAWHEEL_KB_ENABLED=true` + `FINDAWHEEL_KB_ROOT=<path>` 才启用（默认关闭）。详见 [USAGE.md 3.6 节](./docs/USAGE.md#36-配置个人知识库可选启用-search_knowledge-工具) |
 
 > 💡 **RAG 工作流（工具描述中明确）**
 >
