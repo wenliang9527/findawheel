@@ -81,6 +81,11 @@ export interface FindWheelOutput {
       /** 该等级的结果名列表 */
       items: string[];
     }>;
+    /**
+     * 低质量结果警告(可选)。当 top 1 结果 stars < 10 时触发,
+     * 提示 AI 建议用户换更宽泛的 query 或使用 suggest_queries 工具。
+     */
+    warning?: string;
   };
   degradedSources?: string[];
   /** 命中缓存时为 true,提示调用方结果可能非实时 */

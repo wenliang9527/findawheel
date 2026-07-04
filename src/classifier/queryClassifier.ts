@@ -10,6 +10,10 @@ const FEATURE_SIGNALS = [
   'parse', 'convert', 'generate', 'compress', 'encrypt',
   'client', 'sdk', 'wrapper',
   '解析', '转换', '压缩', '加密', '客户端',
+  // 硬件/嵌入式类(嵌入式领域 query 通常找驱动库/功能,而非完整项目)
+  'driver', 'drive', 'control', 'controller', 'stepper', 'motor', 'servo',
+  'pwm', 'pulse', 'encoder', 'hal',
+  '驱动', '驱动器', '电机', '马达', '舵机', '脉冲', '编码器',
 ];
 
 export function classify(

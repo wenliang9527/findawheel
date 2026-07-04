@@ -27,4 +27,28 @@ describe('classify', () => {
     expect(classify('解析 markdown')).toBe('feature');
     expect(classify('做一个笔记应用')).toBe('project');
   });
+
+  // ===== Phase 5 新增:嵌入式领域 feature 信号词 =====
+
+  it('classifies stepper motor driver as feature', () => {
+    // driver/motor/stepper 都是 feature 信号词,应归 feature(找驱动库,非完整项目)
+    expect(classify('stepper motor driver')).toBe('feature');
+  });
+
+  it('classifies motor control as feature', () => {
+    expect(classify('motor control')).toBe('feature');
+  });
+
+  it('classifies servo pwm driver as feature', () => {
+    expect(classify('servo pwm driver')).toBe('feature');
+  });
+
+  it('classifies Chinese 电机驱动 as feature', () => {
+    expect(classify('电机驱动')).toBe('feature');
+    expect(classify('步进电机驱动')).toBe('feature');
+  });
+
+  it('classifies encoder hal driver as feature', () => {
+    expect(classify('encoder hal driver')).toBe('feature');
+  });
 });

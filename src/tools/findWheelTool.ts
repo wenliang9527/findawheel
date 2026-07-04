@@ -271,6 +271,11 @@ const REC_ORDER = ['highly_recommended', 'recommended', 'optional', 'not_recomme
 /**
  * 生成结构化 summary:按推荐等级分组,明确列出所有结果名。
  * 目的:让 AI 看到明确的列表结构,倾向于列全所有结果而非只挑 1 个。
+ *
+ * 低质量结果警告:当 top 1 结果(按排序最高) stars < 10 时触发,
+ * 提示 AI 建议用户换更宽泛的 query 或调用 suggest_queries 工具。
+ * 场景:嵌入式/小众领域 query 命中的全是个人项目,参考价值低,
+ * 与其让用户误以为"这就是最好的",不如明确提示召回质量不高。
  */
 function buildSummary(wheels: Wheel[]): FindWheelOutput['summary'] {
   // 按推荐等级分组
@@ -289,8 +294,20 @@ function buildSummary(wheels: Wheel[]): FindWheelOutput['summary'] {
       items: byLevel.get(level)!,
     }));
   const totalCount = wheels.length;
+
+  // 低质量结果检测:top 1 结果 stars < 10 时加警告
+  // wheels 已按 score 降序排列,top 1 = wheels[0]
+  let warning: string | undefined;
+  if (wheels.length > 0) {
+    const topStars = wheels[0].metrics.stars ?? 0;
+    if (topStars < 10) {
+      warning = `⚠️ 召回质量警告:top 1 结果仅 ${topStars} stars,可能未命中主流库。建议:(1) 换更宽泛的 query(如去掉平台名/修饰词);(2) 调用 suggest_queries 工具生成搜索词变体;(3) 尝试用平台名搜索(arduino/esp32/stm32)。`;
+    }
+  }
+
   return {
     instruction: `共找到 ${totalCount} 个结果。请将所有结果按以下分组列给用户,不要只展示 1 个。每组展示项目名 + 推荐理由 + stars,让用户对比选择。`,
     groups,
+    ...(warning ? { warning } : {}),
   };
 }

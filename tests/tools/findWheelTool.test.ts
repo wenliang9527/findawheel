@@ -181,4 +181,42 @@ describe('findWheelTool.handle', () => {
     expect(searchSpy.mock.calls.length).toBe(2);
     await fs.promises.rm(dir, { recursive: true, force: true });
   });
+
+  // ===== Phase 5 新增:低质量结果警告 =====
+
+  it('summary 不含 warning 当 top 1 stars >= 10', async () => {
+    // stars=100 的结果不应触发警告
+    const gh = ghResult('a/popular-lib', 'A markdown editor');
+    const adapter: SourceAdapter = { name: 'github', async search() { return [gh]; } };
+    const tool = createFindWheelTool({ adapters: [adapter] });
+    const res = await tool.handle({ query: 'markdown editor' });
+    const output = JSON.parse(res.content[0].text);
+    expect(output.summary.warning).toBeUndefined();
+  });
+
+  it('summary 含 warning 当 top 1 stars < 10', async () => {
+    // stars=3 的结果应触发低质量警告(模拟嵌入式领域召回差的情况)
+    const gh: RawResult = {
+      source: 'github', name: 'a/tiny-project', url: 'https://github.com/a/tiny-project',
+      description: 'A markdown editor', stars: 3, language: null, license: 'MIT',
+      archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
+    };
+    const adapter: SourceAdapter = { name: 'github', async search() { return [gh]; } };
+    const tool = createFindWheelTool({ adapters: [adapter] });
+    const res = await tool.handle({ query: 'markdown editor' });
+    const output = JSON.parse(res.content[0].text);
+    expect(output.summary.warning).toBeDefined();
+    expect(output.summary.warning).toContain('召回质量警告');
+    expect(output.summary.warning).toContain('3 stars');
+    expect(output.summary.warning).toContain('suggest_queries');
+  });
+
+  it('summary 不含 warning 当结果为空', async () => {
+    // 0 结果时不触发警告(空结果不算"低质量",只是没找到)
+    const adapter: SourceAdapter = { name: 'github', async search() { return []; } };
+    const tool = createFindWheelTool({ adapters: [adapter] });
+    const res = await tool.handle({ query: 'nonexistent thing' });
+    const output = JSON.parse(res.content[0].text);
+    expect(output.summary.warning).toBeUndefined();
+  });
 });
