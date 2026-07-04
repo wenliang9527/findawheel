@@ -274,9 +274,6 @@ The feedback delta is added to `matchScore`, then results are re-sorted and re-g
 |:-----|:-----|
 | 📖 [Usage Guide](./docs/USAGE.md) | Download, install, configure, and use |
 | ⚙️ [How It Works](./docs/HOW_IT_WORKS.md) | Internal architecture and components |
-| 📐 [Design Spec](./docs/superpowers/specs/2026-07-02-findawheel-design.md) | Full design decisions |
-| 📝 [Implementation Plan](./docs/superpowers/plans/2026-07-02-findawheel.md) | 16 TDD tasks |
-| 🚀 [Phase 3 Plan](./docs/superpowers/plans/2026-07-03-phase3.md) | Three-batch evolution plan |
 
 ---
 

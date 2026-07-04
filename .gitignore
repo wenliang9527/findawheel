@@ -5,6 +5,9 @@ dist/
 .DS_Store
 .codegraph/
 
+# Internal design docs (not for public release)
+docs/superpowers/
+
 # IDE / editor configs
 .vscode/
 .idea/
