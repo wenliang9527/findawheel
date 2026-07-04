@@ -174,7 +174,11 @@ function parseMarkdown(content: string, fileName: string): ParsedMarkdown {
   const tagRegex = /(?:^|\s)#([a-z][a-z0-9_-]*)/gi;
   let tagMatch;
   while ((tagMatch = tagRegex.exec(body)) !== null) {
-    inlineTags.add(tagMatch[1].toLowerCase());
+    const tag = tagMatch[1].toLowerCase();
+    // 排除 hex 颜色(#FF0000 / #abc 等 3 或 6 位纯十六进制)
+    // (i 标志使 [a-z] 也匹配大写,故 #FF0000 会被捕获为 ff0000,需后过滤)
+    if (/^[0-9a-f]{3}$|^[0-9a-f]{6}$/.test(tag)) continue;
+    inlineTags.add(tag);
   }
 
   // 4. 提取 [[wiki-link]] 双向链接 → 作为 tags(提升召回)
@@ -288,7 +292,8 @@ export async function searchKnowledgeBase(
 
           const relativePath = path.relative(root, file);
           // 合并所有 tags 来源:frontmatter + inline #tag + [[wiki-link]]
-          const allTags = [...parsed.frontmatterTags, ...parsed.inlineTags, ...parsed.wikiLinkTags];
+          // 去重:三个来源可能重复(如 frontmatter tags:[foo] + 正文 #foo)
+          const allTags = [...new Set([...parsed.frontmatterTags, ...parsed.inlineTags, ...parsed.wikiLinkTags])];
 
           const matchedField = findMatchedField(
             parsed.title,
@@ -303,7 +308,9 @@ export async function searchKnowledgeBase(
             title: parsed.title,
             relativePath,
             absolutePath: file,
-            url: `file://${file.replace(/\\/g, '/')}`,
+            // file:// URL:补第 3 个斜杠(Windows D:\path -> file:///D:/path)
+            // 同时去前导斜杠(Unix /home/x -> file:///home/x,避免 4 个斜杠)
+            url: `file:///${file.replace(/\\/g, '/').replace(/^\/+/, '')}`,
             snippet: parsed.bodyWithoutFrontmatter.slice(0, 500).trim(),
             tags: allTags,
             lastUpdated: stat.mtime.toISOString(),

@@ -11,7 +11,6 @@ import { enrich } from '../enrich/metricsEnricher.js';
 import { rank } from '../rank/ranker.js';
 import { enrichWithMatch } from '../rank/recommender.js';
 import { readEnv } from '../util/env.js';
-import { SourceError } from '../errors.js';
 import { createCache, cacheKey, type Cache } from '../cache/cache.js';
 import {
   enrichDetails,
