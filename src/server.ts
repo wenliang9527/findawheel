@@ -151,6 +151,10 @@ export function createServer() {
           'HYBRID PRESENTATION: top 3 include inline "details" (README/code/release/license); results 4-10 have "hasDetails": true (call get_wheel_details for details).\n' +
           '\n== AI COLLABORATION (exclude parameter) ==\n' +
           'If you identify irrelevant results, call find_wheel again with "exclude" param listing wheel names to skip — filters them without re-querying APIs. Case-insensitive match.\n' +
+          '\n== INTELLIGENT SOURCE ROUTING ==\n' +
+          'findawheel routes queries to relevant data sources only (e.g., hardware queries → GitHub/Gitee, python ecosystem → PyPI/GitHub). This saves API quota and reduces noise.\n' +
+          'When sources are skipped, output includes "skippedSources" (list of skipped source names) and "routingReason" (why they were skipped). Use this to understand the recall scope.\n' +
+          'If recall is insufficient (top result stars < 10 OR total results < 5), findawheel automatically expands to search ALL sources — in that case, skippedSources is not returned (all sources were searched).\n' +
           '\n== WORKFLOW ==\n' +
           '(1) suggest_queries → (2) find_wheel → (3) review top 5, compare stars/lastUpdated/description → (4) recommend 2-3 with reasons → (5) code with chosen wheel as reference.',
         inputSchema: {

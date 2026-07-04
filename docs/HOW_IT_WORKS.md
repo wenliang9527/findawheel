@@ -150,13 +150,43 @@ AI 客户端通过 MCP 协议发送 `tools/call` 请求：
 
 > 💡 **中文翻译**：QueryParser 内部调用 `queryTranslator`，内置 50+ 词的中英技术术语映射表（如"图片"→"image"、"水印"→"watermark"），中文 query 会被翻译成英文后再拆解。
 
+### 步骤 2.5️⃣ 智能数据源路由（Source Router）
+
+为节省 API 配额（GitHub 10 req/min、Gitee 60 req/hour、Libraries.io/Exa/Tavily 等）并减少 token 消耗，`sourceRouter` 会根据 query 类型选择合适的数据源子集，跳过明显不相关的源。
+
+**路由优先级**（第一条命中生效）：
+
+| 优先级 | 规则名 | 触发条件 | 选中源 |
+|:---:|:-----|:-----|:-----|
+| 1 | `python-ecosystem` | `ecosystem=python` | PyPI/GitHub/Libraries.io/Web |
+| 2 | `js-ts-ecosystem` | `ecosystem=js/ts` | npm/GitHub/Libraries.io/Web |
+| 3 | `compiled-ecosystem` | `ecosystem=rust/go/java` | GitHub/Libraries.io/Web |
+| 4 | `cpp-arduino-ecosystem` | `ecosystem=cpp/arduino` | GitHub/Gitee/GitHub-Code/PapersWithCode/Web |
+| 5 | `hardware-keywords` | query 含 `stepper/motor/servo/esp32/stm32/...` | 同 cpp-arduino |
+| 6 | `vscode-extension` | query 含 `vscode/extension/插件/扩展` | VSCode-Marketplace/GitHub/Web |
+| 7 | `ai-ml-model` | query 含 `llm/transformer/bert/gpt/model+ML` | HuggingFace/PapersWithCode/GitHub/Web |
+| 8 | `paper-algorithm` | query 含 `paper/algorithm/论文/算法` | PapersWithCode/GitHub/Web |
+| 9 | `code-snippet` | query 含 `snippet/example/function/片段/示例/函数/实现` | GitHub-Code/GitHub/Web |
+| 10 | `frontend-ui` | query 含 `react/vue/component/前端/组件/表格/图表` | npm/GitHub/Libraries.io/Web |
+| 兜底 | `fallback-all` | 无强信号匹配 | 全搜（11 个源，保持召回完整）|
+
+> 💡 **中文正则限制**：`\b` 是英文词边界，中文上下文不生效。中文关键词（如"插件/论文/算法"）单独用 `/(插件|扩展)/` 形式的不带 `\b` 正则匹配。
+
+**兜底扩展（Fallback Expansion）**：当路由跳过了源但召回不足时，自动扩展到全源重搜：
+
+- 触发条件（**严格阈值，OR 关系**）：`top 1 stars < 10` 或 `总结果 < 5 条`
+- 扩展后不再二次扩展（避免无限循环）
+- 扩展后 `skippedSources` 字段不再返回（全部源都搜过了）
+
+**输出透明度**：未触发扩展时返回 `skippedSources` + `routingReason` 字段，AI 调用方可据此判断召回范围。
+
 ### 步骤 3️⃣ 主搜索 + 副搜索并行
 
-findWheelTool 同时发起两组搜索：
+findWheelTool 同时发起两组搜索（**仅针对路由选中的源**）：
 
 ```
-主搜索 (precise):  用 expandedQuery 调所有适配器
-副搜索 (fuzzy):    用 fuzzyQuery（同义词泛化）调所有适配器
+主搜索 (precise):  用 expandedQuery 调路由选中的适配器
+副搜索 (fuzzy):    用 fuzzyQuery（同义词泛化）调路由选中的适配器
 ```
 
 两组搜索并行执行，结果合并后去重。这能扩大召回——比如搜"monitor"时副搜索会用"observer/watcher"找到主搜索漏掉的项目。

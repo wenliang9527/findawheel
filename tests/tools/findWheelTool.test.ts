@@ -64,7 +64,7 @@ describe('findWheelTool.handle', () => {
       description: 'markdown editor library', version: '1.0', keywords: [], date: '2025-06-01T00:00:00Z',
     };
     const tool = createFindWheelTool({
-      adapters: [mockAdapter('github', [gh]), mockAdapter('npm', [npm])],
+      adapters: [mockAdapter('github', [gh]), mockAdapter('registry', [npm])],
     });
     const res = await tool.handle({ query: 'markdown editor' });
     expect(res.isError).toBeFalsy();
@@ -80,18 +80,18 @@ describe('findWheelTool.handle', () => {
       pushedAt: '2025-06-01T00:00:00Z', topics: [],
     };
     const tool = createFindWheelTool({
-      adapters: [mockAdapter('github', [gh]), failingAdapter('npm')],
+      adapters: [mockAdapter('github', [gh]), failingAdapter('registry')],
     });
     const res = await tool.handle({ query: 'x' });
     expect(res.isError).toBeFalsy();
     const payload = JSON.parse(res.content[0].text);
     expect(payload.wheels).toHaveLength(1);
-    expect(payload.degradedSources).toEqual(['npm']);
+    expect(payload.degradedSources).toEqual(['registry']);
   });
 
   it('returns isError when all adapters fail', async () => {
     const tool = createFindWheelTool({
-      adapters: [failingAdapter('github'), failingAdapter('npm')],
+      adapters: [failingAdapter('github'), failingAdapter('registry')],
     });
     const res = await tool.handle({ query: 'x' });
     expect(res.isError).toBe(true);
@@ -245,7 +245,7 @@ describe('findWheelTool.handle', () => {
 
   it('T2: no degradedSources when all sources succeed', async () => {
     const good1 = mockAdapter('github', [ghResult('a/b', 'markdown editor')]);
-    const good2 = mockAdapter('npm', [{
+    const good2 = mockAdapter('registry', [{
       source: 'npm', name: 'pkg', url: 'https://www.npmjs.com/package/pkg',
       description: 'markdown editor lib', version: '1.0', keywords: [], date: '2025-06-01T00:00:00Z',
     }]);
@@ -253,6 +253,120 @@ describe('findWheelTool.handle', () => {
     const res = await tool.handle({ query: 'markdown editor' });
     const output = JSON.parse(res.content[0].text);
     expect(output.degradedSources).toBeUndefined();
+  });
+
+  // ===== R1: 智能路由测试 =====
+  // 硬件类 query 只搜 GitHub/Gitee/PapersWithCode,跳过 npm/PyPI/HuggingFace
+
+  it('R1: hardware query returns skippedSources field', async () => {
+    // stepper motor 是硬件类 query,应跳过 npm/PyPI 等
+    // 给 5 个 stars=100 的结果,避免触发 < 5 兜底扩展(扩展后不报告 skippedSources)
+    const ghResults: RawResult[] = Array.from({ length: 5 }, (_, i) => ({
+      source: 'github', name: `a/stepper-lib-${i}`, url: `https://github.com/a/stepper-lib-${i}`,
+      description: 'stepper motor control library', stars: 100, language: null, license: 'MIT',
+      archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
+    }));
+    const good = mockAdapter('github', ghResults);
+    const npmAdapter = mockAdapter('registry', []);
+    const pypiAdapter = mockAdapter('pypi', []);
+    const tool = createFindWheelTool({ adapters: [good, npmAdapter, pypiAdapter] });
+    const res = await tool.handle({ query: 'stepper motor control' });
+    expect(res.isError).toBeFalsy();
+    const output = JSON.parse(res.content[0].text);
+    expect(output.skippedSources).toBeDefined();
+    expect(output.skippedSources).toContain('registry');
+    expect(output.skippedSources).toContain('pypi');
+    expect(output.routingReason).toContain('硬件');
+  });
+
+  it('R1: generic query does not return skippedSources (fallback all)', async () => {
+    // markdown editor 不匹配任何路由规则,走兜底全搜
+    const good = mockAdapter('github', [ghResult('a/b', 'markdown editor')]);
+    const tool = createFindWheelTool({ adapters: [good] });
+    const res = await tool.handle({ query: 'markdown editor' });
+    const output = JSON.parse(res.content[0].text);
+    expect(output.skippedSources).toBeUndefined();
+    expect(output.routingReason).toBeUndefined();
+  });
+
+  it('R1: ecosystem=python routes to PyPI/GitHub only', async () => {
+    // ecosystem=python 时路由跳过 npm。用 github 返回 5 个 stars=100 的结果,
+    // 避免触发 < 5 兜底扩展(扩展后不报告 skippedSources)
+    // 注:pypi RawResult 无 stars 字段,无法满足 stars>=10,故用 github 验证路由跳过 npm 的行为
+    const ghResults: RawResult[] = Array.from({ length: 5 }, (_, i) => ({
+      source: 'github', name: `a/py-lib-${i}`, url: `https://github.com/a/py-lib-${i}`,
+      description: 'python web framework', stars: 100, language: 'Python', license: 'MIT',
+      archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
+    }));
+    const ghAdapter = mockAdapter('github', ghResults);
+    const npmAdapter = mockAdapter('registry', []);
+    const tool = createFindWheelTool({ adapters: [ghAdapter, npmAdapter] });
+    const res = await tool.handle({ query: 'python web framework', ecosystem: 'python' });
+    const output = JSON.parse(res.content[0].text);
+    expect(output.skippedSources).toContain('registry');
+    expect(output.routingReason).toContain('python');
+  });
+
+  // ===== R2: 兜底扩展测试 =====
+  // 召回不足(top 1 stars < 10 或结果 < 5 条)时扩展到全源重搜
+
+  it('R2: triggers fallback expansion when top result stars < 10', async () => {
+    // 主搜(github)只返回低 star 结果,应触发扩展搜索被跳过的源
+    const lowStarGh: RawResult = {
+      source: 'github', name: 'a/tiny', url: 'https://github.com/a/tiny',
+      description: 'stepper motor lib', stars: 3, language: null, license: 'MIT',
+      archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
+    };
+    const ghAdapter = mockAdapter('github', [lowStarGh]);
+    // 被跳过的 npm 应在扩展阶段被搜索
+    const npmAdapter = mockAdapter('registry', [{
+      source: 'npm', name: 'stepper-pkg', url: 'https://www.npmjs.com/package/stepper-pkg',
+      description: 'stepper motor lib', version: '1.0', keywords: [], date: '2025-06-01T00:00:00Z',
+    }]);
+    const tool = createFindWheelTool({ adapters: [ghAdapter, npmAdapter] });
+    const res = await tool.handle({ query: 'stepper motor control' });
+    const output = JSON.parse(res.content[0].text);
+    // 触发扩展后不再返回 skippedSources(全部源都搜过了)
+    expect(output.skippedSources).toBeUndefined();
+    // 结果应包含扩展阶段找到的 npm 包
+    expect(output.wheels.some((w: any) => w.name === 'stepper-pkg')).toBe(true);
+  });
+
+  it('R2: does not trigger expansion when top result stars >= 10', async () => {
+    // 主搜返回高质量结果(5 个 stars=100),不触发扩展(< 5 和 < 10 都不满足)
+    const ghResults: RawResult[] = Array.from({ length: 5 }, (_, i) => ({
+      source: 'github', name: `a/popular-${i}`, url: `https://github.com/a/popular-${i}`,
+      description: 'stepper motor library', stars: 100, language: null, license: 'MIT',
+      archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
+    }));
+    const ghAdapter = mockAdapter('github', ghResults);
+    const npmAdapter = mockAdapter('registry', [{
+      source: 'npm', name: 'should-not-appear', url: 'https://www.npmjs.com/package/x',
+      description: 'should not be searched', version: '1.0', keywords: [], date: '2025-06-01T00:00:00Z',
+    }]);
+    const tool = createFindWheelTool({ adapters: [ghAdapter, npmAdapter] });
+    const res = await tool.handle({ query: 'stepper motor control' });
+    const output = JSON.parse(res.content[0].text);
+    // 不触发扩展,应返回 skippedSources
+    expect(output.skippedSources).toContain('registry');
+    // npm 的结果不应出现(没被搜)
+    expect(output.wheels.some((w: any) => w.name === 'should-not-appear')).toBe(false);
+  });
+
+  it('R2: triggers fallback expansion when results count < 5', async () => {
+    // 主搜只返回 1 条结果(< 5),应触发扩展
+    const ghAdapter = mockAdapter('github', [ghResult('a/lib', 'stepper motor lib')]);
+    const giteeAdapter = mockAdapter('gitee', [{
+      source: 'gitee', name: 'b/lib2', url: 'https://gitee.com/b/lib2',
+      description: 'stepper motor driver', stars: 50, language: 'C++', license: 'MIT',
+      archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
+    }]);
+    const npmAdapter = mockAdapter('registry', []);
+    const tool = createFindWheelTool({ adapters: [ghAdapter, giteeAdapter, npmAdapter] });
+    const res = await tool.handle({ query: 'stepper motor control' });
+    const output = JSON.parse(res.content[0].text);
+    // 触发扩展后 skippedSources 应为 undefined
+    expect(output.skippedSources).toBeUndefined();
   });
 
   // Phase 6 简化:删除领域泛词过滤测试和 coreWords 过滤测试。

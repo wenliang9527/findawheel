@@ -6,6 +6,8 @@ import type {
 import { classify } from '../classifier/queryClassifier.js';
 import { extractKeywords } from '../classifier/queryTranslator.js';
 import { parseQuery } from '../classifier/queryParser.js';
+import { translateQuery } from '../classifier/queryTranslator.js';
+import { routeSources, type RoutingResult } from '../classifier/sourceRouter.js';
 import { normalize } from '../normalize/normalizer.js';
 import { enrich } from '../enrich/metricsEnricher.js';
 import { rank } from '../rank/ranker.js';
@@ -39,7 +41,15 @@ interface SearchResult {
   wheels: Wheel[];
   degraded: string[];
   allFailed: boolean;
+  /** 路由信息:被跳过的源 + 原因(供输出 skippedSources/routingReason) */
+  routing?: RoutingResult;
+  /** 是否触发了兜底扩展(true=原本跳过的源因召回不足被重新搜索) */
+  expandedFallback?: boolean;
 }
+
+/** 兜底扩展阈值:top 1 stars < 10 或总结果 < 5 条时触发 */
+const FALLBACK_TOP_STARS_THRESHOLD = 10;
+const FALLBACK_MIN_RESULTS = 5;
 
 export function createFindWheelTool(opts: CreateToolOpts) {
   const env = readEnv();
@@ -113,6 +123,17 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     }
     await cache.set(key, finalWheels);
 
+    // 构造输出:仅在路由跳过了源(且未触发兜底扩展)时返回 skippedSources/routingReason
+    // 触发扩展时所有源都搜过了,不再算"跳过"
+    const routingInfo = result.expandedFallback
+      ? undefined  // 扩展后不再报告 skipped(全部源都搜过)
+      : (result.routing && result.routing.skipped.length > 0
+        ? {
+            skippedSources: result.routing.skipped,
+            routingReason: result.routing.reason,
+          }
+        : undefined);
+
     const output: FindWheelOutput = {
       query: input.query,
       intent,
@@ -120,6 +141,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       wheels: finalWheels,
       summary: buildSummary(finalWheels),
       ...(result.degraded.length > 0 ? { degradedSources: result.degraded } : {}),
+      ...routingInfo,
     };
     return { content: [{ type: 'text', text: JSON.stringify(output) }] };
   }
@@ -144,6 +166,21 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     const timeoutMs = env.timeoutMs;
     // 解析 query:拆分核心短语/修饰词,让数据源做更精准的搜索
     const parsedQuery = parseQuery(input.query);
+    const translated = translateQuery(input.query);
+
+    // ===== 智能路由:根据 query 类型选择数据源子集 =====
+    // 强信号(hardware/python/ui 等)时只搜选中源,跳过明显不相关的源
+    // 兜底:无强信号匹配时全搜(保持现有行为)
+    const routing = routeSources({
+      query: input.query,
+      translatedQuery: translated,
+      ecosystem: input.ecosystem ?? parsedQuery.ecosystem,
+      intent,
+      parsedQuery,
+    });
+
+    const selectedAdapters = opts.adapters.filter(a => routing.selected.includes(a.name));
+    const skippedAdapters = opts.adapters.filter(a => routing.skipped.includes(a.name));
 
     const searchOpts = {
       intent, ecosystem: input.ecosystem, timeoutMs,
@@ -166,10 +203,10 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       tavilyApiKey: env.tavilyApiKey,
     };
 
-    // 主搜索 + 副搜索并行,结果合并去重(由 rank() 的 dedupe 处理)
+    // 主搜索 + 副搜索并行(只用路由选中的源),结果合并去重(由 rank() 的 dedupe 处理)
     const [mainSettled, fuzzySettled] = await Promise.all([
-      Promise.allSettled(opts.adapters.map(a => a.search(input.query, searchOpts))),
-      Promise.allSettled(opts.adapters.map(a => a.search(parsedQuery.fuzzyQuery, fuzzyOpts))),
+      Promise.allSettled(selectedAdapters.map(a => a.search(input.query, searchOpts))),
+      Promise.allSettled(selectedAdapters.map(a => a.search(parsedQuery.fuzzyQuery, fuzzyOpts))),
     ]);
 
     const allRaw: RawResult[] = [];
@@ -178,7 +215,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     // 收集主搜索结果
     for (let i = 0; i < mainSettled.length; i++) {
       const r = mainSettled[i];
-      const name = opts.adapters[i].name;
+      const name = selectedAdapters[i].name;
       if (r.status === 'fulfilled') {
         allRaw.push(...r.value);
         // 主搜索 fulfilled 即视为该源可用(即使返回空数组)
@@ -200,20 +237,62 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     }
 
     if (allFailed) {
-      return { wheels: [], degraded, allFailed: true };
+      return { wheels: [], degraded, allFailed: true, routing };
     }
 
-    const wheels: Wheel[] = allRaw.map(normalize).map(enrich);
+    let wheels: Wheel[] = allRaw.map(normalize).map(enrich);
     // 提取 query 关键词(含中文翻译后的英文),用于排序时描述匹配加分
     const queryKeywords = extractKeywords(input.query);
     // Phase 6 简化:删除领域泛词过滤和 coreWords 过滤。
     // 相关性判断交给 AI 调用方 —— AI 看到 top N 结果后自己挑最适合的。
     // 硬规则过滤(isMissingCoreConcept)容易误杀主流库,得不偿失。
-    const ranked = rank(wheels, intent, limit, queryKeywords);
+    let ranked = rank(wheels, intent, limit, queryKeywords);
     // 给每个结果填充推荐信息(matchScore + recommendation 等级 + reason 理由)
     // 让调用方 AI 看到结构化的推荐等级,倾向于列出多个结果让用户选择
-    const rankedWithMatch = enrichWithMatch(ranked, queryKeywords);
-    return { wheels: rankedWithMatch, degraded, allFailed: false };
+    let rankedWithMatch = enrichWithMatch(ranked, queryKeywords);
+
+    // ===== 兜底扩展:召回不足时搜索被跳过的源 =====
+    // 严格阈值:top 1 stars < 10 或总结果 < 5 条 → 扩展到全源重搜
+    // 仅当本次路由跳过了源(skipped.length > 0)时才可能触发扩展
+    let expandedFallback = false;
+    if (routing.skipped.length > 0 && skippedAdapters.length > 0) {
+      const topStars = rankedWithMatch[0]?.metrics.stars ?? 0;
+      const totalResults = rankedWithMatch.length;
+      const needsExpansion = totalResults < FALLBACK_MIN_RESULTS || topStars < FALLBACK_TOP_STARS_THRESHOLD;
+      if (needsExpansion) {
+        // 搜索被跳过的源,合并结果后重新 rank
+        const [extMain, extFuzzy] = await Promise.all([
+          Promise.allSettled(skippedAdapters.map(a => a.search(input.query, searchOpts))),
+          Promise.allSettled(skippedAdapters.map(a => a.search(parsedQuery.fuzzyQuery, fuzzyOpts))),
+        ]);
+        // 收集扩展结果
+        const extRaw: RawResult[] = [];
+        for (let i = 0; i < extMain.length; i++) {
+          const r = extMain[i];
+          if (r.status === 'fulfilled') {
+            extRaw.push(...r.value);
+          } else {
+            // 扩展阶段失败的源也加入 degraded(让 AI 知道哪些源不可用)
+            const name = skippedAdapters[i].name;
+            if (!degraded.includes(name)) degraded.push(name);
+          }
+        }
+        for (const r of extFuzzy) {
+          if (r.status === 'fulfilled') extRaw.push(...r.value);
+        }
+        if (extRaw.length > 0) {
+          // 合并扩展结果到主结果,重新 rank
+          wheels = [...wheels, ...extRaw.map(normalize).map(enrich)];
+          ranked = rank(wheels, intent, limit, queryKeywords);
+          rankedWithMatch = enrichWithMatch(ranked, queryKeywords);
+        }
+        // 无论扩展是否带来新结果,都标记为已扩展(避免下次重复扩展,也避免误报 skippedSources)
+        expandedFallback = true;
+        // 扩展后即使仍不足,也不再二次扩展(避免无限循环)
+      }
+    }
+
+    return { wheels: rankedWithMatch, degraded, allFailed: false, routing, expandedFallback };
   }
 
   return { handle };

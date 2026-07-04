@@ -110,6 +110,16 @@ export interface FindWheelOutput {
   degradedSources?: string[];
   /** 命中缓存时为 true,提示调用方结果可能非实时 */
   cached?: boolean;
+  /**
+   * 被智能路由跳过的数据源名(可选)。
+   * 当 query 强信号匹配某类(如 hardware/python/ui)时,findawheel 只搜选中源,
+   * 跳过明显不相关的源以节省 API 配额。AI 可据此判断召回范围。
+   * 召回不足(top 1 stars < 10 或结果 < 5 条)时会自动扩展到全源重搜,
+   * 扩展后此字段为空(全部源都搜过了)。
+   */
+  skippedSources?: string[];
+  /** 路由原因(可选),解释为什么跳过某些源。供 AI 调试和理解召回范围。 */
+  routingReason?: string;
 }
 
 // Discriminated union of raw results per source
