@@ -55,3 +55,73 @@ describe('extractKeywords', () => {
     expect(kws).not.toContain('a');
   });
 });
+
+// ===== Phase 5 新增:嵌入式领域翻译表 =====
+describe('translateQuery - embedded domain', () => {
+  it('translates 步进电机 to stepper-motor/stepper', () => {
+    const result = translateQuery('步进电机驱动');
+    expect(result).toContain('步进电机');
+    expect(result).toContain('stepper-motor');
+    expect(result).toContain('stepper');
+    expect(result).toContain('driver');
+  });
+
+  it('translates 单片机 to microcontroller/mcu/embedded', () => {
+    const result = translateQuery('单片机');
+    expect(result).toContain('microcontroller');
+    expect(result).toContain('mcu');
+    expect(result).toContain('embedded');
+  });
+
+  it('translates 电机/马达 to motor', () => {
+    expect(translateQuery('电机')).toContain('motor');
+    expect(translateQuery('马达')).toContain('motor');
+  });
+
+  it('translates 伺服/舵机 to servo', () => {
+    expect(translateQuery('伺服')).toContain('servo');
+    expect(translateQuery('舵机')).toContain('servo');
+  });
+
+  it('translates 微控制器 to microcontroller/mcu', () => {
+    const result = translateQuery('微控制器');
+    expect(result).toContain('microcontroller');
+    expect(result).toContain('mcu');
+  });
+
+  it('translates 嵌入式 to embedded', () => {
+    expect(translateQuery('嵌入式')).toContain('embedded');
+  });
+
+  it('translates 脉冲 to pulse/pwm', () => {
+    const result = translateQuery('脉冲');
+    expect(result).toContain('pulse');
+    expect(result).toContain('pwm');
+  });
+
+  it('translates 加减速 to acceleration/accelstepper', () => {
+    const result = translateQuery('加减速');
+    expect(result).toContain('acceleration');
+    expect(result).toContain('accelstepper');
+  });
+
+  it('translates 编码器 to encoder', () => {
+    expect(translateQuery('编码器')).toContain('encoder');
+  });
+
+  it('translates 树莓派 to raspberry-pi/rpi', () => {
+    const result = translateQuery('树莓派');
+    expect(result).toContain('raspberry-pi');
+    expect(result).toContain('rpi');
+  });
+
+  it('translates mixed Chinese embedded query to multiple English terms', () => {
+    // 用户搜"步进电机驱动程序 单片机",应该翻译出多个英文词
+    const result = translateQuery('步进电机驱动程序 单片机');
+    expect(result).toContain('stepper');
+    expect(result).toContain('motor');
+    expect(result).toContain('driver');
+    expect(result).toContain('microcontroller');
+    expect(result).toContain('mcu');
+  });
+});

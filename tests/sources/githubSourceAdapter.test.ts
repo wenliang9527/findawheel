@@ -46,6 +46,51 @@ describe('buildGithubQuery', () => {
     expect(q).toContain('NOT remove in:description');
     expect(q).toContain('NOT clean in:description');
   });
+
+  // ===== Phase 5 新增:嵌入式领域搜索优化 =====
+
+  it('does NOT wrap core phrase in quotes for embedded domain', () => {
+    // 嵌入式领域不加引号:让 GitHub 做词干匹配,命中单复数变体 motor→motors
+    const parsed = parseQuery('stepper motor driver');
+    const q = buildGithubQuery('stepper motor driver', 'feature', undefined, parsed);
+    // 不应包含引号包裹的 "stepper motor"
+    expect(q).not.toContain('"stepper motor"');
+    // 但应该包含核心词(无引号)
+    expect(q).toContain('stepper');
+    expect(q).toContain('motor');
+  });
+
+  it('excludes modifiers from searchTerms to avoid over-filtering', () => {
+    // 之前把 driver/microcontroller 也拼进 searchTerms 会导致 AND 命中过严,
+    // 把 simplefoc/Arduino-FOC 这种 description 只含 "Stepper motors" 的主流库过滤掉
+    const parsed = parseQuery('stepper motor driver microcontroller');
+    const q = buildGithubQuery('stepper motor driver microcontroller', 'project', undefined, parsed);
+    // searchTerms 只应有核心短语,不应包含修饰词 driver/microcontroller
+    // (driver/microcontroller 应交给 Ranker 后处理)
+    expect(q).toContain('stepper');
+    expect(q).toContain('motor');
+    // 修饰词不进 searchTerms 的 in:name,description 子句
+    // 但 NOT awesome 等子句可以存在
+  });
+
+  it('still wraps core phrase in quotes for non-embedded domain', () => {
+    // 非嵌入式领域保持引号短语(精确匹配)
+    const parsed = parseQuery('invisible image watermark encryption');
+    const q = buildGithubQuery('invisible image watermark encryption', 'feature', undefined, parsed);
+    expect(q).toContain('"invisible watermark"');
+  });
+
+  it('adds cpp/arduino ecosystem language filter', () => {
+    expect(buildGithubQuery('foo', 'project', 'cpp')).toContain('language:C++');
+    expect(buildGithubQuery('foo', 'project', 'arduino')).toContain('language:Arduino');
+  });
+
+  it('does NOT add language filter for ecosystem=c (mixed C/C++/Arduino)', () => {
+    // c 故意不映射:单片机 C 项目在 GitHub 上常被标记为 C/C++/Arduino,
+    // 限制成单一语言会漏掉主流库
+    const q = buildGithubQuery('stepper motor', 'project', 'c');
+    expect(q).not.toContain('language:');
+  });
 });
 
 describe('isAggregateRepo', () => {

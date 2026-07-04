@@ -16,6 +16,8 @@ import { RateLimitError, SourceError } from '../errors.js';
 const ECOSYSTEM_LANG: Record<string, string> = {
   js: 'JavaScript', ts: 'TypeScript',
   python: 'Python', rust: 'Rust', go: 'Go', java: 'Java',
+  cpp: 'C++', arduino: 'Arduino',
+  // 注:'c' 故意不映射,原因见 githubSourceAdapter.ts
 };
 
 /**

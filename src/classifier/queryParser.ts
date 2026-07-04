@@ -24,6 +24,12 @@ export interface ParsedQuery {
   formatWords: string[];
   /** 模糊化语义 query(同义词/上位词泛化),用于副搜索扩大召回 */
   fuzzyQuery: string;
+  /**
+   * 识别到的领域(如 'embedded'),用于让 buildGithubQuery 调整搜索策略
+   * (如嵌入式领域去掉引号让词干匹配单复数 motor→motors)。
+   * null 表示未识别到特定领域。
+   */
+  domain: string | null;
 }
 
 /**
@@ -81,6 +87,10 @@ const ACTION_VERBS = new Set([
   'adapter', 'wrapper', 'proxy', 'bridge', 'gateway', 'router',
   // 代码片段/实现类(补 GitHub Code Search 盲区)
   'implement', 'implementation', 'function', 'snippet', 'example', 'sample',
+  // 硬件/嵌入式类(补嵌入式领域盲区)
+  'drive', 'driver', 'control', 'controller', 'spin', 'rotate', 'rotation',
+  'step', 'stepper', 'pulse', 'pwm', 'accelerate', 'acceleration', 'decelerate',
+  'position', 'move', 'moving',
 ]);
 
 /**
@@ -114,7 +124,46 @@ const SYNONYMS: Record<string, string[]> = {
   function: ['method', 'function', 'routine'],
   snippet: ['fragment', 'snippet', 'excerpt'],
   example: ['sample', 'example', 'demo'],
+  // 硬件/嵌入式类(补嵌入式领域盲区) - 注意第一项不能是原词
+  motor: ['actuator', 'drive', 'motor'],
+  driver: ['controller', 'driver'],
+  microcontroller: ['mcu', 'arduino', 'esp32', 'stm32', 'microcontroller'],
+  stepper: ['stepper-motor', 'stepper'],
+  servo: ['servo-motor', 'servo'],
+  encoder: ['sensor', 'encoder'],
+  pulse: ['pwm', 'pulse'],
 };
+
+/**
+ * 嵌入式领域信号词:query 含这些词时,识别为嵌入式领域。
+ * 用于让 buildGithubQuery 去掉引号(让词干匹配单复数,如 motor→motors),
+ * 并让 fuzzyQuery 追加平台扩展词(扩大召回)。
+ */
+const EMBEDDED_DOMAIN_WORDS = new Set([
+  'stepper', 'motor', 'servo', 'encoder', 'pwm', 'mcu', 'microcontroller',
+  '单片机', '电机', '马达', '驱动', '嵌入式', '舵机', '伺服', '编码器',
+  'arduino', 'esp32', 'esp8266', 'stm32', 'rp2040', 'pico', 'avr', '8051',
+]);
+
+/**
+ * 领域 → 平台扩展词表。检测到对应领域时,把平台名追加到 fuzzyQuery,
+ * 让副搜索扩大召回(主流库 description 常含平台名而非泛词 microcontroller)。
+ */
+const DOMAIN_PLATFORMS: Record<string, string[]> = {
+  embedded: ['arduino', 'esp32', 'stm32', 'rp2040', 'pico', 'avr', 'pic', '8051'],
+};
+
+/**
+ * 检测 query 所属领域。返回领域名(如 'embedded')或 null。
+ * 用于让 buildGithubQuery / fuzzyQuery 做领域特定优化。
+ */
+function detectDomain(query: string): string | null {
+  const lowerQuery = query.toLowerCase();
+  for (const word of EMBEDDED_DOMAIN_WORDS) {
+    if (lowerQuery.includes(word)) return 'embedded';
+  }
+  return null;
+}
 
 /**
  * 解析 query,拆分核心词/修饰词并检测反义词。
@@ -183,10 +232,18 @@ export function parseQuery(query: string): ParsedQuery {
     // 70% 概率用同义词,30% 保留原词(避免完全偏离原意)
     return syns && syns.length > 0 ? syns[0] : w;
   });
-  const fuzzyQuery = fuzzyWords.join(' ');
+  let fuzzyQuery = fuzzyWords.join(' ');
+
+  // 7. 领域识别:检测到嵌入式领域时,把平台扩展词追加到 fuzzyQuery
+  // 主流库 description 常含平台名(arduino/esp32)而非泛词 microcontroller,
+  // 追加平台词让副搜索扩大召回。
+  const domain = detectDomain(query);
+  if (domain && DOMAIN_PLATFORMS[domain]) {
+    fuzzyQuery = `${fuzzyQuery} ${DOMAIN_PLATFORMS[domain].join(' ')}`;
+  }
 
   return {
     corePhrase, coreWords, modifiers: modifierWords,
-    antonymExcludes, expandedQuery, formatWords, fuzzyQuery,
+    antonymExcludes, expandedQuery, formatWords, fuzzyQuery, domain,
   };
 }

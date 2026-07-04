@@ -92,6 +92,38 @@ const ZH_TO_EN: Record<string, string[]> = {
   '训练': ['training', 'train'],
   '推理': ['inference'],
   '最新进展': ['state-of-the-art', 'sota'],
+
+  // 嵌入式/硬件类(补嵌入式领域盲区)
+  '步进电机': ['stepper-motor', 'stepper'],
+  '步进': ['stepper'],
+  '电机': ['motor'],
+  '马达': ['motor'],
+  '伺服': ['servo'],
+  '舵机': ['servo'],
+  '驱动': ['driver'],
+  '驱动器': ['driver'],
+  '驱动程序': ['driver'],
+  '单片机': ['microcontroller', 'mcu', 'embedded'],
+  '微控制器': ['microcontroller', 'mcu'],
+  '微处理器': ['microprocessor'],
+  '嵌入式': ['embedded'],
+  '脉冲': ['pulse', 'pwm'],
+  '加减速': ['acceleration', 'accelstepper'],
+  '加速': ['acceleration'],
+  '减速': ['deceleration'],
+  '编码器': ['encoder'],
+  '霍尔': ['hall-sensor'],
+  '引脚': ['pin', 'gpio'],
+  '外设': ['peripheral'],
+  '中断': ['interrupt'],
+  '定时器中断': ['timer-interrupt'],
+  '串口': ['uart', 'serial'],
+  'SPI': ['spi'],
+  'I2C': ['i2c'],
+  'CAN': ['can-bus'],
+  // 平台名(中文 → 英文)
+  '树莓派': ['raspberry-pi', 'rpi'],
+  // 注:Arduino/STM32/ESP32/AVR/8051/Pico 通常用英文原名,不需翻译
 };
 
 /**

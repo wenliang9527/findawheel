@@ -119,4 +119,64 @@ describe('parseQuery', () => {
     expect(r.fuzzyQuery).toContain('fragment');
     expect(r.fuzzyQuery).toContain('sample');
   });
+
+  // ===== Phase 5 新增:嵌入式领域识别 =====
+
+  it('detects embedded domain when query contains stepper', () => {
+    const r = parseQuery('stepper motor driver');
+    expect(r.domain).toBe('embedded');
+  });
+
+  it('detects embedded domain when query contains motor', () => {
+    const r = parseQuery('dc motor control');
+    expect(r.domain).toBe('embedded');
+  });
+
+  it('detects embedded domain when query contains arduino', () => {
+    const r = parseQuery('arduino led blink');
+    expect(r.domain).toBe('embedded');
+  });
+
+  it('detects embedded domain when query contains Chinese 电机', () => {
+    const r = parseQuery('步进电机驱动');
+    expect(r.domain).toBe('embedded');
+  });
+
+  it('detects embedded domain when query contains esp32/stm32/rp2040', () => {
+    expect(parseQuery('esp32 wifi').domain).toBe('embedded');
+    expect(parseQuery('stm32 hal').domain).toBe('embedded');
+    expect(parseQuery('rp2040 pico').domain).toBe('embedded');
+  });
+
+  it('returns null domain for non-embedded query', () => {
+    expect(parseQuery('markdown editor').domain).toBeNull();
+    expect(parseQuery('image watermark').domain).toBeNull();
+  });
+
+  it('appends platform expansion words to fuzzyQuery for embedded domain', () => {
+    const r = parseQuery('stepper motor driver');
+    // fuzzyQuery 应该追加平台扩展词
+    expect(r.fuzzyQuery).toContain('arduino');
+    expect(r.fuzzyQuery).toContain('esp32');
+    expect(r.fuzzyQuery).toContain('stm32');
+    expect(r.fuzzyQuery).toContain('rp2040');
+  });
+
+  it('uses synonyms for fuzzyQuery on motor/driver/microcontroller', () => {
+    const r = parseQuery('motor driver microcontroller');
+    // motor→actuator, driver→controller, microcontroller→mcu 应出现在 fuzzyQuery
+    expect(r.fuzzyQuery).toContain('actuator');
+    expect(r.fuzzyQuery).toContain('controller');
+    expect(r.fuzzyQuery).toContain('mcu');
+  });
+
+  it('treats drive/control/step/accelerate as action verbs for coreWords', () => {
+    // drive/step/accelerate 是硬件动词,应优先成为 coreWords(coreWords 只取前 2 个动词)
+    const r = parseQuery('drive step accelerate motor');
+    // 前 2 个动词进 coreWords
+    expect(r.coreWords).toContain('drive');
+    expect(r.coreWords).toContain('step');
+    // 第 3 个动词 accelerate 进 modifiers(动词优先,但 coreWords 只取前 2 个)
+    expect(r.modifiers).toContain('accelerate');
+  });
 });

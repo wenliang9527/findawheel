@@ -9,6 +9,10 @@ import type { ParsedQuery } from '../classifier/queryParser.js';
 const ECOSYSTEM_LANG: Record<string, string> = {
   js: 'JavaScript', ts: 'TypeScript',
   python: 'Python', rust: 'Rust', go: 'Go', java: 'Java',
+  cpp: 'C++', arduino: 'Arduino',
+  // 注:'c' 故意不映射 —— 单片机 C 项目在 GitHub 上常被标记为 C/C++/Arduino,
+  // 限制成单一语言会漏掉主流库(如 simplefoc/Arduino-FOC 是 C++)。
+  // 用户想精确搜时可用 ecosystem=cpp 或 ecosystem=arduino。
 };
 
 // 排除聚合类仓库(awesome-xxx、public-apis 等),它们不是具体工具
@@ -27,14 +31,22 @@ export function buildGithubQuery(
   ecosystem?: string,
   parsed?: ParsedQuery,
 ): string {
-  // 1. 确定搜索关键词:优先用 parsedQuery 的核心短语 + 修饰词
+  // 1. 确定搜索关键词:只用核心短语强制命中,修饰词不进 searchTerms。
+  // 之前把修饰词也拼进 searchTerms 会导致 GitHub AND 命中过严,
+  // 例如搜 "stepper motor driver microcontroller" 时 driver/microcontroller
+  // 都被强制要求命中,把 simplefoc/Arduino-FOC 这种 description 只含
+  // "Arduino FOC for BLDC and Stepper motors" 的主流库全过滤掉了。
+  // 修饰词交给 Ranker 后处理时做加分/过滤即可。
   let searchTerms: string;
   if (parsed && parsed.corePhrase) {
-    // 核心短语用引号包裹强制命中,修饰词作为可选
-    const quotedCore = parsed.corePhrase.includes(' ')
-      ? `"${parsed.corePhrase}"`
-      : parsed.corePhrase;
-    searchTerms = [quotedCore, ...parsed.modifiers].join(' ');
+    const isEmbeddedDomain = parsed.domain === 'embedded';
+    // 嵌入式领域不加引号:让 GitHub 做词干匹配,命中单复数变体
+    // (如 "stepper motor" 命中 "Stepper motors",否则引号短语精确匹配会漏掉主流库)
+    if (isEmbeddedDomain || !parsed.corePhrase.includes(' ')) {
+      searchTerms = parsed.corePhrase;
+    } else {
+      searchTerms = `"${parsed.corePhrase}"`;
+    }
   } else {
     // 兜底:无 parsedQuery 时用翻译后的完整 query
     searchTerms = translateQuery(query);
