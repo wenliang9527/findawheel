@@ -4,11 +4,12 @@
 // 与 find_wheel 解耦:
 // - find_wheel 用于搜索现成的开源轮子(GitHub/npm/crates 等)
 // - search_knowledge 用于搜索用户自己的笔记/wiki/ADR/内部文档
-// AI 根据用户意图自行决定调用哪个工具。
+// AI 根据意图自行决定调用哪个工具。
 
 import { searchKnowledgeBase, type KnowledgeItem, type KbType } from '../sources/knowledgeSourceAdapter.js';
 import type { EnvConfig } from '../util/env.js';
 import { BASE_STOPWORDS } from '../util/stopwords.js';
+import * as crypto from 'node:crypto';
 
 export interface SearchKnowledgeInput {
   query: string;
@@ -26,15 +27,41 @@ export interface SearchKnowledgeOutput {
 }
 
 /**
+ * 计算 knowledge base 搜索的 cache key。
+ *
+ * key 构成:kbRoots + keywords + limit + maxFileKb
+ * 不含 query 原文(已分词为 keywords),避免大小写/标点差异导致 cache miss。
+ * 前缀 'kb:' 与 find_wheel 的 cache key 空间隔离。
+ */
+function kbCacheKey(
+  kbRoots: string[],
+  keywords: string[],
+  limit: number,
+  maxFileKb: number,
+): string {
+  const raw = `${kbRoots.join(',')}|${keywords.join(',')}|${limit}|${maxFileKb}`;
+  return 'kb:' + crypto.createHash('sha1').update(raw).digest('hex').slice(0, 24);
+}
+
+export interface SearchKnowledgeToolOpts {
+  /** 可选缓存实例(由 server.ts 注入,仅当 kbCacheEnabled=true 时传入) */
+  cache?: {
+    dedupe<U>(key: string, fn: () => Promise<U>): Promise<U>;
+  };
+}
+
+/**
  * 执行知识库搜索。
  *
  * @param input 用户输入(query + 可选 limit)
  * @param env 配置(读取 kbEnabled/kbRoots/kbMaxFileKb/kbCacheEnabled)
+ * @param opts 可选工具配置(注入 cache 实例)
  * @returns 搜索结果
  */
 export async function searchKnowledge(
   input: SearchKnowledgeInput,
   env: EnvConfig,
+  opts?: SearchKnowledgeToolOpts,
 ): Promise<SearchKnowledgeOutput> {
   // 1. 检查知识库是否启用
   if (!env.kbEnabled) {
@@ -73,14 +100,24 @@ export async function searchKnowledge(
     };
   }
 
-  // 4. 调用适配器搜索
-  // 缓存可选:默认 kbCacheEnabled=false,每次扫描保证最新;用户显式开启时走主缓存
   const limit = Math.min(input.limit ?? 10, 50);
-  const items = await searchKnowledgeBase(env.kbRoots, {
+
+  // 4. 调用适配器搜索
+  // 缓存可选:默认 kbCacheEnabled=false,每次扫描保证最新
+  // 用户显式开启 kbCacheEnabled=true 时,走主缓存(与 find_wheel 共享 cacheDir,
+  // 但 key 空间隔离:kb: 前缀),TTL 1h
+  const fetchItems = () => searchKnowledgeBase(env.kbRoots, {
     keywords,
     limit,
     maxFileKb: env.kbMaxFileKb,
   });
+
+  const items = (env.kbCacheEnabled && opts?.cache)
+    ? await opts.cache.dedupe(
+        kbCacheKey(env.kbRoots, keywords, limit, env.kbMaxFileKb),
+        fetchItems,
+      )
+    : await fetchItems();
 
   // 从结果中提取识别到的知识库类型(去重)
   const kbTypes = items.length > 0

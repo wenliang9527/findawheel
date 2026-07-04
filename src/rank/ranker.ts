@@ -14,7 +14,6 @@ import type { Wheel, Intent, WheelMetrics } from '../normalize/types.js';
 import { isAggregateRepo } from '../sources/githubSourceAdapter.js';
 
 const THREE_YEARS_MS = 3 * 365 * 24 * 3600 * 1000;
-const NOW = Date.now();
 
 // 聚合类仓库关键词(awesome-xxx、public-apis、free-for-dev 等)
 // 这些是"资源列表",不是具体可用的轮子
@@ -29,19 +28,23 @@ const AGGREGATE_DESC_PATTERNS = [
  * - 超过 3 年未更新
  * - 无描述且 stars < 10
  * - 聚合类仓库(awesome-xxx、public-apis 等)
+ *
+ * 注:时间取值用 Date.now() 调用时取值,不用模块级常量 ——
+ * MCP server 是长期运行的 stdio 进程,模块加载时固定的 NOW 会随运行时间漂移。
  */
 export function filterOut(wheel: Wheel): boolean {
   const m = wheel.metrics;
   if (m.archived === true) return true;
   if (m.lastUpdated) {
     const t = Date.parse(m.lastUpdated);
-    if (!Number.isNaN(t) && NOW - t > THREE_YEARS_MS) return true;
+    if (!Number.isNaN(t) && Date.now() - t > THREE_YEARS_MS) return true;
   }
   if ((!wheel.description || wheel.description.trim() === '') && (m.stars ?? 0) < 10) return true;
 
   // 过滤聚合类仓库(awesome-xxx、public-apis 等)
   if (isAggregateRepo(wheel.name, wheel.description)) return true;
-  const descLower = wheel.description.toLowerCase();
+  // 防御性兜底:description 可能为 undefined(虽类型是 string,但运行时 adapter 可能漏兜底)
+  const descLower = (wheel.description ?? '').toLowerCase();
   if (AGGREGATE_DESC_PATTERNS.some(p => descLower.includes(p))) return true;
 
   return false;
@@ -144,7 +147,7 @@ function recencyScore(lastUpdated?: string): number {
   if (!lastUpdated) return 0;
   const t = Date.parse(lastUpdated);
   if (Number.isNaN(t)) return 0;
-  const ageMs = NOW - t;
+  const ageMs = Date.now() - t;
   const oneYear = 365 * 24 * 3600 * 1000;
   // R5:连续衰减函数(替代阶梯式),避免边界跳跃
   // 公式:1 年内 = 1.0,1-3 年线性衰减到 0.1,3 年以上 = 0

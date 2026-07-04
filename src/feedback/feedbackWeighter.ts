@@ -20,7 +20,7 @@ export const FEEDBACK_CAPS = {
 } as const;
 
 export interface FeedbackWeightResult {
-  /** 调整后的 score, 钳制在 [0, 1] */
+  /** 调整后的 score, 钳制在 [0, 1.5] */
   adjustedScore: number;
   /** 反馈带来的调整量(可正可负), 用于调试/展示 */
   feedbackDelta: number;
@@ -38,7 +38,15 @@ export interface FeedbackWeightResult {
  * - click: +0.05/次, 累加上限 +0.3
  * - hide: -0.5/次, 无上限(强负面信号)
  * - feedback 为 null(无记录)时, 返回 baseScore 不变
- * - 最终 score 钳制在 [0, 1]
+ * - 最终 score 钳制在 [0, 1.5]
+ *
+ * 钳制上限说明:
+ * recommender 的 matchScore 实际上限是 1.1(相关度 0.6 + 热度 0.3 + 活跃度 0.2),
+ * 加上正向反馈累加上限 +1.0, 理论最高 2.1。但实际场景中:
+ * - base 能到 1.1 的 wheel 通常是 stars 1w+ 的热门项目,用户点赞属锦上添花
+ * - 把上限设为 1.5 而非 2.1,既保留正反馈的相对排序提升,又避免少数热门项目
+ *   因反馈累积而把分数推到天文数字,导致冷门但匹配的 wheel 永远排不上来
+ * - 1.5 = 1.1(满分) + 0.4(约 2 个 like 的提升空间),与 recommender 上限成比例
  */
 export function applyFeedbackScore(
   baseScore: number,
@@ -64,8 +72,8 @@ export function applyFeedbackScore(
   const hideDelta = feedback.hides * FEEDBACK_WEIGHTS.hide;
 
   const feedbackDelta = likeDelta + clickDelta + hideDelta;
-  // 钳制到 [0, 1]
-  const adjustedScore = Math.max(0, Math.min(1, baseScore + feedbackDelta));
+  // 钳制到 [0, 1.5](与 recommender 实际上限 1.1 + 0.4 反馈空间对齐)
+  const adjustedScore = Math.max(0, Math.min(1.5, baseScore + feedbackDelta));
 
   return {
     adjustedScore,

@@ -182,23 +182,23 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       const name = opts.adapters[i].name;
       if (r.status === 'fulfilled') {
         allRaw.push(...r.value);
-        if (r.value.length > 0) allFailed = false;
+        // 主搜索 fulfilled 即视为该源可用(即使返回空数组)
+        allFailed = false;
       } else {
-        // 主搜索失败才记为 degraded(副搜索失败不算,因为副搜索是补充)
-        if (!fuzzySettled[i] || fuzzySettled[i].status !== 'fulfilled') {
-          degraded.push(name);
-        }
+        // 主搜索失败:无论副搜索是否成功,都标记该源为 degraded
+        // 原因:主搜索是用户 query 的精确召回,主失败意味着精确召回丢失,
+        // 副搜索(同义词泛化)只能补充召回,不能替代主搜索的精确性。
+        // AI 需要知道哪些源的主搜索失败了,以便判断结果是否可信。
+        degraded.push(name);
       }
     }
     // 收集副搜索结果(追加到 allRaw,后续 dedupe 会按 name 去重)
     for (const r of fuzzySettled) {
       if (r.status === 'fulfilled') {
         allRaw.push(...r.value);
-        allFailed = false;
       }
+      // 副搜索失败不影响 allFailed 判定(allFailed 只看主搜索)
     }
-    // If any source succeeded (even with 0 results), it's not all-failed
-    if (mainSettled.some(r => r.status === 'fulfilled')) allFailed = false;
 
     if (allFailed) {
       return { wheels: [], degraded, allFailed: true };

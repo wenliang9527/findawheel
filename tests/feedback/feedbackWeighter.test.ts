@@ -89,10 +89,11 @@ describe('applyFeedbackScore', () => {
     expect(result.adjustedScore).toBeCloseTo(0.6, 5);
   });
 
-  it('clamps adjustedScore to [0, 1]', () => {
-    // 正向超上限: base 0.9 + 大量 like → 钳制到 1.0
+  it('clamps adjustedScore to [0, 1.5]', () => {
+    // 正向超上限: base 0.9 + 大量 like(累加封顶 +1.0)→ 0.9+1.0=1.9 → 钳制到 1.5
+    // (上限 1.5 而非 2.1,避免热门项目因反馈累积霸榜;1.5 = 1.1 满分 + 0.4 反馈空间)
     const high = applyFeedbackScore(0.9, makeRecord({ likes: 10 }));
-    expect(high.adjustedScore).toBe(1.0);
+    expect(high.adjustedScore).toBe(1.5);
     // 负向超下限: base 0.1 + 大量 hide → 钳制到 0
     const low = applyFeedbackScore(0.1, makeRecord({ hides: 10 }));
     expect(low.adjustedScore).toBe(0);

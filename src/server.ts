@@ -26,6 +26,7 @@ import type { WheelDetails } from './enrich/wheelDetailsEnricher.js';
 import { createFeedbackStore } from './feedback/feedbackStore.js';
 import { createRecordFeedbackTool } from './tools/recordFeedbackTool.js';
 import { searchKnowledge, type SearchKnowledgeInput } from './tools/searchKnowledgeTool.js';
+import type { KnowledgeItem } from './sources/knowledgeSourceAdapter.js';
 import { readEnv } from './util/env.js';
 
 const FindWheelSchema = z.object({
@@ -265,7 +266,13 @@ export function createServer() {
       if (!parsed.success) {
         return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
       }
-      const result = await searchKnowledge(parsed.data as SearchKnowledgeInput, env);
+      // 注入 kbCache(仅当 kbCacheEnabled=true 时生效,与 find_wheel 共享 cacheDir 但 key 空间隔离)
+      const kbCache = createCache<KnowledgeItem[]>({
+        dir: env.cacheDir,
+        ttlMs: env.cacheTtlMs,
+        enabled: env.cacheEnabled && env.kbCacheEnabled,
+      });
+      const result = await searchKnowledge(parsed.data as SearchKnowledgeInput, env, { cache: kbCache });
       return {
         content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
         isError: false,
