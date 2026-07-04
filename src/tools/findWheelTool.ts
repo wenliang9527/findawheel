@@ -21,11 +21,7 @@ import {
 import { detailsCacheKey } from './getWheelDetailsTool.js';
 import type { FeedbackStore } from '../feedback/feedbackStore.js';
 import { applyFeedbackToWheels } from '../feedback/feedbackWeighter.js';
-
-export interface McpToolResult {
-  content: Array<{ type: 'text'; text: string }>;
-  isError?: boolean;
-}
+import type { McpToolResult } from './types.js';
 
 export interface CreateToolOpts {
   adapters: SourceAdapter[];
@@ -154,6 +150,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       intent, ecosystem: input.ecosystem, timeoutMs,
       githubToken: env.githubToken,
       gitlabToken: env.gitlabToken,
+      giteeToken: env.giteeToken,
       librariesIoApiKey: env.librariesIoApiKey,
       exaApiKey: env.exaApiKey,
       tavilyApiKey: env.tavilyApiKey,
@@ -164,6 +161,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       intent, ecosystem: input.ecosystem, timeoutMs,
       githubToken: env.githubToken,
       gitlabToken: env.gitlabToken,
+      giteeToken: env.giteeToken,
       librariesIoApiKey: env.librariesIoApiKey,
       exaApiKey: env.exaApiKey,
       tavilyApiKey: env.tavilyApiKey,

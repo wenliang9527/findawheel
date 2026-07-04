@@ -7,11 +7,7 @@ import {
 } from '../enrich/wheelDetailsEnricher.js';
 import { type Cache } from '../cache/cache.js';
 import * as crypto from 'node:crypto';
-
-export interface McpToolResult {
-  content: Array<{ type: 'text'; text: string }>;
-  isError?: boolean;
-}
+import type { McpToolResult } from './types.js';
 
 export interface GetWheelDetailsInput {
   /** GitHub 仓库标识,owner/repo 格式 */

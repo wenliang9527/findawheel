@@ -2,11 +2,7 @@
 // record_feedback 工具: AI 根据用户反应记录对 wheel 的反馈(like/hide/click)。
 // 反馈持久化到 ~/.findawheel/feedback/, 用于后续搜索排序加权。
 import type { FeedbackStore, FeedbackAction } from '../feedback/feedbackStore.js';
-
-export interface McpToolResult {
-  content: Array<{ type: 'text'; text: string }>;
-  isError?: boolean;
-}
+import type { McpToolResult } from './types.js';
 
 export interface RecordFeedbackInput {
   /** wheel 标识, owner/repo 格式(与 find_wheel 返回的 name 一致) */

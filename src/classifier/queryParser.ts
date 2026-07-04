@@ -15,6 +15,7 @@
 // - domain 是给领域特化逻辑用的,所有领域特化已删(统一逻辑,避免过拟合)
 
 import { translateQuery } from './queryTranslator.js';
+import { BASE_STOPWORDS } from '../util/stopwords.js';
 
 export interface ParsedQuery {
   /** 核心短语(前 2 个实义词),用于引号包裹强制命中(GitHub 搜索) */
@@ -41,20 +42,26 @@ export interface ParsedQuery {
   ecosystem?: string;
 }
 
-/** 通用停用词/填充词,不作为核心短语的一部分 */
-const STOPWORDS = new Set([
-  'a', 'an', 'the', 'for', 'with', 'and', 'or', 'to', 'of', 'in', 'on',
-  'my', 'i', 'want', 'need', 'looking', 'find', 'search',
-  'image', 'tool', 'library', 'lib', 'package', 'pkg', 'project', // 通用词,不当核心
-  // Q2:意图触发词 —— 这些词表达用户想做什么,但不是搜索对象本身,应从核心词里剥离
-  // 注意:implement/function/snippet/example/sample 已在 ACTION_VERBS,这里不再列入
-  // STOPWORDS,否则会在过滤阶段被剔除,无法成为 coreWords(参见 queryParser 测试)
-  'want', 'wants', 'wanna', 'make', 'build', 'create', 'write', 'develop',
-  'help', 'please', 'could', 'would', 'should', 'can', 'may',
+/**
+ * 查询解析用的停用词集合 = 基础停用词 + 意图动词 + 通用技术词。
+ *
+ * 基础停用词复用 util/stopwords.ts 的 BASE_STOPWORDS(避免与 searchKnowledgeTool 重复)。
+ * 此处扩展的部分是 queryParser 专用的:
+ * - 通用技术词(image/tool/library 等)不当核心
+ * - 意图动词(want/make/build/create 等)表达用户想做什么,不是搜索对象本身
+ * - 中文意图词(想做/想要/帮我 等,翻译后可能仍是中文)
+ *
+ * 注意:implement/function/snippet/example/sample 已在 ACTION_VERBS,这里不再列入
+ * STOPWORDS,否则会在过滤阶段被剔除,无法成为 coreWords(参见 queryParser 测试)
+ */
+const STOPWORDS: ReadonlySet<string> = new Set([
+  ...BASE_STOPWORDS,
+  'looking', 'image', 'tool', 'library', 'lib', 'package', 'pkg', 'project',
+  'wants', 'wanna', 'make', 'build', 'create', 'write', 'develop',
+  'could', 'would', 'should', 'can', 'may',
   'good', 'best', 'popular', 'recommend', 'recommended',
   'some', 'any', 'all', 'every', 'this', 'that', 'these', 'those',
-  // 中文意图词(翻译后可能仍是中文,需要过滤)
-  '想做', '想要', '帮我', '帮助', '实现', '开发', '编写', '创建', '构建',
+  '想做', '想要', '帮助', '实现', '开发', '编写', '创建', '构建',
   '一个', '这个', '那种', '这种',
 ]);
 

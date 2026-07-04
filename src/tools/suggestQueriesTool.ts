@@ -9,7 +9,7 @@ import { parseQuery } from '../classifier/queryParser.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 import { classify } from '../classifier/queryClassifier.js';
 import type { Intent } from '../normalize/types.js';
-import type { McpToolResult } from './findWheelTool.js';
+import type { McpToolResult } from './types.js';
 
 export interface SuggestQueriesInput {
   /** 用户原始 query(中英文皆可) */

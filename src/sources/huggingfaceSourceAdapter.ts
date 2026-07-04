@@ -13,7 +13,7 @@
 // D 阶段(2026-07-04):新增数据源,补 AI 模型盲区。
 
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
-import type { RawResult } from '../normalize/types.js';
+import type { RawResult, HuggingfaceRawResult } from '../normalize/types.js';
 import { httpGet, HttpError } from '../util/http.js';
 import { SourceError } from '../errors.js';
 
@@ -32,28 +32,6 @@ interface HfModel {
 }
 
 interface HfSearchResponse extends Array<HfModel> {}
-
-/**
- * HuggingFace 模型结果(扩展 RawResult 联合类型)。
- * 复用现有字段:name = model id, stars = likes(近似热度),
- * downloads = downloads, lastUpdated = lastModified。
- */
-export interface HuggingfaceRawResult {
-  source: 'huggingface';
-  name: string;
-  url: string;
-  description: string;
-  /** 点赞数(作为 stars 近似值,用于排序) */
-  stars: number;
-  /** 下载量 */
-  downloads: number;
-  /** 最近更新时间(ISO date) */
-  lastUpdated: string;
-  /** 任务类型,如 "text-classification" */
-  pipelineTag?: string;
-  /** 框架,如 "transformers"/"pytorch" */
-  libraryName?: string;
-}
 
 /**
  * HuggingFace Hub 模型搜索适配器。

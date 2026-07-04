@@ -8,6 +8,7 @@
 
 import { searchKnowledgeBase, type KnowledgeItem } from '../sources/knowledgeSourceAdapter.js';
 import type { EnvConfig } from '../util/env.js';
+import { BASE_STOPWORDS } from '../util/stopwords.js';
 
 export interface SearchKnowledgeInput {
   query: string;
@@ -59,7 +60,7 @@ export async function searchKnowledge(
     .toLowerCase()
     .split(/[\s,，。、;；!！?？]+/)
     .filter(w => w.length > 1)
-    .filter(w => !STOPWORDS.has(w));
+    .filter(w => !BASE_STOPWORDS.has(w));
 
   if (keywords.length === 0) {
     return {
@@ -88,10 +89,3 @@ export async function searchKnowledge(
       : undefined,
   };
 }
-
-/** 简单停用词,避免关键词过短导致误匹配 */
-const STOPWORDS = new Set([
-  'a', 'an', 'the', 'for', 'with', 'and', 'or', 'to', 'of', 'in', 'on',
-  'my', 'i', 'want', 'need', 'find', 'search', 'show', 'me', 'please',
-  '的', '了', '在', '和', '与', '或', '请', '帮我', '查找', '搜索',
-]);

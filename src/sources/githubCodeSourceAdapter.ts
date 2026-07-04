@@ -12,13 +12,7 @@ import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { GitHubCodeRawResult, RawResult } from '../normalize/types.js';
 import { httpGet, HttpError } from '../util/http.js';
 import { RateLimitError, SourceError } from '../errors.js';
-
-const ECOSYSTEM_LANG: Record<string, string> = {
-  js: 'JavaScript', ts: 'TypeScript',
-  python: 'Python', rust: 'Rust', go: 'Go', java: 'Java',
-  cpp: 'C++', arduino: 'Arduino',
-  // 注:'c' 故意不映射,原因见 githubSourceAdapter.ts
-};
+import { ECOSYSTEM_LANG } from './ecosystemMapping.js';
 
 /**
  * 构造 GitHub Code Search 查询表达式。

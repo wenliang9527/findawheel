@@ -5,14 +5,7 @@ import { httpGet, HttpError } from '../util/http.js';
 import { RateLimitError, SourceError } from '../errors.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 import type { ParsedQuery } from '../classifier/queryParser.js';
-
-const ECOSYSTEM_LANG: Record<string, string> = {
-  js: 'JavaScript', ts: 'TypeScript',
-  python: 'Python', rust: 'Rust', go: 'Go', java: 'Java',
-  cpp: 'C++', arduino: 'Arduino',
-  // 注:'c' 故意不映射 —— C 项目在 GitHub 上常被标记为 C/C++/Arduino,
-  // 限制成单一语言会漏掉主流库。用户想精确搜时可用 ecosystem=cpp 或 ecosystem=arduino。
-};
+import { ECOSYSTEM_LANG } from './ecosystemMapping.js';
 
 // 排除聚合类仓库(awesome-xxx、public-apis 等),它们不是具体工具
 const AGGREGATE_NAME_PATTERNS = ['awesome', 'public-apis', 'free-for-dev', 'awesome-list'];

@@ -2,6 +2,7 @@
 // Gitee 搜索源适配器。
 // API 文档: https://gitee.com/api/v5/swagger#/getV5SearchRepositories
 // 限流:认证 5000/hour,未认证 60/hour
+// 鉴权:可选 GITEE_TOKEN,通过 access_token query 参数注入(Gitee API v5 标准做法)
 // 注意:Gitee 不支持 NOT/引号语法,用 expandedQuery(含中文翻译)兜底
 
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
@@ -9,11 +10,7 @@ import type { GiteeRawResult, RawResult } from '../normalize/types.js';
 import { httpGet, HttpError } from '../util/http.js';
 import { SourceError, RateLimitError } from '../errors.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
-
-const ECOSYSTEM_LANG: Record<string, string> = {
-  js: 'JavaScript', ts: 'TypeScript',
-  python: 'Python', rust: 'Rust', go: 'Go', java: 'Java',
-};
+import { ECOSYSTEM_LANG } from './ecosystemMapping.js';
 
 interface GiteeSearchResponse {
   total_count?: number;
@@ -42,6 +39,11 @@ export class GiteeSourceAdapter implements SourceAdapter {
     url.searchParams.set('sort', 'stars');
     url.searchParams.set('order', 'desc');
     url.searchParams.set('per_page', '20');
+
+    // 可选鉴权:带 token 提升限流到 5000/hour(匿名 60/hour)
+    if (opts.giteeToken) {
+      url.searchParams.set('access_token', opts.giteeToken);
+    }
 
     // 按生态系统过滤语言
     if (opts.ecosystem && ECOSYSTEM_LANG[opts.ecosystem]) {
