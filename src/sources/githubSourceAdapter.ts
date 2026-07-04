@@ -40,11 +40,21 @@ export function buildGithubQuery(
   let searchTerms: string;
   if (parsed && parsed.corePhrase) {
     const isEmbeddedDomain = parsed.domain === 'embedded';
-    // 嵌入式领域不加引号:让 GitHub 做词干匹配,命中单复数变体
-    // (如 "stepper motor" 命中 "Stepper motors",否则引号短语精确匹配会漏掉主流库)
-    if (isEmbeddedDomain || !parsed.corePhrase.includes(' ')) {
+    if (isEmbeddedDomain) {
+      // 嵌入式领域只用 corePhrase 的第一个词作为 searchTerms:
+      // 1. 不加引号:让 GitHub 做词干匹配(如 motor → motors)
+      // 2. 只用第一个词:避免多词 AND 搜索过滤掉主流库
+      //    例:corePhrase="serial uart" 时,只搜 "serial",node-serialport
+      //    (description="Node.js package to access serial ports") 才能被命中;
+      //    若搜 "serial uart" AND,node-serialport 不含 uart 会被过滤。
+      //    Ranker 后处理用 coreWords 做精确过滤,保证相关性。
+      const firstWord = parsed.corePhrase.split(' ')[0];
+      searchTerms = firstWord;
+    } else if (!parsed.corePhrase.includes(' ')) {
+      // 单词不加引号
       searchTerms = parsed.corePhrase;
     } else {
+      // 非嵌入式多词:用引号短语精确匹配
       searchTerms = `"${parsed.corePhrase}"`;
     }
   } else {

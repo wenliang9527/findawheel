@@ -50,27 +50,35 @@ describe('buildGithubQuery', () => {
   // ===== Phase 5 新增:嵌入式领域搜索优化 =====
 
   it('does NOT wrap core phrase in quotes for embedded domain', () => {
-    // 嵌入式领域不加引号:让 GitHub 做词干匹配,命中单复数变体 motor→motors
+    // 嵌入式领域只用 corePhrase 第一个词,不加引号:让 GitHub 做词干匹配
     const parsed = parseQuery('stepper motor driver');
     const q = buildGithubQuery('stepper motor driver', 'feature', undefined, parsed);
     // 不应包含引号包裹的 "stepper motor"
     expect(q).not.toContain('"stepper motor"');
-    // 但应该包含核心词(无引号)
+    // 只用第一个词 stepper(避免 serial uart AND 搜索过滤掉主流库)
     expect(q).toContain('stepper');
-    expect(q).toContain('motor');
   });
 
   it('excludes modifiers from searchTerms to avoid over-filtering', () => {
-    // 之前把 driver/microcontroller 也拼进 searchTerms 会导致 AND 命中过严,
-    // 把 simplefoc/Arduino-FOC 这种 description 只含 "Stepper motors" 的主流库过滤掉
+    // 嵌入式领域只用 corePhrase 第一个词,避免多词 AND 命中过严
     const parsed = parseQuery('stepper motor driver microcontroller');
     const q = buildGithubQuery('stepper motor driver microcontroller', 'project', undefined, parsed);
-    // searchTerms 只应有核心短语,不应包含修饰词 driver/microcontroller
-    // (driver/microcontroller 应交给 Ranker 后处理)
+    // searchTerms 只用第一个词 stepper
     expect(q).toContain('stepper');
-    expect(q).toContain('motor');
-    // 修饰词不进 searchTerms 的 in:name,description 子句
+    // 修饰词 motor/driver/microcontroller 不进 searchTerms
     // 但 NOT awesome 等子句可以存在
+  });
+
+  it('uses only first word of corePhrase for embedded domain to avoid AND over-filtering', () => {
+    // P8 新增:嵌入式领域 corePhrase="serial uart" 时,只搜 "serial"
+    // 避免 node-serialport(description="...serial ports")因不含 uart 被过滤
+    const parsed = parseQuery('serial port debug tool');
+    expect(parsed.domain).toBe('embedded');
+    const q = buildGithubQuery('serial port debug tool', 'project', undefined, parsed);
+    // 应该只含 serial,不含 uart(避免 AND 搜索)
+    expect(q).toContain('serial');
+    // 不应含 "serial uart" 作为连续短语(GitHub 默认 AND 会要求两个词都命中)
+    expect(q).not.toMatch(/serial\s+uart\s+in:name/);
   });
 
   it('still wraps core phrase in quotes for non-embedded domain', () => {
