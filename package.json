@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
     "start": "node dist/index.js"
   },
   "engines": { "node": ">=18" },

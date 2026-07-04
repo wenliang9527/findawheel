@@ -1,6 +1,6 @@
 // tests/sources/githubSourceAdapter.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GitHubSourceAdapter, buildGithubQuery, isAggregateRepo } from '../../src/sources/githubSourceAdapter.js';
+import { GitHubSourceAdapter, buildGithubQuery } from '../../src/sources/githubSourceAdapter.js';
 import { parseQuery } from '../../src/classifier/queryParser.js';
 
 describe('buildGithubQuery', () => {
@@ -64,17 +64,8 @@ describe('buildGithubQuery', () => {
   });
 });
 
-describe('isAggregateRepo', () => {
-  it('detects awesome-xxx repos', () => {
-    expect(isAggregateRepo('awesome-python', 'A curated list')).toBe(true);
-  });
-  it('detects public-apis repos', () => {
-    expect(isAggregateRepo('public-apis', 'Collective list of APIs')).toBe(true);
-  });
-  it('does not flag normal repos', () => {
-    expect(isAggregateRepo('lodash', 'A utility library')).toBe(false);
-  });
-});
+// 注:isAggregateRepo 已合并到 ranker.ts(AGGREGATE_NAME_PATTERNS + AGGREGATE_DESC_PATTERNS 集中管理)
+// 聚合仓库过滤测试见 tests/rank/ranker.test.ts
 
 describe('GitHubSourceAdapter.search', () => {
   beforeEach(() => vi.restoreAllMocks());

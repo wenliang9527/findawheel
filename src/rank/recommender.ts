@@ -139,11 +139,40 @@ function buildRecallReason(
   return parts.join('; ');
 }
 
+/**
+ * 推荐等级阈值常量(gradeRecommendation 用)。
+ * 集中管理避免散落在多处导致不一致。
+ *
+ * 等级定义:
+ * - highly_recommended: score >= 0.6 且 stars >= 1000(高分且具备主流热度)
+ * - recommended:        score >= 0.4(相关度较好)
+ * - optional:           score >= 0.2(弱相关,可备选)
+ * - not_recommended:    score < 0.2(不推荐)
+ */
+const HIGHLY_RECOMMENDED_SCORE = 0.6;
+const HIGHLY_RECOMMENDED_STARS = 1000;
+const RECOMMENDED_SCORE = 0.4;
+const OPTIONAL_SCORE = 0.2;
+
+/**
+ * 推荐等级的中文标签 + 排序顺序(供 findWheelTool 等 summary 输出复用)。
+ * 集中在 recommender.ts 一处定义,避免散落在多处导致不一致。
+ */
+export const REC_LABELS: Record<Recommendation, string> = {
+  highly_recommended: '强烈推荐',
+  recommended: '推荐',
+  optional: '可选',
+  not_recommended: '不推荐',
+};
+export const REC_ORDER: Recommendation[] = [
+  'highly_recommended', 'recommended', 'optional', 'not_recommended',
+];
+
 /** 根据分数和 stars 计算推荐等级。导出供 feedback 调整后重新分级使用。 */
 export function gradeRecommendation(score: number, stars: number): Recommendation {
-  if (score >= 0.6 && stars >= 1000) return 'highly_recommended';
-  if (score >= 0.4) return 'recommended';
-  if (score >= 0.2) return 'optional';
+  if (score >= HIGHLY_RECOMMENDED_SCORE && stars >= HIGHLY_RECOMMENDED_STARS) return 'highly_recommended';
+  if (score >= RECOMMENDED_SCORE) return 'recommended';
+  if (score >= OPTIONAL_SCORE) return 'optional';
   return 'not_recommended';
 }
 

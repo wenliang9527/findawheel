@@ -1,5 +1,6 @@
 // src/enrich/releaseFetcher.ts
 import { httpGet, HttpError } from '../util/http.js';
+import { DEFAULT_RETRY } from '../util/retry.js';
 import { SourceError } from '../errors.js';
 
 export interface FetchReleaseOpts {
@@ -38,6 +39,7 @@ export async function fetchLatestRelease(
       timeoutMs: opts.timeoutMs,
       token: opts.githubToken,
       extraHeaders: { accept: 'application/vnd.github+json' },
+      retry: DEFAULT_RETRY,
     });
     const release: LatestRelease = {
       tag: raw.tag_name,

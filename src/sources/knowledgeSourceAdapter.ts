@@ -23,6 +23,18 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { logError } from '../util/logger.js';
+
+/**
+ * 正则预编译(模块级常量,避免每个文件解析时重新编译)。
+ * 注意:带 g 标志的正则有 lastIndex 状态,在 exec 循环前需手动重置 lastIndex=0。
+ */
+// 匹配 #tag(后面跟非字母数字或行尾,前面是空格或行首),排除 ## ### 等 markdown 标题(# 后跟空格)
+const TAG_REGEX = /(?:^|\s)#([a-z][a-z0-9_-]*)/gi;
+// 提取 [[wiki-link]] 双向链接 → note-name(丢弃 alias/heading/block-id)
+const WIKI_LINK_REGEX = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
+// hex 颜色过滤(#FF0000 / #abc 等 3 或 6 位纯十六进制)
+const HEX_COLOR_REGEX = /^[0-9a-f]{3}$|^[0-9a-f]{6}$/;
 
 /** 知识库类型(自动识别) */
 export type KbType = 'obsidian' | 'logseq' | 'siyuan' | 'plain';
@@ -99,7 +111,8 @@ async function detectKbType(rootDir: string): Promise<KbType> {
       return 'logseq';
     }
     return 'plain';
-  } catch {
+  } catch (err) {
+    logError('KB type detect failed', err);
     return 'plain';
   }
 }
@@ -169,15 +182,14 @@ function parseMarkdown(content: string, fileName: string): ParsedMarkdown {
 
   // 3. 提取 inline #tag(正文里的 #tag 形式,排除 # 标题语法)
   const inlineTags = new Set<string>();
-  // 匹配 #tag(后面跟非字母数字或行尾,前面是空格或行首)
-  // 排除 ## ### 等 markdown 标题(# 后跟空格)
-  const tagRegex = /(?:^|\s)#([a-z][a-z0-9_-]*)/gi;
+  // 重置 lastIndex(g 标志正则有状态,复用前必须重置)
+  TAG_REGEX.lastIndex = 0;
   let tagMatch;
-  while ((tagMatch = tagRegex.exec(body)) !== null) {
+  while ((tagMatch = TAG_REGEX.exec(body)) !== null) {
     const tag = tagMatch[1].toLowerCase();
     // 排除 hex 颜色(#FF0000 / #abc 等 3 或 6 位纯十六进制)
     // (i 标志使 [a-z] 也匹配大写,故 #FF0000 会被捕获为 ff0000,需后过滤)
-    if (/^[0-9a-f]{3}$|^[0-9a-f]{6}$/.test(tag)) continue;
+    if (HEX_COLOR_REGEX.test(tag)) continue;
     inlineTags.add(tag);
   }
 
@@ -189,9 +201,10 @@ function parseMarkdown(content: string, fileName: string): ParsedMarkdown {
   //   [[note-name#^block-id]] → note-name (丢弃 block-id)
   // 大小写保留(因为 wiki-link 通常是文件名,大小写敏感)
   const wikiLinkTags = new Set<string>();
-  const wikiRegex = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
+  // 重置 lastIndex
+  WIKI_LINK_REGEX.lastIndex = 0;
   let wikiMatch;
-  while ((wikiMatch = wikiRegex.exec(body)) !== null) {
+  while ((wikiMatch = WIKI_LINK_REGEX.exec(body)) !== null) {
     const name = wikiMatch[1].trim();
     if (name && name.length <= 100) { // 防止异常长链接
       wikiLinkTags.add(name);
@@ -223,7 +236,8 @@ async function scanMarkdownFiles(rootDir: string): Promise<string[]> {
         result.push(fullPath);
       }
     }
-  } catch {
+  } catch (err) {
+    logError('KB scan failed', err);
     // 目录不存在或无权限:返回空,不阻断
   }
   return result;
@@ -318,7 +332,8 @@ export async function searchKnowledgeBase(
             kbRoot: root,
             kbType,
           });
-        } catch {
+        } catch (err) {
+          logError('KB parse failed', err);
           // 单文件读取失败:跳过,不阻断
         }
       })());

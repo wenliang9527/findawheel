@@ -14,6 +14,7 @@ import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { VscodeExtensionRawResult, RawResult } from '../normalize/types.js';
 import { SourceError } from '../errors.js';
 import { httpPost, HttpError } from '../util/http.js';
+import { DEFAULT_RETRY } from '../util/retry.js';
 
 const MARKETPLACE_URL = 'https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery';
 
@@ -94,6 +95,7 @@ export class VscodeMarketplaceSourceAdapter implements SourceAdapter {
           'accept': 'application/json;api-version=3.0-preview.1',
         },
         body: JSON.stringify(body),
+        retry: DEFAULT_RETRY,
       });
 
       // Marketplace 返回结构嵌套: results[0].extensions[]

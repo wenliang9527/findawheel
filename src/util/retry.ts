@@ -17,6 +17,15 @@ export interface RetryOpts {
   baseMs: number;
 }
 
+/**
+ * 生产默认重试配置:2 次重试,500ms 起步指数退避(500ms / 1s)。
+ * 仅对 5xx 和网络错误生效(参见 RetryableError),4xx 直接抛。
+ */
+export const DEFAULT_RETRY: RetryOpts = {
+  retries: 2,
+  baseMs: 500,
+};
+
 function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }

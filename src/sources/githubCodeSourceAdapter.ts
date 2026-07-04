@@ -11,6 +11,7 @@
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { GitHubCodeRawResult, RawResult } from '../normalize/types.js';
 import { httpGet, HttpError } from '../util/http.js';
+import { DEFAULT_RETRY } from '../util/retry.js';
 import { RateLimitError, SourceError } from '../errors.js';
 import { ECOSYSTEM_LANG } from './ecosystemMapping.js';
 
@@ -88,6 +89,7 @@ export class GitHubCodeSourceAdapter implements SourceAdapter {
         token: opts.githubToken,
         // text-match media type 让 GitHub 返回代码片段
         extraHeaders: { 'accept': 'application/vnd.github.text-match+json' },
+        retry: DEFAULT_RETRY,
       });
       return data.items.map((item): GitHubCodeRawResult => ({
         source: 'github-code',

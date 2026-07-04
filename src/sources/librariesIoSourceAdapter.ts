@@ -2,6 +2,7 @@
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { LibrariesIoRawResult, RawResult } from '../normalize/types.js';
 import { httpGet, HttpError } from '../util/http.js';
+import { DEFAULT_RETRY } from '../util/retry.js';
 import { SourceError } from '../errors.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 
@@ -38,6 +39,7 @@ export class LibrariesIoSourceAdapter implements SourceAdapter {
     try {
       const data = await httpGet<LibrariesIoProject[]>(url.toString(), {
         timeoutMs: opts.timeoutMs,
+        retry: DEFAULT_RETRY,
       });
       return data.map((item): LibrariesIoRawResult => ({
         source: 'librariesio',

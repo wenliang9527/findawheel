@@ -4,7 +4,6 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
-  type CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { createFindWheelTool } from './tools/findWheelTool.js';
@@ -33,7 +32,7 @@ const FindWheelSchema = z.object({
   query: z.string(),
   intent: z.enum(['feature', 'project', 'auto']).optional(),
   ecosystem: z.string().optional(),
-  limit: z.number().int().positive().optional(),
+  limit: z.number().int().positive().max(100).optional(),
   exclude: z.array(z.string()).optional(),
 });
 
@@ -53,7 +52,7 @@ const RecordFeedbackSchema = z.object({
 
 const SearchKnowledgeSchema = z.object({
   query: z.string(),
-  limit: z.number().int().positive().optional(),
+  limit: z.number().int().positive().max(100).optional(),
 });
 
 export function createServer() {
@@ -97,6 +96,13 @@ export function createServer() {
   const suggestQueriesTool = createSuggestQueriesTool();
   const getWheelDetailsTool = createGetWheelDetailsTool({ cache: detailsCache, enrichOpts });
   const recordFeedbackTool = createRecordFeedbackTool({ store: feedbackStore });
+  // 知识库缓存: 与 find_wheel 共享 cacheDir 但 key 空间隔离
+  // 提到 server 顶部创建, 保留 inFlight 跨请求去重能力
+  const kbCache = createCache<KnowledgeItem[]>({
+    dir: env.cacheDir,
+    ttlMs: env.cacheTtlMs,
+    enabled: env.cacheEnabled && env.kbCacheEnabled,
+  });
 
   const server = new Server(
     { name: 'findawheel', version: '0.1.0' },
@@ -109,17 +115,14 @@ export function createServer() {
         name: 'suggest_queries',
         description:
           'Generate 4 precise English search query variants (precise/action-oriented/fuzzy/concise) from user\'s original request. CALL THIS FIRST before find_wheel.\n' +
-          '\n== CORE RULES ==\n' +
-          '1. Pass user\'s original words (Chinese/English/any language) as input.\n' +
-          '2. Returns 4 variants + 1 recommended — pick recommended or combine variants for find_wheel.\n' +
-          '3. NEVER pass raw user words to find_wheel — always go through this tool first.\n' +
-          '4. If output includes "recommendedEcosystem" (e.g., "arduino"/"cpp" for hardware queries like stepper/motor/servo/esp32/stm32), PASS IT to find_wheel\'s ecosystem parameter — hardware libraries live in C++/Arduino ecosystem, not python/js.\n' +
-          '\n== WHY CALL THIS FIRST ==\n' +
-          '- AI knowledge has training cutoff → may hallucinate libraries or use outdated APIs.\n' +
-          '- Real search (npm/GitHub/PyPI/...) returns real libraries, current APIs, community-vetted choices.\n' +
-          '- Searching first then coding with reference = dramatically fewer AI mistakes.\n' +
+          '\n== RULES ==\n' +
+          '1. Pass user\'s original words (Chinese/English/any) as input. Returns 4 variants + 1 recommended.\n' +
+          '2. NEVER pass raw user words to find_wheel — always go through this tool first.\n' +
+          '3. If output includes "recommendedEcosystem" (e.g., "arduino"/"cpp" for hardware queries), PASS IT to find_wheel\'s ecosystem param.\n' +
+          '\n== WHY ==\n' +
+          'AI knowledge has training cutoff → may hallucinate. Real search returns real libraries with current APIs.\n' +
           '\n== WORKFLOW ==\n' +
-          '(1) user says "I want to make X" / "我想做一个..." → (2) call suggest_queries → (3) pick recommended query (+ use recommendedEcosystem if present) → (4) call find_wheel → (5) recommend 2-3 to user → (6) code with chosen wheel as reference.',
+          'user says "I want to make X" → suggest_queries → pick recommended (+ use recommendedEcosystem if present) → find_wheel → recommend 2-3 → code.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -132,31 +135,18 @@ export function createServer() {
       {
         name: 'find_wheel',
         description:
-          'Search for existing reusable wheels (libraries, packages, APIs, CLIs, SDKs, models, snippets) BEFORE writing new code. ' +
-          '\n\n== CORE RULES (must follow) ==\n' +
-          '1. CALL FIRST: When user says "I want to make/build/create a ..." → call suggest_queries → find_wheel → THEN code.\n' +
-          '2. DO NOT pass raw user input as query. Use suggest_queries first to get precise English search terms.\n' +
-          '   Example: user says "我想做AI串口监控" → query should be "serial port monitor tool", NOT "AI串口监控".\n' +
-          '3. findawheel does NOT filter by relevance — YOU judge relevance. Skip irrelevant results (e.g., "remove watermark" when user wants to ADD).\n' +
-          '4. List ALL results grouped by recommendation level to user. Do NOT only show 1 — give user choices.\n' +
-          '5. Recommend 2-3 best fits with reasons (compare stars/lastUpdated/description), then code with reference.\n' +
-          '\n== DO NOT ==\n' +
-          '- DO NOT generate code from memory without searching first (may hallucinate or use outdated APIs).\n' +
-          '- DO NOT pass Chinese/raw words as query — translate via suggest_queries first.\n' +
-          '- DO NOT only recommend 1 result — always give 2-3 options.\n' +
-          '- DO NOT skip find_wheel because you "know" the answer — search verifies it still exists and is maintained.\n' +
-          '\n== RESULT FORMAT ==\n' +
-          'Each result has "match" field with: recommendation level (highly_recommended/recommended/optional/not_recommended), score (0-1), reason, matchedKeywords, recallReason.\n' +
-          'recallReason explains why recalled (e.g., "命中 stepper/motor;3.0k stars;活跃维护") — use it to quickly judge relevance.\n' +
-          'HYBRID PRESENTATION: top 3 include inline "details" (README/code/release/license); results 4-10 have "hasDetails": true (call get_wheel_details for details).\n' +
-          '\n== AI COLLABORATION (exclude parameter) ==\n' +
-          'If you identify irrelevant results, call find_wheel again with "exclude" param listing wheel names to skip — filters them without re-querying APIs. Case-insensitive match.\n' +
-          '\n== INTELLIGENT SOURCE ROUTING ==\n' +
-          'findawheel routes queries to relevant data sources only (e.g., hardware queries → GitHub/Gitee, python ecosystem → PyPI/GitHub). This saves API quota and reduces noise.\n' +
-          'When sources are skipped, output includes "skippedSources" (list of skipped source names) and "routingReason" (why they were skipped). Use this to understand the recall scope.\n' +
-          'If recall is insufficient (top result stars < 10 OR total results < 5), findawheel automatically expands to search ALL sources — in that case, skippedSources is not returned (all sources were searched).\n' +
+          'Search for existing reusable wheels (libraries/packages/APIs/CLIs/SDKs/models/snippets) BEFORE writing new code.\n' +
+          '\n== CORE RULES ==\n' +
+          '1. Call suggest_queries FIRST to get precise English query. DO NOT pass raw user input (e.g., "我想做AI串口监控" → use "serial port monitor tool").\n' +
+          '2. findawheel does NOT filter by relevance — YOU judge. Skip irrelevant results (e.g., "remove watermark" when user wants ADD).\n' +
+          '3. List ALL results grouped by recommendation level. Recommend 2-3 best fits with reasons, then code with reference.\n' +
+          '\n== OUTPUT ==\n' +
+          '- Each result has "match": { recommendation, score, reason, matchedKeywords, recallReason }. Use recallReason to quickly judge relevance.\n' +
+          '- Top 3 include inline "details" (README/code/release); results 4-10 have "hasDetails": true (call get_wheel_details).\n' +
+          '- "exclude" param: re-call with wheel names to skip irrelevant results without re-querying APIs.\n' +
+          '- Intelligent routing: hardware → GitHub/Gitee, python → PyPI/GitHub. "skippedSources" field shows which sources were skipped. Auto-expands to all sources if top result stars < 10 or results < 5.\n' +
           '\n== WORKFLOW ==\n' +
-          '(1) suggest_queries → (2) find_wheel → (3) review top 5, compare stars/lastUpdated/description → (4) recommend 2-3 with reasons → (5) code with chosen wheel as reference.',
+          'suggest_queries → find_wheel → review top 5 → recommend 2-3 → code with reference.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -207,23 +197,10 @@ export function createServer() {
       {
         name: 'search_knowledge',
         description:
-          'Search user\'s personal knowledge base (local Markdown notes: Obsidian vault, Logseq, plain .md folders). ' +
-          'Returns documents whose title/path/tags/content match the query, with snippets and file:// URLs.\n' +
-          '\n' +
-          'WHEN TO CALL:\n' +
-          '- User asks "what does my team\'s wiki say about X" / "团队有没有 X 的文档"\n' +
-          '- User asks "find my notes on X" / "查一下我的笔记里关于 X"\n' +
-          '- User asks about project ADR / architecture decisions / team conventions\n' +
-          '- User mentions "internal docs" / "内部文档" / "团队规范"\n' +
-          '\n' +
-          'WHEN NOT TO CALL:\n' +
-          '- User asks for open-source libraries → use find_wheel instead\n' +
-          '- User asks how to use a library → use find_wheel + get_wheel_details\n' +
-          '\n' +
-          'CONFIG: Requires FINDAWHEEL_KB_ENABLED=true and FINDAWHEEL_KB_ROOT=<path> (comma-separated for multiple vaults). ' +
-          'If not configured, returns a hint explaining how to enable. ' +
-          'Tags are extracted from YAML frontmatter (tags:/categories:) and inline #tag. ' +
-          'Search priority: title > path > tag > content.',
+          'Search user\'s personal knowledge base (local Markdown notes: Obsidian/Logseq/plain .md folders). Returns matching documents with snippets and file:// URLs.\n' +
+          '\nWHEN TO CALL: "what does my team\'s wiki say about X" / "查我的笔记里关于 X" / "内部文档" / "团队规范".\n' +
+          'WHEN NOT TO CALL: open-source libraries → use find_wheel instead.\n' +
+          '\nCONFIG: Requires FINDAWHEEL_KB_ENABLED=true and FINDAWHEEL_KB_ROOT=<path>. Search priority: title > path > tag > content.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -243,43 +220,39 @@ export function createServer() {
       if (!parsed.success) {
         return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
       }
-      return findWheelTool.handle(parsed.data) as unknown as CallToolResult;
+      return findWheelTool.handle(parsed.data);
     }
     if (name === 'suggest_queries') {
       const parsed = SuggestQueriesSchema.safeParse(req.params.arguments);
       if (!parsed.success) {
         return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
       }
-      return suggestQueriesTool.handle(parsed.data) as unknown as CallToolResult;
+      return suggestQueriesTool.handle(parsed.data);
     }
     if (name === 'get_wheel_details') {
       const parsed = GetWheelDetailsSchema.safeParse(req.params.arguments);
       if (!parsed.success) {
         return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
       }
-      return getWheelDetailsTool.handle(parsed.data) as unknown as CallToolResult;
+      return getWheelDetailsTool.handle(parsed.data);
     }
     if (name === 'record_feedback') {
       const parsed = RecordFeedbackSchema.safeParse(req.params.arguments);
       if (!parsed.success) {
         return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
       }
-      return recordFeedbackTool.handle(parsed.data) as unknown as CallToolResult;
+      return recordFeedbackTool.handle(parsed.data);
     }
     if (name === 'search_knowledge') {
       const parsed = SearchKnowledgeSchema.safeParse(req.params.arguments);
       if (!parsed.success) {
         return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
       }
-      // 注入 kbCache(仅当 kbCacheEnabled=true 时生效,与 find_wheel 共享 cacheDir 但 key 空间隔离)
-      const kbCache = createCache<KnowledgeItem[]>({
-        dir: env.cacheDir,
-        ttlMs: env.cacheTtlMs,
-        enabled: env.cacheEnabled && env.kbCacheEnabled,
-      });
+      // 使用 server 顶部创建的 kbCache(保留 inFlight 跨请求去重)
       const result = await searchKnowledge(parsed.data as SearchKnowledgeInput, env, { cache: kbCache });
+      // JSON 格式与其他 tool 一致(无缩进,节省 token)
       return {
-        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(result) }],
         isError: false,
       };
     }

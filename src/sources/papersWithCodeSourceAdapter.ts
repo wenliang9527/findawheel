@@ -13,6 +13,7 @@
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { PaperRawResult, RawResult } from '../normalize/types.js';
 import { httpGet, HttpError } from '../util/http.js';
+import { DEFAULT_RETRY } from '../util/retry.js';
 import { SourceError } from '../errors.js';
 
 const API_BASE = 'https://paperswithcode.com/api/v1';
@@ -57,6 +58,7 @@ export class PapersWithCodeSourceAdapter implements SourceAdapter {
     try {
       const data = await httpGet<PwcSearchResponse>(url.toString(), {
         timeoutMs: opts.timeoutMs,
+        retry: DEFAULT_RETRY,
       });
       return (data.results ?? []).map((p): PaperRawResult => ({
         source: 'paperswithcode',

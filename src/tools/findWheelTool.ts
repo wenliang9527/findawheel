@@ -11,8 +11,9 @@ import { routeSources, type RoutingResult } from '../classifier/sourceRouter.js'
 import { normalize } from '../normalize/normalizer.js';
 import { enrich } from '../enrich/metricsEnricher.js';
 import { rank } from '../rank/ranker.js';
-import { enrichWithMatch } from '../rank/recommender.js';
+import { enrichWithMatch, REC_LABELS, REC_ORDER } from '../rank/recommender.js';
 import { readEnv } from '../util/env.js';
+import { logError } from '../util/logger.js';
 import { createCache, cacheKey, type Cache } from '../cache/cache.js';
 import {
   enrichDetails,
@@ -47,9 +48,11 @@ interface SearchResult {
   expandedFallback?: boolean;
 }
 
-/** 兜底扩展阈值:top 1 stars < 10 或总结果 < 5 条时触发 */
+/** 兜底扩展阈值:top 1 stars < LOW_STARS_THRESHOLD 或总结果 < FALLBACK_MIN_RESULTS 条时触发 */
 const FALLBACK_TOP_STARS_THRESHOLD = 10;
 const FALLBACK_MIN_RESULTS = 5;
+/** 低 star 阈值:低于此值视为低质量结果(用于兜底扩展 + 低质量警告) */
+const LOW_STARS_THRESHOLD = 10;
 
 export function createFindWheelTool(opts: CreateToolOpts) {
   const env = readEnv();
@@ -67,7 +70,8 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       };
     }
     const intent: Intent = classify(input.query, input.intent);
-    const limit = input.limit ?? env.limit;
+    // limit 上限封顶 100,避免恶意传入超大值导致超大缓存写入和响应
+    const limit = Math.min(input.limit ?? env.limit, 100);
 
     // C 阶段:exclude 过滤。用规范化 key(owner/repo 或包名小写)匹配。
     // exclude 是 AI 协作深化的一部分 —— AI 上一轮看到结果后,
@@ -192,16 +196,9 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       tavilyApiKey: env.tavilyApiKey,
       parsedQuery,
     };
-    // 副搜索:用 fuzzyQuery(同义词泛化)扩大召回,不传 parsedQuery(让 adapter 走兜底)
-    const fuzzyOpts = {
-      intent, ecosystem: input.ecosystem, timeoutMs,
-      githubToken: env.githubToken,
-      gitlabToken: env.gitlabToken,
-      giteeToken: env.giteeToken,
-      librariesIoApiKey: env.librariesIoApiKey,
-      exaApiKey: env.exaApiKey,
-      tavilyApiKey: env.tavilyApiKey,
-    };
+    // 副搜索:用 fuzzyQuery(同义词泛化)扩大召回,复用 searchOpts 但去掉 parsedQuery(让 adapter 走兜底)
+    const { parsedQuery: _omit, ...fuzzyOpts } = searchOpts;
+    void _omit;
 
     // 主搜索 + 副搜索并行(只用路由选中的源),结果合并去重(由 rank() 的 dedupe 处理)
     const [mainSettled, fuzzySettled] = await Promise.all([
@@ -240,7 +237,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       return { wheels: [], degraded, allFailed: true, routing };
     }
 
-    let wheels: Wheel[] = allRaw.map(normalize).map(enrich);
+    let wheels: Wheel[] = allRaw.map(w => enrich(normalize(w)));
     // 提取 query 关键词(含中文翻译后的英文),用于排序时描述匹配加分
     const queryKeywords = extractKeywords(input.query);
     // Phase 6 简化:删除领域泛词过滤和 coreWords 过滤。
@@ -282,7 +279,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
         }
         if (extRaw.length > 0) {
           // 合并扩展结果到主结果,重新 rank
-          wheels = [...wheels, ...extRaw.map(normalize).map(enrich)];
+          wheels = [...wheels, ...extRaw.map(w => enrich(normalize(w)))];
           ranked = rank(wheels, intent, limit, queryKeywords);
           rankedWithMatch = enrichWithMatch(ranked, queryKeywords);
         }
@@ -335,7 +332,8 @@ async function enrichTopWheels(
     if (detailsCache) {
       try {
         await detailsCache.set(detailsCacheKey(top[i].name), details);
-      } catch {
+      } catch (err) {
+        logError('details prefetch failed', err);
         // 缓存写入失败不阻断(磁盘满等极端情况)
       }
     }
@@ -349,14 +347,9 @@ async function enrichTopWheels(
   }
 }
 
-/** 推荐等级的中文标签 + 排序顺序 */
-const REC_LABELS: Record<string, string> = {
-  highly_recommended: '强烈推荐',
-  recommended: '推荐',
-  optional: '可选',
-  not_recommended: '不推荐',
-};
-const REC_ORDER = ['highly_recommended', 'recommended', 'optional', 'not_recommended'];
+/** 推荐等级的中文标签 + 排序顺序 — 已移到 src/rank/recommender.ts 共享层 */
+// REC_LABELS / REC_ORDER 现集中定义在 recommender.ts,
+// 避免与 gradeRecommendation 等级定义脱节。
 
 /**
  * 生成结构化 summary:按推荐等级分组,明确列出所有结果名。
@@ -385,12 +378,12 @@ function buildSummary(wheels: Wheel[]): FindWheelOutput['summary'] {
     }));
   const totalCount = wheels.length;
 
-  // 低质量结果检测:top 1 结果 stars < 10 时加警告
+  // 低质量结果检测:top 1 结果 stars < LOW_STARS_THRESHOLD 时加警告
   // wheels 已按 score 降序排列,top 1 = wheels[0]
   let warning: string | undefined;
   if (wheels.length > 0) {
     const topStars = wheels[0].metrics.stars ?? 0;
-    if (topStars < 10) {
+    if (topStars < LOW_STARS_THRESHOLD) {
       warning = `⚠️ 召回质量警告:top 1 结果仅 ${topStars} stars,可能未命中主流库。建议:(1) 换更宽泛的 query(如去掉平台名/修饰词);(2) 调用 suggest_queries 工具生成搜索词变体;(3) 尝试用更精准的英文关键词重新搜索。`;
     }
   }

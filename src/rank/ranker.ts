@@ -11,16 +11,34 @@
 // - coreWords/formatWords/antonymExcludes 参数 → 不再需要
 
 import type { Wheel, Intent } from '../normalize/types.js';
-import { isAggregateRepo } from '../sources/githubSourceAdapter.js';
 
 const THREE_YEARS_MS = 3 * 365 * 24 * 3600 * 1000;
 
-// 聚合类仓库关键词(awesome-xxx、public-apis、free-for-dev 等)
-// 这些是"资源列表",不是具体可用的轮子
+// ===== 聚合类仓库模式表(集中管理) =====
+// 这些是"资源列表",不是具体可用的轮子,在 filterOut 阶段统一剔除。
+// 之前分散在 githubSourceAdapter.ts(name 模式)和 ranker.ts(desc 模式)两处,
+// 现在合并到 ranker.ts 一处定义,避免模式漂移。
+//
+// - NAME_PATTERNS:基于 name 的单词匹配(awesome-xxx、public-apis 等)
+// - DESC_PATTERNS:基于 description 的短语匹配(awesome list、curated list 等)
+const AGGREGATE_NAME_PATTERNS = [
+  'awesome', 'public-apis', 'free-for-dev', 'awesome-list',
+];
 const AGGREGATE_DESC_PATTERNS = [
   'awesome list', 'curated list', 'collection of', 'list of',
   'public apis', 'free for dev', 'resources for',
 ];
+
+/**
+ * 判断是否为聚合类仓库(awesome-xxx、public-apis 等)。
+ * 双重检测:name 包含聚合关键词 或 description 包含聚合短语。
+ */
+function isAggregateRepo(name: string, description: string): boolean {
+  const text = `${name} ${description}`.toLowerCase();
+  if (AGGREGATE_NAME_PATTERNS.some(p => text.includes(p))) return true;
+  const descLower = (description ?? '').toLowerCase();
+  return AGGREGATE_DESC_PATTERNS.some(p => descLower.includes(p));
+}
 
 /**
  * 基础过滤:剔除明显不可用的结果。
@@ -43,9 +61,6 @@ export function filterOut(wheel: Wheel): boolean {
 
   // 过滤聚合类仓库(awesome-xxx、public-apis 等)
   if (isAggregateRepo(wheel.name, wheel.description)) return true;
-  // 防御性兜底:description 可能为 undefined(虽类型是 string,但运行时 adapter 可能漏兜底)
-  const descLower = (wheel.description ?? '').toLowerCase();
-  if (AGGREGATE_DESC_PATTERNS.some(p => descLower.includes(p))) return true;
 
   return false;
 }

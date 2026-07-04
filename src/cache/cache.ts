@@ -5,6 +5,7 @@ import type { Wheel } from '../normalize/types.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import { logError } from '../util/logger.js';
 
 export interface CacheOpts {
   /** 缓存目录(磁盘持久化) */
@@ -46,13 +47,15 @@ export function createCache<T = Wheel[]>(opts: CacheOpts): Cache<T> {
     let raw: string;
     try {
       raw = await fs.promises.readFile(file, 'utf8');
-    } catch {
+    } catch (err) {
+      logError('cache read failed', err);
       return undefined;
     }
     let entry: CacheEntry<T>;
     try {
       entry = JSON.parse(raw) as CacheEntry<T>;
-    } catch {
+    } catch (err) {
+      logError('cache parse failed', err);
       return undefined;
     }
     // TTL 过期检查
@@ -67,7 +70,8 @@ export function createCache<T = Wheel[]>(opts: CacheOpts): Cache<T> {
     try {
       await fs.promises.mkdir(opts.dir, { recursive: true });
       await fs.promises.writeFile(file, JSON.stringify(entry), 'utf8');
-    } catch {
+    } catch (err) {
+      logError('cache write failed', err);
       // 缓存写入失败不阻断主流程
     }
   }

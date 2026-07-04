@@ -8,6 +8,7 @@ import {
 import { type Cache } from '../cache/cache.js';
 import * as crypto from 'node:crypto';
 import type { McpToolResult } from './types.js';
+import { isValidOwnerRepo } from '../util/nameValidator.js';
 
 export interface GetWheelDetailsInput {
   /** GitHub 仓库标识,owner/repo 格式 */
@@ -36,9 +37,9 @@ export function createGetWheelDetailsTool(opts: CreateGetWheelDetailsToolOpts) {
 
   async function handle(input: GetWheelDetailsInput): Promise<McpToolResult> {
     // 校验 name 格式:必须是 owner/repo
-    if (!input.name.includes('/')) {
+    if (!isValidOwnerRepo(input.name)) {
       return {
-        content: [{ type: 'text', text: 'invalid name: expected owner/repo format' }],
+        content: [{ type: 'text', text: 'invalid name: expected owner/repo format (e.g., facebook/react)' }],
         isError: true,
       };
     }

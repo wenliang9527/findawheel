@@ -2,6 +2,7 @@
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { PypiRawResult, RawResult } from '../normalize/types.js';
 import { httpGet, HttpError } from '../util/http.js';
+import { DEFAULT_RETRY } from '../util/retry.js';
 import { SourceError } from '../errors.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 
@@ -74,6 +75,7 @@ export class PypiSourceAdapter implements SourceAdapter {
         timeoutMs: opts.timeoutMs,
         extraHeaders: { 'accept': 'text/html' },
         text: true,
+        retry: DEFAULT_RETRY,
       });
       return parsePypiHtml(html);
     } catch (err) {

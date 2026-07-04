@@ -2,6 +2,7 @@
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { GitlabRawResult, RawResult } from '../normalize/types.js';
 import { httpGet, HttpError } from '../util/http.js';
+import { DEFAULT_RETRY } from '../util/retry.js';
 import { RateLimitError, SourceError } from '../errors.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 
@@ -47,6 +48,7 @@ export class GitlabSourceAdapter implements SourceAdapter {
       const data = await httpGet<GitlabProject[]>(url.toString(), {
         timeoutMs: opts.timeoutMs,
         extraHeaders,
+        retry: DEFAULT_RETRY,
       });
       return data.map((item): GitlabRawResult => ({
         source: 'gitlab',

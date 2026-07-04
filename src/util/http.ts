@@ -23,45 +23,6 @@ export interface HttpGetOptions {
   text?: boolean;
 }
 
-export async function httpGet<T>(url: string, opts: HttpGetOptions): Promise<T> {
-  const doFetch = async (): Promise<T> => {
-    const headers: Record<string, string> = {
-      'accept': 'application/json',
-      'user-agent': opts.userAgent ?? 'findawheel/0.1',
-      ...opts.extraHeaders,
-    };
-    if (opts.token) headers.authorization = `Bearer ${opts.token}`;
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
-    try {
-      const res = await fetch(url, { headers, signal: controller.signal });
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        const err = new HttpError(res.status, url, body);
-        // 5xx 包装成 RetryableError 让 withRetry 重试
-        if (err.retryable) throw new RetryableError(err.message);
-        throw err;
-      }
-      // text 模式:返回原始文本(用于 HTML 解析);否则解析 JSON
-      if (opts.text) return (await res.text()) as T;
-      return (await res.json()) as T;
-    } catch (err) {
-      // 网络错误/abort 也包装成可重试
-      if (err instanceof RetryableError) throw err;
-      if (err instanceof HttpError) throw err;
-      // TypeError(fetch failed) / AbortError
-      throw new RetryableError((err as Error).message);
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-
-  // 无重试配置时直接执行(保持原行为)
-  if (!opts.retry) return doFetch();
-  return withRetry(doFetch, opts.retry);
-}
-
 export interface HttpPostOptions {
   timeoutMs: number;
   /** 请求头(如 Content-Type / x-api-key 等) */
@@ -75,45 +36,89 @@ export interface HttpPostOptions {
 }
 
 /**
+ * 共用的 fetch 执行器(GET/POST 复用)。
+ * 统一超时控制、错误包装(5xx/网络错误 → RetryableError,4xx → HttpError)。
+ */
+async function doFetch<T>(
+  url: string,
+  method: 'GET' | 'POST',
+  opts: {
+    timeoutMs: number;
+    headers: Record<string, string>;
+    body?: string;
+    text?: boolean;
+  },
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+  try {
+    const fetchOpts: RequestInit = {
+      method,
+      headers: opts.headers,
+      signal: controller.signal,
+    };
+    if (method === 'POST' && opts.body !== undefined) {
+      fetchOpts.body = opts.body;
+    }
+    const res = await fetch(url, fetchOpts);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      const err = new HttpError(res.status, url, body);
+      // 5xx 包装成 RetryableError 让 withRetry 重试
+      if (err.retryable) throw new RetryableError(err.message);
+      throw err;
+    }
+    // text 模式:返回原始文本(用于 HTML 解析);否则解析 JSON
+    if (opts.text) return (await res.text()) as T;
+    return (await res.json()) as T;
+  } catch (err) {
+    // 网络错误/abort 也包装成可重试
+    if (err instanceof RetryableError) throw err;
+    if (err instanceof HttpError) throw err;
+    // TypeError(fetch failed) / AbortError
+    throw new RetryableError((err as Error).message);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function httpGet<T>(url: string, opts: HttpGetOptions): Promise<T> {
+  const headers: Record<string, string> = {
+    'accept': 'application/json',
+    'user-agent': opts.userAgent ?? 'findawheel/0.1',
+    ...opts.extraHeaders,
+  };
+  if (opts.token) headers.authorization = `Bearer ${opts.token}`;
+
+  const doFetchFn = () => doFetch<T>(url, 'GET', {
+    timeoutMs: opts.timeoutMs,
+    headers,
+    text: opts.text,
+  });
+
+  // 无重试配置时直接执行(保持原行为)
+  if (!opts.retry) return doFetchFn();
+  return withRetry(doFetchFn, opts.retry);
+}
+
+/**
  * POST 请求,与 httpGet 共享超时/重试/错误处理逻辑。
  * 用于 Exa/Tavily 等 POST API,统一走 http 层获得 5xx 重试能力。
  */
 export async function httpPost<T>(url: string, opts: HttpPostOptions): Promise<T> {
-  const doFetch = async (): Promise<T> => {
-    const headers: Record<string, string> = {
-      'accept': 'application/json',
-      'user-agent': 'findawheel/0.1',
-      ...opts.headers,
-    };
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: opts.body,
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        const err = new HttpError(res.status, url, body);
-        // 5xx 包装成 RetryableError 让 withRetry 重试
-        if (err.retryable) throw new RetryableError(err.message);
-        throw err;
-      }
-      if (opts.text) return (await res.text()) as T;
-      return (await res.json()) as T;
-    } catch (err) {
-      if (err instanceof RetryableError) throw err;
-      if (err instanceof HttpError) throw err;
-      // TypeError(fetch failed) / AbortError
-      throw new RetryableError((err as Error).message);
-    } finally {
-      clearTimeout(timer);
-    }
+  const headers: Record<string, string> = {
+    'accept': 'application/json',
+    'user-agent': 'findawheel/0.1',
+    ...opts.headers,
   };
 
-  if (!opts.retry) return doFetch();
-  return withRetry(doFetch, opts.retry);
+  const doFetchFn = () => doFetch<T>(url, 'POST', {
+    timeoutMs: opts.timeoutMs,
+    headers,
+    body: opts.body,
+    text: opts.text,
+  });
+
+  if (!opts.retry) return doFetchFn();
+  return withRetry(doFetchFn, opts.retry);
 }

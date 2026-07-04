@@ -3,6 +3,7 @@
 // 反馈持久化到 ~/.findawheel/feedback/, 用于后续搜索排序加权。
 import type { FeedbackStore, FeedbackAction } from '../feedback/feedbackStore.js';
 import type { McpToolResult } from './types.js';
+import { isValidOwnerRepo } from '../util/nameValidator.js';
 
 export interface RecordFeedbackInput {
   /** wheel 标识, owner/repo 格式(与 find_wheel 返回的 name 一致) */
@@ -27,10 +28,10 @@ export interface CreateRecordFeedbackToolOpts {
  */
 export function createRecordFeedbackTool(opts: CreateRecordFeedbackToolOpts) {
   async function handle(input: RecordFeedbackInput): Promise<McpToolResult> {
-    // 校验 name: 必须含 / (owner/repo 格式)
-    if (!input.name || !input.name.includes('/')) {
+    // 校验 name: 必须是 owner/repo 格式
+    if (!input.name || !isValidOwnerRepo(input.name)) {
       return {
-        content: [{ type: 'text', text: 'invalid name: expected owner/repo format' }],
+        content: [{ type: 'text', text: 'invalid name: expected owner/repo format (e.g., facebook/react)' }],
         isError: true,
       };
     }

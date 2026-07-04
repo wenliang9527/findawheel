@@ -5,6 +5,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import { logError } from '../util/logger.js';
 
 /** 反馈动作类型 */
 export type FeedbackAction = 'like' | 'hide' | 'click';
@@ -60,12 +61,14 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
     let raw: string;
     try {
       raw = await fs.promises.readFile(file, 'utf8');
-    } catch {
+    } catch (err) {
+      logError('feedback read failed', err);
       return null;
     }
     try {
       return JSON.parse(raw) as FeedbackRecord;
-    } catch {
+    } catch (err) {
+      logError('feedback parse failed', err);
       return null;
     }
   }
@@ -105,7 +108,8 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
     try {
       await fs.promises.mkdir(opts.dir, { recursive: true });
       await fs.promises.writeFile(filePath(name), JSON.stringify(record), 'utf8');
-    } catch {
+    } catch (err) {
+      logError('feedback write failed', err);
       // 写入失败不阻断, 返回 null 提示调用方
       return null;
     }
@@ -121,7 +125,8 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
     let files: string[];
     try {
       files = await fs.promises.readdir(opts.dir);
-    } catch {
+    } catch (err) {
+      logError('feedback list failed', err);
       return [];
     }
     const records: FeedbackRecord[] = [];
@@ -132,7 +137,8 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
           try {
             const raw = await fs.promises.readFile(path.join(opts.dir, f), 'utf8');
             records.push(JSON.parse(raw) as FeedbackRecord);
-          } catch {
+          } catch (err) {
+            logError('feedback file parse failed', err);
             // 单个文件损坏跳过
           }
         }),

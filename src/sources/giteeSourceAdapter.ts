@@ -8,6 +8,7 @@
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { GiteeRawResult, RawResult } from '../normalize/types.js';
 import { httpGet, HttpError } from '../util/http.js';
+import { DEFAULT_RETRY } from '../util/retry.js';
 import { SourceError, RateLimitError } from '../errors.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 import { ECOSYSTEM_LANG } from './ecosystemMapping.js';
@@ -53,6 +54,7 @@ export class GiteeSourceAdapter implements SourceAdapter {
     try {
       const data = await httpGet<GiteeSearchResponse>(url.toString(), {
         timeoutMs: opts.timeoutMs,
+        retry: DEFAULT_RETRY,
       });
       return (data.items ?? []).map((item): GiteeRawResult => ({
         source: 'gitee',

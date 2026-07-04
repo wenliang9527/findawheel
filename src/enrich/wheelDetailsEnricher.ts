@@ -4,6 +4,7 @@ import { fetchReadme } from './readmeFetcher.js';
 import { fetchLatestRelease, type LatestRelease } from './releaseFetcher.js';
 import { extractCodeSnippets, type CodeSnippet } from './codeSnippetExtractor.js';
 import { checkLicenseCompatibility, type LicenseCheck } from './licenseCompatibility.js';
+import { isValidOwnerRepo } from '../util/nameValidator.js';
 
 export interface WheelDetails {
   /** 所属 wheel 标识（GitHub 源为 owner/repo） */
@@ -33,7 +34,7 @@ export interface EnrichDetailsOpts {
  */
 function extractRepo(wheel: Wheel): string | null {
   if (wheel.source !== 'github') return null;
-  if (!wheel.name.includes('/')) return null;
+  if (!isValidOwnerRepo(wheel.name)) return null;
   return wheel.name;
 }
 

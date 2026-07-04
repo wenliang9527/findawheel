@@ -22,6 +22,8 @@ import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { WebRawResult, RawResult } from '../normalize/types.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 import { httpPost } from '../util/http.js';
+import { DEFAULT_RETRY } from '../util/retry.js';
+import { logError } from '../util/logger.js';
 
 interface ExaSearchResponse {
   results: Array<{
@@ -68,6 +70,7 @@ async function searchExa(
       'x-api-key': apiKey,
     },
     body,
+    retry: DEFAULT_RETRY,
   });
   return (data.results ?? []).map((item): WebRawResult => ({
     source: 'web',
@@ -100,6 +103,7 @@ async function searchTavily(
     timeoutMs,
     headers: { 'Content-Type': 'application/json' },
     body,
+    retry: DEFAULT_RETRY,
   });
   return (data.results ?? []).map((item): WebRawResult => ({
     source: 'web',
@@ -135,7 +139,8 @@ export class WebSourceAdapter implements SourceAdapter {
     if (opts.tavilyApiKey) {
       try {
         return await searchTavily(q, opts.tavilyApiKey, opts.timeoutMs);
-      } catch {
+      } catch (err) {
+        logError('tavily fallback failed', err);
         // Tavily 也失败,返回空数组(降级)
         return [];
       }

@@ -2,8 +2,10 @@
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { NpmRawResult, CratesRawResult, RawResult } from '../normalize/types.js';
 import { httpGet, HttpError } from '../util/http.js';
+import { DEFAULT_RETRY } from '../util/retry.js';
 import { SourceError } from '../errors.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
+import { logError } from '../util/logger.js';
 
 interface NpmSearchResponse {
   objects: Array<{
@@ -45,7 +47,7 @@ async function searchNpm(query: string, timeoutMs: number): Promise<NpmRawResult
   url.searchParams.set('text', query);
   url.searchParams.set('size', '20');
   try {
-    const data = await httpGet<NpmSearchResponse>(url.toString(), { timeoutMs });
+    const data = await httpGet<NpmSearchResponse>(url.toString(), { timeoutMs, retry: DEFAULT_RETRY });
     return data.objects.map(o => {
       // 从 links.repository 提取 GitHub 仓库地址(如果有)
       const repoUrl = o.package.links.repository;
@@ -105,11 +107,11 @@ async function enrichSingleNpm(
     const [dlRes, ghRes] = await Promise.allSettled([
       httpGet<NpmDownloadsResponse>(
         `https://api.npmjs.org/downloads/point/last-week/${result.name}`,
-        { timeoutMs },
+        { timeoutMs, retry: DEFAULT_RETRY },
       ),
       httpGet<GitHubRepoData>(
         `https://api.github.com/repos/${ownerRepo}`,
-        { timeoutMs, token: githubToken, extraHeaders: { accept: 'application/vnd.github+json' } },
+        { timeoutMs, token: githubToken, extraHeaders: { accept: 'application/vnd.github+json' }, retry: DEFAULT_RETRY },
       ),
     ]);
     return {
@@ -122,10 +124,11 @@ async function enrichSingleNpm(
   try {
     const dl = await httpGet<NpmDownloadsResponse>(
       `https://api.npmjs.org/downloads/point/last-week/${result.name}`,
-      { timeoutMs },
+      { timeoutMs, retry: DEFAULT_RETRY },
     );
     return { ...result, downloads: dl.downloads };
-  } catch {
+  } catch (err) {
+    logError('npm enrich failed', err);
     return result; // 补充失败也不影响搜索结果
   }
 }
@@ -138,6 +141,7 @@ async function searchCrates(query: string, timeoutMs: number): Promise<CratesRaw
     const data = await httpGet<CratesSearchResponse>(url.toString(), {
       timeoutMs,
       userAgent: 'findawheel/0.1 (https://github.com/findawheel)',
+      retry: DEFAULT_RETRY,
     });
     return data.crates.map(c => ({
       source: 'crates' as const,

@@ -1,5 +1,6 @@
 // src/enrich/readmeFetcher.ts
 import { httpGet, HttpError } from '../util/http.js';
+import { DEFAULT_RETRY } from '../util/retry.js';
 import { SourceError } from '../errors.js';
 
 export interface FetchReadmeOpts {
@@ -26,6 +27,7 @@ export async function fetchReadme(
       token: opts.githubToken,
       extraHeaders: { 'accept': 'application/vnd.github.raw' },
       text: true,
+      retry: DEFAULT_RETRY,
     });
     const maxLines = opts.maxLines ?? 30;
     return content.split('\n').slice(0, maxLines).join('\n');

@@ -15,6 +15,7 @@
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { RawResult, HuggingfaceRawResult } from '../normalize/types.js';
 import { httpGet, HttpError } from '../util/http.js';
+import { DEFAULT_RETRY } from '../util/retry.js';
 import { SourceError } from '../errors.js';
 
 const API_BASE = 'https://huggingface.co/api';
@@ -61,6 +62,7 @@ export class HuggingfaceSourceAdapter implements SourceAdapter {
       // 注:不注入 githubToken —— HF token 格式是 hf_xxx,与 GitHub PAT 完全不同
       const data = await httpGet<HfSearchResponse>(url.toString(), {
         timeoutMs: opts.timeoutMs,
+        retry: DEFAULT_RETRY,
       });
 
       // HuggingFace API 直接返回数组(非 { results: [...] } 结构)

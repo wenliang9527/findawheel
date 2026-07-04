@@ -228,37 +228,34 @@ const SYNONYMS: Record<string, string[]> = {
  * - 包管理器名:"npm 包"/"pypi 包"/"cargo crate" 等
  * 返回标准化的 ecosystem 名('python'/'js'/'ts'/'rust'/'go'/'java'/'csharp'/'cpp'/'php'/'ruby'/'swift'/'kotlin'),
  * 未识别返回 undefined。
+ *
+ * 优化:语言+资源词模式共用 LANG_RES 后缀常量(避免 11 处重复同一组中文/英文同义词),
+ * 包管理器(pypi/npm/cargo/maven/composer)走各自更短的短词集合。
  */
+const LANG_RES = '[\\s_-]*(库|包|框架|模块|module|library|package|framework)';
+
 const ECOSYSTEM_PATTERNS: Array<{ pattern: RegExp; ecosystem: string }> = [
-  // Python 类
-  { pattern: /\b(python|py)\b[\s_-]*(库|包|框架|模块|module|library|package|framework)/i, ecosystem: 'python' },
+  // 语言名 + 通用资源词后缀(库/包/框架/模块 + 英文同义词)
+  { pattern: new RegExp(`\\b(python|py)\\b${LANG_RES}`, 'i'), ecosystem: 'python' },
+  { pattern: new RegExp(`\\b(js|javascript)\\b${LANG_RES}`, 'i'), ecosystem: 'js' },
+  { pattern: new RegExp(`\\b(ts|typescript)\\b${LANG_RES}`, 'i'), ecosystem: 'ts' },
+  // node 之前漏了 模块/package/framework,现统一用 LANG_RES(和其他语言一致)
+  { pattern: new RegExp(`\\bnode(\\.js|js)?\\b${LANG_RES}`, 'i'), ecosystem: 'js' },
+  { pattern: new RegExp(`\\brust\\b[\\s_-]*(库|包|框架|模块|module|library|package|framework|crate)`, 'i'), ecosystem: 'rust' },
+  { pattern: new RegExp(`\\bgo(lang)?\\b${LANG_RES}`, 'i'), ecosystem: 'go' },
+  { pattern: new RegExp(`\\bjava\\b${LANG_RES}`, 'i'), ecosystem: 'java' },
+  { pattern: new RegExp(`\\b(c#|csharp|dotnet|\\.net)\\b${LANG_RES}`, 'i'), ecosystem: 'csharp' },
+  { pattern: new RegExp(`\\bc\\+\\+\\b${LANG_RES}`, 'i'), ecosystem: 'cpp' },
+  { pattern: new RegExp(`\\bphp\\b${LANG_RES}`, 'i'), ecosystem: 'php' },
+  { pattern: new RegExp(`\\bruby\\b[\\s_-]*(库|包|框架|模块|module|library|package|framework|gem)`, 'i'), ecosystem: 'ruby' },
+  { pattern: new RegExp(`\\bswift\\b${LANG_RES}`, 'i'), ecosystem: 'swift' },
+  { pattern: new RegExp(`\\bkotlin\\b${LANG_RES}`, 'i'), ecosystem: 'kotlin' },
+  // 包管理器名 + 各自的短词集合(crate/package/artifact/gem 等)
   { pattern: /\bpypi\b[\s_-]*(包|package)/i, ecosystem: 'python' },
-  // JavaScript/TypeScript 类
-  { pattern: /\b(js|javascript)\b[\s_-]*(库|包|框架|模块|module|library|package|framework)/i, ecosystem: 'js' },
-  { pattern: /\b(ts|typescript)\b[\s_-]*(库|包|框架|模块|module|library|package|framework)/i, ecosystem: 'ts' },
-  { pattern: /\bnode(\.js|js)?\b[\s_-]*(库|包|框架|module|library|package)/i, ecosystem: 'js' },
   { pattern: /\bnpm\b[\s_-]*(包|package)/i, ecosystem: 'js' },
-  // Rust 类
-  { pattern: /\brust\b[\s_-]*(库|包|框架|crate|module|library|package|framework)/i, ecosystem: 'rust' },
   { pattern: /\bcargo\b[\s_-]*(crate|package)/i, ecosystem: 'rust' },
-  // Go 类
-  { pattern: /\bgo(lang)?\b[\s_-]*(库|包|框架|module|library|package|framework)/i, ecosystem: 'go' },
-  // Java 类
-  { pattern: /\bjava\b[\s_-]*(库|包|框架|module|library|package|framework)/i, ecosystem: 'java' },
   { pattern: /\bmaven\b[\s_-]*(package|artifact)/i, ecosystem: 'java' },
-  // C# 类
-  { pattern: /\b(c#|csharp|dotnet|\.net)\b[\s_-]*(库|包|框架|module|library|package|framework)/i, ecosystem: 'csharp' },
-  // C/C++ 类
-  { pattern: /\bc\+\+\b[\s_-]*(库|包|框架|module|library|package|framework)/i, ecosystem: 'cpp' },
-  // PHP 类
-  { pattern: /\bphp\b[\s_-]*(库|包|框架|module|library|package|framework)/i, ecosystem: 'php' },
   { pattern: /\bcomposer\b[\s_-]*(package)/i, ecosystem: 'php' },
-  // Ruby 类
-  { pattern: /\bruby\b[\s_-]*(库|包|框架|gem|module|library|package|framework)/i, ecosystem: 'ruby' },
-  // Swift 类
-  { pattern: /\bswift\b[\s_-]*(库|包|框架|module|library|package|framework)/i, ecosystem: 'swift' },
-  // Kotlin 类
-  { pattern: /\bkotlin\b[\s_-]*(库|包|框架|module|library|package|framework)/i, ecosystem: 'kotlin' },
 ];
 
 function detectEcosystem(query: string): string | undefined {

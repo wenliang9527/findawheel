@@ -2,13 +2,11 @@
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { GitHubRawResult, RawResult } from '../normalize/types.js';
 import { httpGet, HttpError } from '../util/http.js';
+import { DEFAULT_RETRY } from '../util/retry.js';
 import { RateLimitError, SourceError } from '../errors.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 import type { ParsedQuery } from '../classifier/queryParser.js';
 import { ECOSYSTEM_LANG } from './ecosystemMapping.js';
-
-// 排除聚合类仓库(awesome-xxx、public-apis 等),它们不是具体工具
-const AGGREGATE_NAME_PATTERNS = ['awesome', 'public-apis', 'free-for-dev', 'awesome-list'];
 
 /**
  * 构造 GitHub 搜索表达式。
@@ -20,6 +18,9 @@ const AGGREGATE_NAME_PATTERNS = ['awesome', 'public-apis', 'free-for-dev', 'awes
  * - 反义词 NOT 子句已删除(AI 自己识别反向意图)
  *
  * 修饰词交给 Ranker 后处理时做加分/过滤即可。
+ *
+ * 注:聚合仓库模式表(awesome-xxx、public-apis 等)已统一移到 ranker.ts 的
+ * isAggregateRepo(),由 filterOut 阶段统一剔除。
  */
 export function buildGithubQuery(
   query: string,
@@ -63,15 +64,6 @@ export function buildGithubQuery(
   return parts.join(' ');
 }
 
-/**
- * 判断是否为聚合类仓库(awesome-xxx、public-apis 等)。
- * 用于 Ranker 后过滤,补充 GitHub 搜索 NOT 语法覆盖不到的情况。
- */
-export function isAggregateRepo(name: string, description: string): boolean {
-  const text = `${name} ${description}`.toLowerCase();
-  return AGGREGATE_NAME_PATTERNS.some(p => text.includes(p));
-}
-
 interface GitHubSearchResponse {
   total_count: number;
   items: Array<{
@@ -103,6 +95,7 @@ export class GitHubSourceAdapter implements SourceAdapter {
         timeoutMs: opts.timeoutMs,
         token: opts.githubToken,
         extraHeaders: { 'accept': 'application/vnd.github+json' },
+        retry: DEFAULT_RETRY,
       });
       return data.items.map((item): GitHubRawResult => ({
         source: 'github',

@@ -51,6 +51,12 @@ export interface SuggestQueriesOutput {
   recommendedEcosystem?: string;
 }
 
+// 硬件类关键词正则(模块级预编译,避免每次调用重新编译)
+// 注:用 \b 词边界,避免 'motor' 误匹配 'motivation'
+const ARDUINO_RE = /\barduino\b/;
+const EMBEDDED_PLATFORM_RE = /\b(esp32|stm32|raspberry|rpi|microcontroller|mcu|embedded|hal|gpio)\b/;
+const HARDWARE_WORDS_RE = /\b(stepper|motor|servo|encoder|pwm|pulse|driver|actuator|sensor|bldc)\b/;
+
 /**
  * 从翻译后的 query 检测硬件类 ecosystem 推荐。
  *
@@ -63,15 +69,12 @@ export interface SuggestQueriesOutput {
  */
 function detectHardwareEcosystem(translatedQuery: string): string | undefined {
   const lower = translatedQuery.toLowerCase();
-  // 用 \b 词边界,避免 'motor' 误匹配 'motivation'
   // 1. 显式 Arduino → arduino
-  if (/\barduino\b/.test(lower)) return 'arduino';
+  if (ARDUINO_RE.test(lower)) return 'arduino';
   // 2. 嵌入式平台关键词 → cpp(ESP32/STM32/树莓派等以 C++ 开发为主)
-  if (/\b(esp32|stm32|raspberry|rpi|microcontroller|mcu|embedded|hal|gpio)\b/.test(lower)) return 'cpp';
+  if (EMBEDDED_PLATFORM_RE.test(lower)) return 'cpp';
   // 3. 通用硬件词 → 默认 arduino(AccelStepper 等主流库在 Arduino 生态)
-  for (const word of ['stepper', 'motor', 'servo', 'encoder', 'pwm', 'pulse', 'driver', 'actuator', 'sensor', 'bldc']) {
-    if (new RegExp(`\\b${word}\\b`).test(lower)) return 'arduino';
-  }
+  if (HARDWARE_WORDS_RE.test(lower)) return 'arduino';
   return undefined;
 }
 
