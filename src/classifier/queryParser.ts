@@ -1,7 +1,18 @@
 // src/classifier/queryParser.ts
-// 把自然语言 query 拆分成:核心短语 + 修饰词 + 反义词排除。
-// 用于让数据源做更精准的搜索(GitHub 支持引号短语 + NOT 语法),
-// 以及让 Ranker 过滤掉"反向意图"的结果(如用户想"加水印"却搜到"移除水印")。
+// 把自然语言 query 拆分成:核心短语 + 核心词 + 修饰词 + 格式词 + 模糊化 query。
+//
+// 用途:
+// - corePhrase: 给 GitHub 搜索用(引号短语强制命中)
+// - coreWords:  给 suggest_queries 用(动作导向搜索词)
+// - modifiers:  给 suggest_queries 用(精准搜索词拼接)
+// - formatWords:给 suggest_queries 用(格式词拼接)
+// - fuzzyQuery: 给 findWheelTool 副搜索用(同义词泛化扩大召回)
+// - expandedQuery: 给不支持复杂语法的源用(中英合并的完整 query)
+//
+// Phase 6 简化后:
+// 删除 antonymExcludes / domain 字段。
+// - antonymExcludes 是给 isReverseIntent 用的,该过滤已删(AI 自己识别反向意图)
+// - domain 是给领域特化逻辑用的,所有领域特化已删(统一逻辑,避免过拟合)
 
 import { translateQuery } from './queryTranslator.js';
 
@@ -9,39 +20,20 @@ export interface ParsedQuery {
   /** 核心短语(前 2 个实义词),用于引号包裹强制命中(GitHub 搜索) */
   corePhrase: string;
   /**
-   * 核心词(动词优先),用于 Ranker 核心词必命中过滤。
+   * 核心词(动词优先),用于 suggest_queries 生成动作导向搜索词。
    * 优先从 query 里挑动作动词(monitor/convert/parse...),
    * 因为动词表达用户真正的意图,比对象词(coding/assistant)更能区分相关结果。
    */
   coreWords: string[];
   /** 修饰词(剩余的实义词),作为可选命中加分 */
   modifiers: string[];
-  /** 反义词排除列表,传给搜索源 NOT 语法 + Ranker 后过滤 */
-  antonymExcludes: string[];
   /** 展开后的完整 query(含中文翻译),用于传给不支持复杂语法的源 */
   expandedQuery: string;
-  /** query 里出现的格式词(pdf/word/ppt/excel 等),用于 Ranker 格式必命中过滤 */
+  /** query 里出现的格式词(pdf/word/ppt/excel 等),用于 suggest_queries */
   formatWords: string[];
   /** 模糊化语义 query(同义词/上位词泛化),用于副搜索扩大召回 */
   fuzzyQuery: string;
-  /**
-   * 识别到的领域(如 'embedded'),用于让 buildGithubQuery 调整搜索策略
-   * (如嵌入式领域去掉引号让词干匹配单复数 motor→motors)。
-   * null 表示未识别到特定领域。
-   */
-  domain: string | null;
 }
-
-/**
- * 反义词表:当 query 含某动作词且用户意图是"做这个动作"时,
- * 排除 description 里含"反向动作"的结果。
- * 例:用户搜 watermark(想加水印),排除 remove watermark / watermark remover
- */
-const ANTONYMS: Record<string, string[]> = {
-  watermark: ['remove', 'clean', 'strip', 'delete', 'erase'],
-  encrypt: ['decrypt', 'crack', 'break'],
-  // 如果用户搜"解析 parser",排除"反解析"意义不大,这里只列真正易混淆的
-};
 
 /** 通用停用词/填充词,不作为核心短语的一部分 */
 const STOPWORDS = new Set([
@@ -51,8 +43,8 @@ const STOPWORDS = new Set([
 ]);
 
 /**
- * 文件格式词:当 query 里出现这些词时,结果的 description/name 也必须命中至少一个。
- * 用于过滤掉"格式不相关"的结果(如搜 "pdf to markdown" 却返回 HTML 转换器)。
+ * 文件格式词:query 里出现这些词时,suggest_queries 会把它们拼进动作导向搜索词。
+ * 也用于 AI 判断用户想要的输入输出格式。
  */
 const FORMAT_WORDS = new Set([
   'pdf', 'docx', 'doc', 'word', 'ppt', 'pptx', 'powerpoint', 'excel', 'xlsx', 'xls',
@@ -69,6 +61,8 @@ const FORMAT_WORDS = new Set([
  * - 监控类:monitor/track/observe/watch/detect...
  * - 转换类:convert/transform/parse/extract/generate/render...
  * - 操作类:compress/encrypt/watermark/scrape/crawl...
+ * - 硬件类:drive/control/step/pwm...(嵌入式场景)
+ * - 串口类:scan/sniff/terminal/console...(串口调试场景)
  */
 const ACTION_VERBS = new Set([
   // 监控/追踪
@@ -96,24 +90,14 @@ const ACTION_VERBS = new Set([
 ]);
 
 /**
- * 解析 query,拆分核心词/修饰词并检测反义词。
- *
- * @example
- * parseQuery('invisible image watermark encryption resistant cropping')
- * // {
- * //   corePhrase: 'invisible watermark',
- * //   modifiers: ['encryption', 'resistant', 'cropping'],
- * //   antonymExcludes: ['remove', 'clean', 'strip', 'delete', 'erase'],
- * //   expandedQuery: 'invisible image watermark encryption resistant cropping'
- * // }
- */
-/**
  * 同义词/上位词表,用于生成 fuzzyQuery(模糊化语义副搜索)。
  * 把 query 里的词替换成更宽泛的同义词,扩大召回。
  * 例:monitor → observer/watcher, coding → development/dev
+ *
+ * 注意:每个词的第一项不能是原词,否则 fuzzyQuery 取 syns[0] 等于原词,无泛化效果。
  */
 const SYNONYMS: Record<string, string[]> = {
-  monitor: ['observer', 'watcher', 'tracker', 'dashboard'],
+  monitor: ['observer', 'watcher', 'tracker', 'dashboard', 'monitor'],
   tracking: ['tracing', 'logging', 'metrics'],
   coding: ['development', 'dev', 'programming'],
   assistant: ['agent', 'helper', 'copilot', 'companion'],
@@ -138,108 +122,53 @@ const SYNONYMS: Record<string, string[]> = {
   serial: ['uart', 'serial', 'rs232'],
   uart: ['usart', 'uart', 'serial'],
   debug: ['diagnostic', 'debug', 'troubleshoot'],
-  // monitor 合并原表 + 串口场景,第一项不是原词(保留 observer 兼容现有测试)
-  monitor: ['observer', 'watcher', 'tracker', 'dashboard', 'monitor'],
   terminal: ['console', 'terminal', 'shell'],
+  // B. 召回扩展:多领域同义词补充(2026-07-04)
+  // 前端类
+  ui: ['interface', 'gui', 'ui'],
+  form: ['input-form', 'form'],
+  table: ['grid', 'datagrid', 'table'],
+  chart: ['charting', 'plot', 'graph'],
+  animation: ['motion', 'animation'],
+  drag: ['dnd', 'draggable', 'drag'],
+  // AI/LLM 类
+  llm: ['large-language-model', 'llm'],
+  prompt: ['prompt-template', 'prompt'],
+  embedding: ['vector-embedding', 'embedding'],
+  agent: ['autonomous-agent', 'agent'],
+  chat: ['dialog', 'conversation', 'chat'],
+  translation: ['translate', 'translation'],
+  // DevOps 类
+  deploy: ['deployment', 'release', 'deploy'],
+  pipeline: ['workflow', 'ci-cd', 'pipeline'],
+  proxy: ['reverse-proxy', 'gateway', 'proxy'],
+  // 数据科学类
+  train: ['training', 'fit', 'train'],
+  inference: ['prediction', 'inference'],
+  model: ['neural-network', 'model'],
+  // 安全类
+  encrypt: ['cipher', 'crypto', 'encrypt'],
+  hash: ['digest', 'checksum', 'hash'],
+  // 存储/数据库类
+  database: ['db', 'storage', 'database'],
+  cache: ['redis', 'memcache', 'cache'],
+  queue: ['message-queue', 'mq', 'queue'],
+  // 通用类
+  scaffold: ['boilerplate', 'starter', 'template'],
+  search: ['query', 'lookup', 'search'],
+  recommend: ['suggestion', 'recommendation'],
+  convert: ['transform', 'export', 'convert'],
+  parse: ['extract', 'analyze', 'parse'],
 };
 
 /**
- * 领域配置表:每个领域的信号词 + 平台扩展词。
- * - 信号词:query 含这些词时识别为该领域,触发领域特定优化
- *   (buildGithubQuery 去引号 + recommender stars 分母调整 + 泛词过滤)
- * - 平台扩展词:追加到 fuzzyQuery 让副搜索扩大召回
- *   (主流库 description 常含平台名而非泛词)
- *
- * 添加新领域只需在此表加一项,无需改其他代码。
- */
-interface DomainConfig {
-  /** 信号词:query 含任一词即识别为该领域 */
-  signalWords: string[];
-  /** 平台扩展词:追加到 fuzzyQuery 扩大副搜索召回 */
-  platforms: string[];
-}
-
-const DOMAINS: Record<string, DomainConfig> = {
-  embedded: {
-    signalWords: [
-      'stepper', 'motor', 'servo', 'encoder', 'pwm', 'mcu', 'microcontroller',
-      '单片机', '电机', '马达', '驱动', '嵌入式', '舵机', '伺服', '编码器',
-      'arduino', 'esp32', 'esp8266', 'stm32', 'rp2040', 'pico', 'avr', '8051',
-      // 串口/通信类
-      'serial', 'uart', 'usart', 'rs232', 'rs485', 'modbus', 'can-bus', 'i2c', 'spi',
-      '串口', '波特率', 'baud', '通信',
-    ],
-    platforms: ['arduino', 'esp32', 'stm32', 'rp2040', 'pico', 'avr', 'pic', '8051'],
-  },
-  frontend: {
-    signalWords: [
-      'react', 'vue', 'angular', 'svelte', 'solid', 'component', 'ui-library',
-      'css', 'tailwind', 'styled', 'frontend', '前端', '组件', '样式',
-    ],
-    platforms: ['react', 'vue', 'angular', 'svelte', 'solid', 'tailwind', 'bootstrap'],
-  },
-  'data-science': {
-    signalWords: [
-      'pandas', 'numpy', 'matplotlib', 'jupyter', 'notebook', 'dataframe',
-      'tensorflow', 'pytorch', 'sklearn', 'scikit', 'dataset', 'visualization',
-      '数据分析', '数据科学', '机器学习', '深度学习',
-    ],
-    platforms: ['python', 'jupyter', 'pandas', 'numpy', 'matplotlib', 'tensorflow', 'pytorch'],
-  },
-  devops: {
-    signalWords: [
-      'docker', 'kubernetes', 'k8s', 'ci-cd', 'pipeline', 'terraform',
-      'ansible', 'helm', 'prometheus', 'grafana', '部署', '运维', '容器', '编排',
-    ],
-    platforms: ['docker', 'kubernetes', 'terraform', 'ansible', 'helm', 'prometheus', 'grafana'],
-  },
-  game: {
-    signalWords: [
-      'unity', 'unreal', 'godot', 'game', 'engine', 'shader', 'renderer',
-      'physics', 'collision', 'sprite', '游戏', '引擎', '着色器', '物理',
-    ],
-    platforms: ['unity', 'unreal', 'godot', 'opengl', 'vulkan', 'directx'],
-  },
-  security: {
-    signalWords: [
-      'security', 'vulnerability', 'pentest', 'ctf', 'exploit', 'crypto',
-      'forensic', 'malware', 'scanner', '安全', '漏洞', '渗透', '逆向',
-    ],
-    platforms: ['burp', 'metasploit', 'nmap', 'wireshark', 'ghidra', 'ida'],
-  },
-};
-
-/**
- * 检测 query 所属领域。返回领域名(如 'embedded')或 null。
- * 优先级:按 DOMAINS 表定义顺序,首个命中的领域胜出。
- * 用于让 buildGithubQuery / fuzzyQuery / recommender 做领域特定优化。
- */
-function detectDomain(query: string): string | null {
-  const lowerQuery = query.toLowerCase();
-  for (const [domainName, config] of Object.entries(DOMAINS)) {
-    for (const word of config.signalWords) {
-      if (lowerQuery.includes(word)) return domainName;
-    }
-  }
-  return null;
-}
-
-/**
- * 获取指定领域的平台扩展词。领域不存在或无平台词时返回空数组。
- */
-export function getDomainPlatforms(domain: string | null): string[] {
-  if (!domain) return [];
-  return DOMAINS[domain]?.platforms ?? [];
-}
-
-/**
- * 解析 query,拆分核心词/修饰词并检测反义词。
+ * 解析 query,拆分核心词/修饰词。
  *
  * @example
  * parseQuery('AI coding assistant monitor status tracking')
  * // {
  * //   corePhrase: 'ai coding',           // 前 2 个实义词(给 GitHub 引号搜索)
- * //   coreWords: ['monitor', 'tracking'], // 动词优先(给 Ranker 必命中过滤)
+ * //   coreWords: ['monitor', 'tracking'], // 动词优先(给 suggest_queries 动作导向)
  * //   modifiers: ['assistant', 'status'],
  * //   formatWords: [],
  * //   fuzzyQuery: 'AI development agent observer health tracing',
@@ -260,7 +189,7 @@ export function parseQuery(query: string): ParsedQuery {
   const phraseWords = allWords.slice(0, 2);
   const corePhrase = phraseWords.join(' ');
 
-  // 3.5 coreWords = 动词优先(给 Ranker 必命中过滤用)
+  // 3.5 coreWords = 动词优先(给 suggest_queries 动作导向搜索用)
   // 动词表达用户真正意图(monitor/convert/parse...),比对象词(coding/assistant)更能区分
   const verbWords = allWords.filter(w => ACTION_VERBS.has(w));
   const nonVerbWords = allWords.filter(w => !ACTION_VERBS.has(w));
@@ -282,36 +211,16 @@ export function parseQuery(query: string): ParsedQuery {
   // 4. 格式词:query 里出现的所有文件格式词
   const formatWords = allWords.filter(w => FORMAT_WORDS.has(w));
 
-  // 5. 反义词检测:query 含动作词但不含"反向动作"时,推断用户意图是"做这个动作"
-  const antonymExcludes: string[] = [];
-  const lowerQuery = query.toLowerCase();
-  for (const [action, excludeWords] of Object.entries(ANTONYMS)) {
-    if (!lowerQuery.includes(action)) continue;
-    const isReverseIntent = excludeWords.some(w => lowerQuery.includes(w));
-    if (!isReverseIntent) {
-      antonymExcludes.push(...excludeWords);
-    }
-  }
-
-  // 6. 生成 fuzzyQuery:用同义词/上位词泛化,用于副搜索扩大召回
+  // 5. 生成 fuzzyQuery:用同义词/上位词泛化,用于副搜索扩大召回
   const fuzzyWords = allWords.map(w => {
     const syns = SYNONYMS[w];
     // 70% 概率用同义词,30% 保留原词(避免完全偏离原意)
     return syns && syns.length > 0 ? syns[0] : w;
   });
-  let fuzzyQuery = fuzzyWords.join(' ');
-
-  // 7. 领域识别:检测到领域时,把平台扩展词追加到 fuzzyQuery
-  // 主流库 description 常含平台名(arduino/esp32/react/vue)而非泛词,
-  // 追加平台词让副搜索扩大召回。
-  const domain = detectDomain(query);
-  const platforms = getDomainPlatforms(domain);
-  if (platforms.length > 0) {
-    fuzzyQuery = `${fuzzyQuery} ${platforms.join(' ')}`;
-  }
+  const fuzzyQuery = fuzzyWords.join(' ');
 
   return {
     corePhrase, coreWords, modifiers: modifierWords,
-    antonymExcludes, expandedQuery, formatWords, fuzzyQuery, domain,
+    expandedQuery, formatWords, fuzzyQuery,
   };
 }

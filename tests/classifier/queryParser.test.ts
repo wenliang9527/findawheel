@@ -65,29 +65,8 @@ describe('parseQuery', () => {
     expect(r.expandedQuery).toContain('watermark');
   });
 
-  it('detects antonyms when query contains watermark (add intent)', () => {
-    const r = parseQuery('invisible image watermark');
-    expect(r.antonymExcludes).toContain('remove');
-    expect(r.antonymExcludes).toContain('clean');
-    expect(r.antonymExcludes).toContain('strip');
-  });
-
-  it('does NOT trigger antonym excludes when query is reverse intent', () => {
-    // 用户明确想"移除水印",不应排除 remove
-    const r = parseQuery('remove watermark from image');
-    expect(r.antonymExcludes).not.toContain('remove');
-  });
-
-  it('detects antonyms for encrypt', () => {
-    const r = parseQuery('encrypt data with aes');
-    expect(r.antonymExcludes).toContain('decrypt');
-    expect(r.antonymExcludes).toContain('crack');
-  });
-
-  it('returns empty antonymExcludes for neutral query', () => {
-    const r = parseQuery('markdown editor');
-    expect(r.antonymExcludes).toEqual([]);
-  });
+  // Phase 6 简化:删除 antonymExcludes 相关测试(反义词过滤已删)
+  // Phase 6 简化:删除 domain 相关测试(领域特化逻辑已删)
 
   it('filters out stopwords from core phrase', () => {
     const r = parseQuery('a tool for markdown');
@@ -120,135 +99,12 @@ describe('parseQuery', () => {
     expect(r.fuzzyQuery).toContain('sample');
   });
 
-  // ===== Phase 5 新增:嵌入式领域识别 =====
-
-  it('detects embedded domain when query contains stepper', () => {
-    const r = parseQuery('stepper motor driver');
-    expect(r.domain).toBe('embedded');
-  });
-
-  it('detects embedded domain when query contains motor', () => {
-    const r = parseQuery('dc motor control');
-    expect(r.domain).toBe('embedded');
-  });
-
-  it('detects embedded domain when query contains arduino', () => {
-    const r = parseQuery('arduino led blink');
-    expect(r.domain).toBe('embedded');
-  });
-
-  it('detects embedded domain when query contains Chinese 电机', () => {
-    const r = parseQuery('步进电机驱动');
-    expect(r.domain).toBe('embedded');
-  });
-
-  it('detects embedded domain when query contains esp32/stm32/rp2040', () => {
-    expect(parseQuery('esp32 wifi').domain).toBe('embedded');
-    expect(parseQuery('stm32 hal').domain).toBe('embedded');
-    expect(parseQuery('rp2040 pico').domain).toBe('embedded');
-  });
-
-  it('returns null domain for non-embedded query', () => {
-    expect(parseQuery('markdown editor').domain).toBeNull();
-    expect(parseQuery('image watermark').domain).toBeNull();
-  });
-
-  it('appends platform expansion words to fuzzyQuery for embedded domain', () => {
-    const r = parseQuery('stepper motor driver');
-    // fuzzyQuery 应该追加平台扩展词
-    expect(r.fuzzyQuery).toContain('arduino');
-    expect(r.fuzzyQuery).toContain('esp32');
-    expect(r.fuzzyQuery).toContain('stm32');
-    expect(r.fuzzyQuery).toContain('rp2040');
-  });
-
-  // ===== Phase 5 P4 新增:多领域识别 =====
-
-  it('detects frontend domain when query contains react/vue', () => {
-    expect(parseQuery('react component library').domain).toBe('frontend');
-    expect(parseQuery('vue ui components').domain).toBe('frontend');
-    expect(parseQuery('tailwind css').domain).toBe('frontend');
-  });
-
-  it('detects data-science domain when query contains pandas/jupyter', () => {
-    expect(parseQuery('pandas dataframe analysis').domain).toBe('data-science');
-    expect(parseQuery('jupyter notebook visualization').domain).toBe('data-science');
-    expect(parseQuery('pytorch model training').domain).toBe('data-science');
-  });
-
-  it('detects devops domain when query contains docker/kubernetes', () => {
-    expect(parseQuery('docker container orchestration').domain).toBe('devops');
-    expect(parseQuery('kubernetes helm chart').domain).toBe('devops');
-    expect(parseQuery('terraform infrastructure').domain).toBe('devops');
-  });
-
-  it('detects game domain when query contains unity/godot', () => {
-    expect(parseQuery('unity game engine').domain).toBe('game');
-    expect(parseQuery('godot shader').domain).toBe('game');
-    expect(parseQuery('opengl physics engine').domain).toBe('game');
-  });
-
-  it('detects security domain when query contains pentest/vulnerability', () => {
-    expect(parseQuery('pentest vulnerability scanner').domain).toBe('security');
-    expect(parseQuery('ctf exploit tool').domain).toBe('security');
-    expect(parseQuery('malware forensic').domain).toBe('security');
-  });
-
-  it('appends platform words to fuzzyQuery for frontend domain', () => {
-    const r = parseQuery('react component library');
-    expect(r.fuzzyQuery).toContain('react');
-    expect(r.fuzzyQuery).toContain('vue');
-    expect(r.fuzzyQuery).toContain('tailwind');
-  });
-
-  it('appends platform words to fuzzyQuery for data-science domain', () => {
-    const r = parseQuery('pandas dataframe');
-    expect(r.fuzzyQuery).toContain('python');
-    expect(r.fuzzyQuery).toContain('jupyter');
-    expect(r.fuzzyQuery).toContain('numpy');
-  });
-
-  it('detects Chinese 部署/运维 as devops domain', () => {
-    expect(parseQuery('docker 部署工具').domain).toBe('devops');
-    expect(parseQuery('运维 监控').domain).toBe('devops');
-  });
-
-  it('detects Chinese 游戏/引擎 as game domain', () => {
-    expect(parseQuery('unity 游戏引擎').domain).toBe('game');
-    expect(parseQuery('物理引擎 碰撞检测').domain).toBe('game');
-  });
-
-  it('detects Chinese 安全/漏洞 as security domain', () => {
-    expect(parseQuery('安全漏洞扫描').domain).toBe('security');
-    expect(parseQuery('渗透测试工具').domain).toBe('security');
-  });
-
-  // ===== Phase 5 P7 新增:串口调试助手场景 =====
-
-  it('detects embedded domain when query contains serial/uart', () => {
-    expect(parseQuery('serial port debug tool').domain).toBe('embedded');
-    expect(parseQuery('uart terminal').domain).toBe('embedded');
-    expect(parseQuery('rs232 monitor').domain).toBe('embedded');
-  });
-
-  it('detects embedded domain for Chinese 串口/波特率', () => {
-    expect(parseQuery('串口调试助手').domain).toBe('embedded');
-    expect(parseQuery('串口通信工具').domain).toBe('embedded');
-    expect(parseQuery('波特率监视').domain).toBe('embedded');
-  });
+  // ===== Phase 5/7 保留:翻译/同义词/动词表(纯增益,无副作用) =====
 
   it('translates 串口 to serial/uart in expandedQuery', () => {
     const r = parseQuery('串口调试助手');
     // 翻译后应该包含 serial 或 uart
     expect(r.expandedQuery.toLowerCase()).toMatch(/serial|uart/);
-  });
-
-  it('appends platform words to fuzzyQuery for serial embedded domain', () => {
-    const r = parseQuery('serial port debug');
-    expect(r.domain).toBe('embedded');
-    // 应该追加嵌入式平台扩展词
-    expect(r.fuzzyQuery).toContain('arduino');
-    expect(r.fuzzyQuery).toContain('esp32');
   });
 
   it('fuzzyQuery replaces serial with uart for broader recall', () => {

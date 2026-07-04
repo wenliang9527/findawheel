@@ -151,5 +151,18 @@ export function normalize(raw: RawResult): Wheel {
           ...(raw.stars !== undefined ? { stars: raw.stars } : {}),
         },
       };
+    case 'huggingface':
+      return {
+        name: raw.name,
+        source: 'huggingface',
+        url: raw.url,
+        description: raw.description,
+        type: 'model',
+        metrics: {
+          stars: raw.stars,
+          downloads: raw.downloads,
+          lastUpdated: raw.lastUpdated || undefined,
+        },
+      };
   }
 }

@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-1.29-orange.svg?style=flat-square)](https://modelcontextprotocol.io/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](./)
-[![Tests](https://img.shields.io/badge/tests-106%2F106-brightgreen.svg?style=flat-square)](./)
+[![Tests](https://img.shields.io/badge/tests-323%2F323-brightgreen.svg?style=flat-square)](./)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](./LICENSE)
 
 </div>
@@ -41,6 +41,11 @@
 
 `findawheel` is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) service. Before you start implementing a new idea, it searches the web for existing reusable wheels — open-source projects, npm/crates packages, APIs, CLI tools, SDKs — so you don't have to reinvent them.
 
+> 💡 **RAG paradigm positioning**
+>
+> findawheel is an "context enhancer" for AI coding: **the retriever only recalls, the AI does the judging**.
+> AI clients must call `find_wheel` before implementing any new feature/module/idea, then decide whether to reuse directly, reference the implementation, or build from scratch. findawheel does NOT do hard relevance filtering — mainstream libraries like Neutree/COMTool won't be mistakenly killed by rules; the AI gets raw stars/description/lastUpdated values and judges for itself.
+
 > 💡 **Use case**
 >
 > When you tell your AI, "I want to build a Markdown-to-PDF tool," the AI first calls `findawheel` to find existing implementations and then recommends whether to reuse one.
@@ -67,12 +72,13 @@ In the AI-coding era, everyone can quickly turn ideas into code. But many "new i
 | Icon | Feature | Description |
 |:---:|:-----|:-----|
 | 🔎 | **Multi-source search** | GitHub, Gitee, npm, crates.io, and Web (Exa + Tavily) simultaneously |
-| 🧠 | **Intent detection** | Auto-classifies query as feature-level or project-level; splits into core words / modifiers / antonyms |
+| 🧠 | **Intent detection** | Auto-classifies query as feature-level or project-level; splits into core words / modifiers / format words |
 | 📊 | **Unified model** | Normalizes all sources into a single `Wheel` structure with recommendation level and reason |
-| 🏆 | **Quality ranking** | Relevance + stars + activity + downloads + license + description match |
-| 🛡️ | **Smart filtering** | Drops archived / stale / awesome-lists / reverse-intent / core-word-missing results |
+| 🏆 | **Soft ranking signals** | Relevance + stars + activity + downloads + license + description match; **NO hard filtering** — relevance judgment left to the AI |
+| 🛡️ | **Basic filtering** | Only drops archived / stale / awesome-lists; reverse-intent / core-word-missing cases are identified by the AI itself |
 | ⚡ | **Graceful degradation** | Source failure doesn't block others; Web source falls back from Exa to Tavily |
 | 🌏 | **CJK friendly** | 50+ word Chinese↔English translation table; Chinese queries are auto-translated |
+| 📝 | **RAG workflow** | Tool descriptions specify "WHEN TO CALL / WHY SEARCH FIRST" — the AI must search before coding |
 
 ---
 
@@ -146,7 +152,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
                             │
                             ▼
                   ┌─────────────────────┐
-                  │  QueryParser        │  ← splits core/modifier/antonym/format words
+                  │  QueryParser        │  ← splits core/modifier/format words (no antonyms)
                   │  + QueryClassifier  │  ← decides feature vs project
                   └─────────────────────┘
                             │
@@ -159,7 +165,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
            └────────┬───────┘         │              │
                     ▼                 │              │
     ┌─────────────────────────────────────────────┐  │
-    │  GitHub · Gitee · npm · crates · GitLab · PyPI · Libraries.io · GitHub Code · VS Code Market · Papers with Code · Web    │  │
+    │  GitHub · Gitee · npm · crates · GitLab · PyPI · Libraries.io · GitHub Code · VS Code Market · Papers with Code · HuggingFace · Web    │  │
     │     (Exa primary + Tavily fallback)         │  │
     └─────────────────────┬───────────────────────┘  │
                           ▼                          │
@@ -167,10 +173,14 @@ Restart your client, describe your idea in conversation, and the AI will automat
             │  Normalizer → MetricsEnricher    │    │
             │  → Recommender → Ranker          │    │
             │  (normalize + metrics + recommend │    │
-            │   + filter + rank)               │    │
+            │   + soft ranking)                │    │
             └──────────────────────────────────┘    │
                           ▼                          │
                   Wheel[] + summary returned ───────┘
+                            │
+                            ▼
+            AI judges relevance itself, picks best 2-3 to recommend
+            (findawheel does NOT hard-filter; judgment is on the AI)
 ```
 
 > 📖 Full internals: [HOW_IT_WORKS.md](./docs/HOW_IT_WORKS.md)
@@ -192,7 +202,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
 
 | Source | Type | Token needed | Notes |
 |:------|:-----|:-----|:-----|
-| **GitHub** | Open-source repos | optional | `/search/repositories`; supports quoted phrases and `NOT` antonym exclusion |
+| **GitHub** | Open-source repos | optional | `/search/repositories`; supports quoted phrases for precise matching (single word unquoted, multi-word quoted) |
 | **Gitee** | Chinese open-source repos | no | Covers domestic projects; fast access from inside China |
 | **npm** | JavaScript packages | no | Auto-enriched with stars + weekly downloads |
 | **crates.io** | Rust packages | no | Returns downloads; richest metrics |
@@ -204,6 +214,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
 | **GitHub Code** | Code snippets | reuses `GITHUB_TOKEN` | `/search/code`, searches code snippets instead of repos; auth required, 10 req/min rate limit; returns `textFragment` with matched code |
 | **VS Code Marketplace** | IDE extensions | not required | `extensionquery` POST API, searches VS Code extensions; returns install count/rating; unofficially-documented API |
 | **Papers with Code** | Papers / algorithms | not required | `/api/v1/papers/`, searches papers and algorithm implementations; returns title/abstract/year/arxiv link; fills the algorithm gap |
+| **HuggingFace Hub** | AI models | not required | `/api/models?search=...`, searches pretrained models; returns likes/downloads/task type; fills the AI model gap |
 
 > ℹ️ **PyPI strategy**: PyPI has no official search JSON API. We parse the HTML of `pypi.org/search` to extract package info (no stars/downloads data).
 >
@@ -215,10 +226,18 @@ Restart your client, describe your idea in conversation, and the AI will automat
 
 | Tool | Purpose | When to call |
 |:-----|:-----|:-----|
-| `find_wheel` | Search for existing wheels | **First action** when the user says "I want to make/build/create a ..." |
+| `find_wheel` | Search for existing wheels | **Mandatory trigger**: when the user says "I want to make/build/create/implement a ..." call this **first** — search before coding (RAG paradigm) |
 | `suggest_queries` | Generate 4 search-term variants | Call when the AI is unsure how to construct the query; returns precise / action-oriented / fuzzy / concise variants |
 | `get_wheel_details` | Fetch details for a single wheel | When a `find_wheel` result has `hasDetails: true`, call this on demand to get README snippet, code examples, latest release, and license compatibility |
 | `record_feedback` | Record user feedback | After showing results, call based on user reaction: praise→`like`, irrelevant→`hide`, opened link→`click`. Feedback persists and adjusts future search ranking |
+
+> 💡 **RAG workflow (encoded in tool descriptions)**
+>
+> The `find_wheel` and `suggest_queries` description fields include structured prompts:
+> - **WHEN TO CALL**: must call first when new feature / new module / new project / new idea triggers appear
+> - **WHY SEARCH FIRST**: 4 AI failure modes (hallucinated libraries / outdated APIs / reinventing the wheel / picking the wrong library)
+> - **WORKFLOW**: suggest_queries → find_wheel → compare top 5 and recommend 2-3 → code
+> - **Key declaration**: findawheel **does NOT hard-filter relevance** — the AI must identify irrelevant results itself (e.g., reverse-intent "remove watermark")
 
 ### Hybrid Presentation (Result Richness)
 
@@ -260,8 +279,8 @@ The feedback delta is added to `matchScore`, then results are re-sorted and re-g
 - [x] **Web source (Exa primary + Tavily fallback)** — neural search + fallback
 - [x] **npm enriched with stars + weekly downloads** — more accurate ranking
 - [x] **Chinese translation table** — 50+ word Chinese↔English mapping
-- [x] **Quoted core-word mandatory match + `NOT` antonym exclusion** — higher GitHub precision
-- [x] **Ranker multi-filter** — reverse-intent / core-word-missing / format-word-missing filters
+- [x] **Quoted core-word precise match** — higher GitHub precision (single word unquoted, multi-word quoted)
+- [x] **Ranker soft ranking** — queryCoverage + high-star zero-hit demotion (Phase 6 removed hard filtering)
 - [x] **Recommendation levels** — each result tagged `highly_recommended` / `recommended` / `optional` / `not_recommended` with reason
 - [x] **suggest_queries tool** — 4 search-term variants
 - [x] **Synonym fuzzy secondary search** — main + fuzzy searches run in parallel for broader recall
@@ -298,6 +317,35 @@ Three batches — see [Phase 3 plan](./docs/superpowers/plans/2026-07-03-phase3.
 - [x] **VS Code Marketplace source** — `extensionquery` POST API, fills the IDE-extension gap; returns install count/rating
 - [x] **Papers with Code source** — `/api/v1/papers/`, fills the algorithm/paper gap; returns title/abstract/year/arxiv link
 - [x] **Keyword expansion** — queryTranslator (implement/function/code/snippet/example/source/plugin/extension/algorithm/paper/model/training/inference) + queryParser (ACTION_VERBS + SYNONYMS) updated in sync
+
+### ✅ Phase 5 (Done) — Embedded domain optimization + multi-domain expansion
+
+- [x] **P0-P3 embedded domain optimization** — 30+ translation words (stepper motor / microcontroller / encoder etc.), ACTION_VERBS (drive/control/step/pulse etc.), SYNONYMS (motor→actuator etc.), ecosystem mapping (cpp/arduino)
+- [x] **P4 multi-domain expansion** — 6 domain config tables (embedded/frontend/data-science/devops/game/security), each with independent signal words / platform expansion / stars denominator / generic words filtering
+- [x] **P9 coreWords fix** — removed domain-generic-words filtering logic to avoid mistakenly killing mainstream libraries like Neutree/COMTool
+
+### ✅ Phase 6 (Done) — RAG paradigm simplification
+
+> 🎯 **Core philosophy**: findawheel is repositioned from "precise recommendation system" to "context enhancer for AI coding". The retriever only recalls; the AI does the judging.
+
+- [x] **Removed hard filtering** — dropped `isMissingCoreConcept` / `isReverseIntent` / `coreWords` mandatory match / `formatWords` AND check / `antonymExcludes` NOT exclusion
+- [x] **Removed domain specialization** — dropped `DOMAINS` / `DOMAIN_GENERIC_WORDS` / `DOMAIN_STARS_DENOMINATOR` config tables; unified 4 embedded-specific code paths
+- [x] **Unified stars denominator** — simplified from 6-domain lookup table to a single 10000; the AI gets raw stars and judges domain-relative popularity itself
+- [x] **Unified GitHub query construction** — single word unquoted, multi-word quoted; removed embedded-specific "no quotes / first word only / no language constraint" special logic
+- [x] **Preserved pure-gain mechanisms** — translation table (CN→EN), synonym table (fuzzyQuery generalization), ACTION_VERBS (verb-priority coreWords), feedback weighting, detail pre-fetch, low-quality warning, cache all kept
+- [x] **Strengthened tool descriptions** — `suggest_queries` + `find_wheel` description fields include WHY/WHEN/WORKFLOW structured prompts, explicitly stating "findawheel does NOT filter relevance — the AI must judge itself"
+- [x] **295 tests all passing** — removed 18 hard-filter-related tests; kept translation / synonym / verb / aggregation / cache / degradation / low-quality warning / feedback tests
+
+### ✅ Phase 7 (Done) — RAG paradigm deepening
+
+> 🎯 **Core goal**: Build on the Phase 6 simplification to further strengthen the "retriever + AI judgment" collaboration model.
+
+- [x] **A. Golden regression test set** — 11 tests pin down core behaviors (mainstream libs not mistakenly killed / high-star zero-hit demotion / reverse-intent not filtered / aggregate repos filtered / Chinese translation) to prevent future changes from breaking the simplification
+- [x] **B. Recall expansion** — translation table expanded by 80+ words (frontend / data science / DevOps / game / security / AI / networking / storage), synonym table expanded by 30+ entries
+- [x] **C. AI collaboration deepening** — added `exclude` parameter (AI can filter out irrelevant projects in a second pass) + `recallReason` field (explains why a wheel was recalled, helping AI judge relevance quickly)
+- [x] **D. HuggingFace Hub source** — new HuggingFace adapter fills the AI model gap; users searching "image segmentation model" / "speech recognition" can now find pretrained models
+- [x] **E/F skipped after evaluation** — ranking tuning (avoid repeating overfitting mistakes, wait for real usage feedback) and performance optimization (low traffic, cache already mitigates rate limits) not needed now
+- [x] **323 tests all passing** — 28 new tests added (11 regression + 9 AI collaboration + 8 HuggingFace)
 
 ---
 

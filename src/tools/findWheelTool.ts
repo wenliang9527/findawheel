@@ -46,43 +46,6 @@ interface SearchResult {
   allFailed: boolean;
 }
 
-/**
- * 领域 → 泛词表:这些词在 query 里是"领域标签",但主流库 description 通常不含。
- * 评分时过滤掉,避免拉低 hitRate 导致主流库被低估。
- * 例:"stepper motor driver microcontroller" → 评分时只看 stepper/motor/driver。
- *
- * 添加新领域在此表加一项即可。
- */
-const DOMAIN_GENERIC_WORDS: Record<string, Set<string>> = {
-  embedded: new Set([
-    'microcontroller', 'mcu', 'embedded', 'microprocessor',
-    '单片机', '微控制器', '微处理器', '嵌入式',
-  ]),
-  frontend: new Set([
-    'frontend', '前端', 'web', 'ui', 'component', '组件',
-  ]),
-  'data-science': new Set([
-    'data-science', '数据科学', 'machine-learning', 'ml',
-  ]),
-  devops: new Set([
-    'devops', '运维', 'infrastructure', 'infra',
-  ]),
-  game: new Set([
-    'game', '游戏', 'engine', '引擎',
-  ]),
-  security: new Set([
-    'security', '安全', 'cybersecurity',
-  ]),
-};
-
-/**
- * 获取指定领域的泛词集合。领域不存在时返回空集合。
- */
-function getDomainGenericWords(domain: string | null): Set<string> {
-  if (!domain) return new Set();
-  return DOMAIN_GENERIC_WORDS[domain] ?? new Set();
-}
-
 export function createFindWheelTool(opts: CreateToolOpts) {
   const env = readEnv();
   const cache: Cache = opts.cache ?? createCache({
@@ -101,16 +64,27 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     const intent: Intent = classify(input.query, input.intent);
     const limit = input.limit ?? env.limit;
 
+    // C 阶段:exclude 过滤。用规范化 key(owner/repo 或包名小写)匹配。
+    // exclude 是 AI 协作深化的一部分 —— AI 上一轮看到结果后,
+    // 识别出某些不相关或反向意图项目,重新搜索时跳过这些。
+    const excludeSet = new Set(
+      (input.exclude ?? []).map(n => n.toLowerCase()),
+    );
+
     // 缓存命中:直接返回(跨会话复用磁盘缓存)
     const key = cacheKey(input.query, intent, input.ecosystem, limit);
     const cached = await cache.get(key);
     if (cached) {
+      // 缓存命中后也应用 exclude 过滤(让 AI 能用 exclude 二次筛选缓存结果)
+      const filtered = excludeSet.size > 0
+        ? cached.filter(w => !excludeSet.has(w.name.toLowerCase()))
+        : cached;
       const output: FindWheelOutput = {
         query: input.query,
         intent,
-        total: cached.length,
-        wheels: cached,
-        summary: buildSummary(cached),
+        total: filtered.length,
+        wheels: filtered,
+        summary: buildSummary(filtered),
         cached: true,
       };
       return { content: [{ type: 'text', text: JSON.stringify(output) }] };
@@ -127,11 +101,15 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     }
 
     // 成功才写缓存(失败结果不缓存,避免下次命中错误响应)
-    // 顺序: feedback 加权(重新排序) → 详情预抓取(top 10 按新排序) → 写缓存
+    // 顺序: feedback 加权(重新排序) → exclude 过滤 → 详情预抓取(top 10 按新排序) → 写缓存
     // 缓存存最终结果(含 feedback 调整和 details), 命中时直接返回; feedback 变化等 TTL 刷新
     let finalWheels = result.wheels;
     if (opts.feedbackStore) {
       finalWheels = await applyFeedback(finalWheels);
+    }
+    // C 阶段:exclude 过滤(AI 二次筛选不相关项目)
+    if (excludeSet.size > 0) {
+      finalWheels = finalWheels.filter(w => !excludeSet.has(w.name.toLowerCase()));
     }
     // 混合呈现:enrichOpts 配置时对 top 10 预抓取详情,top 3 内联,4-10 加 hasDetails 标记
     // 预抓取失败不阻断主流程(容错);缓存里存的是已内联 details 的 wheels,命中时直接返回
@@ -169,7 +147,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     input: FindWheelInput, intent: Intent, limit: number,
   ): Promise<SearchResult> {
     const timeoutMs = env.timeoutMs;
-    // 解析 query:拆分核心短语/修饰词/反义词,让数据源做更精准的搜索
+    // 解析 query:拆分核心短语/修饰词,让数据源做更精准的搜索
     const parsedQuery = parseQuery(input.query);
 
     const searchOpts = {
@@ -230,38 +208,14 @@ export function createFindWheelTool(opts: CreateToolOpts) {
 
     const wheels: Wheel[] = allRaw.map(normalize).map(enrich);
     // 提取 query 关键词(含中文翻译后的英文),用于排序时描述匹配加分
-    let queryKeywords = extractKeywords(input.query);
-    // 领域特定:过滤掉领域泛词(microcontroller/frontend/data-science 等),
-    // 主流库 description 用平台名/具体技术名而非泛词,留着泛词会拉低 hitRate。
-    // 例:joshr120/PD-Stepper(912 stars) description 含 stepper/motor/driver 但不含
-    // microcontroller,若不过滤 hitRate=3/4,过滤后 hitRate=3/3=1.0,推荐等级从 optional 升到 recommended。
-    if (parsedQuery.domain) {
-      const genericWords = getDomainGenericWords(parsedQuery.domain);
-      if (genericWords.size > 0) {
-        queryKeywords = queryKeywords.filter(kw => !genericWords.has(kw.toLowerCase()));
-      }
-    }
-    // P9 修复:coreWords 也要过滤领域泛词,否则 isMissingCoreConcept 会用未过滤的
-    // coreWords 检查主流库,导致 description 不含泛词的主流库被误杀。
-    // 例:query="serial port debug" → coreWords=["debug"] (debug 是动词)
-    //     但如果 coreWords 含 microcontroller,Neutree/COMTool(description 不含 microcontroller)
-    //     会被 isMissingCoreConcept 过滤掉。
-    let coreWords = parsedQuery.coreWords;
-    if (parsedQuery.domain) {
-      const genericWords = getDomainGenericWords(parsedQuery.domain);
-      if (genericWords.size > 0) {
-        coreWords = coreWords.filter(w => !genericWords.has(w.toLowerCase()));
-      }
-    }
-    // 反义词排除列表传给 Ranker 过滤反向意图;核心词和格式词用于必命中过滤
-    const ranked = rank(
-      wheels, intent, limit, queryKeywords,
-      parsedQuery.antonymExcludes, coreWords, parsedQuery.formatWords,
-    );
+    const queryKeywords = extractKeywords(input.query);
+    // Phase 6 简化:删除领域泛词过滤和 coreWords 过滤。
+    // 相关性判断交给 AI 调用方 —— AI 看到 top N 结果后自己挑最适合的。
+    // 硬规则过滤(isMissingCoreConcept)容易误杀主流库,得不偿失。
+    const ranked = rank(wheels, intent, limit, queryKeywords);
     // 给每个结果填充推荐信息(matchScore + recommendation 等级 + reason 理由)
     // 让调用方 AI 看到结构化的推荐等级,倾向于列出多个结果让用户选择
-    // 传 domain 让 recommender 做领域特定评分调整(如嵌入式 stars 归一化分母更小)
-    const rankedWithMatch = enrichWithMatch(ranked, queryKeywords, parsedQuery.domain);
+    const rankedWithMatch = enrichWithMatch(ranked, queryKeywords);
     return { wheels: rankedWithMatch, degraded, allFailed: false };
   }
 
@@ -334,7 +288,7 @@ const REC_ORDER = ['highly_recommended', 'recommended', 'optional', 'not_recomme
  *
  * 低质量结果警告:当 top 1 结果(按排序最高) stars < 10 时触发,
  * 提示 AI 建议用户换更宽泛的 query 或调用 suggest_queries 工具。
- * 场景:嵌入式/小众领域 query 命中的全是个人项目,参考价值低,
+ * 场景:小众领域 query 命中的全是个人项目,参考价值低,
  * 与其让用户误以为"这就是最好的",不如明确提示召回质量不高。
  */
 function buildSummary(wheels: Wheel[]): FindWheelOutput['summary'] {
@@ -361,12 +315,12 @@ function buildSummary(wheels: Wheel[]): FindWheelOutput['summary'] {
   if (wheels.length > 0) {
     const topStars = wheels[0].metrics.stars ?? 0;
     if (topStars < 10) {
-      warning = `⚠️ 召回质量警告:top 1 结果仅 ${topStars} stars,可能未命中主流库。建议:(1) 换更宽泛的 query(如去掉平台名/修饰词);(2) 调用 suggest_queries 工具生成搜索词变体;(3) 尝试用平台名搜索(arduino/esp32/stm32)。`;
+      warning = `⚠️ 召回质量警告:top 1 结果仅 ${topStars} stars,可能未命中主流库。建议:(1) 换更宽泛的 query(如去掉平台名/修饰词);(2) 调用 suggest_queries 工具生成搜索词变体;(3) 尝试用更精准的英文关键词重新搜索。`;
     }
   }
 
   return {
-    instruction: `共找到 ${totalCount} 个结果。请将所有结果按以下分组列给用户,不要只展示 1 个。每组展示项目名 + 推荐理由 + stars,让用户对比选择。`,
+    instruction: `共找到 ${totalCount} 个结果。请对比 top 5 结果的 stars/lastUpdated/description,选最适合用户场景的 2-3 个推荐给用户,说明选择理由。不要只推荐 1 个,让用户有选择权。同时注意:结果可能含不相关项目(如反向意图"remove watermark"),需自行识别并跳过。`,
     groups,
     ...(warning ? { warning } : {}),
   };

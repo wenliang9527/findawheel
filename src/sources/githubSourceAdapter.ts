@@ -10,9 +10,8 @@ const ECOSYSTEM_LANG: Record<string, string> = {
   js: 'JavaScript', ts: 'TypeScript',
   python: 'Python', rust: 'Rust', go: 'Go', java: 'Java',
   cpp: 'C++', arduino: 'Arduino',
-  // 注:'c' 故意不映射 —— 单片机 C 项目在 GitHub 上常被标记为 C/C++/Arduino,
-  // 限制成单一语言会漏掉主流库(如 simplefoc/Arduino-FOC 是 C++)。
-  // 用户想精确搜时可用 ecosystem=cpp 或 ecosystem=arduino。
+  // 注:'c' 故意不映射 —— C 项目在 GitHub 上常被标记为 C/C++/Arduino,
+  // 限制成单一语言会漏掉主流库。用户想精确搜时可用 ecosystem=cpp 或 ecosystem=arduino。
 };
 
 // 排除聚合类仓库(awesome-xxx、public-apis 等),它们不是具体工具
@@ -20,10 +19,14 @@ const AGGREGATE_NAME_PATTERNS = ['awesome', 'public-apis', 'free-for-dev', 'awes
 
 /**
  * 构造 GitHub 搜索表达式。
- * 优化:
- * 1. 核心短语用引号包裹,强制短语匹配(避免多词被 OR 拆开)
- * 2. 反义词用 NOT 排除(如搜"加水印"时排除"remove watermark")
- * 3. 排除聚合仓库(awesome-xxx)
+ *
+ * Phase 6 简化后:
+ * - 统一逻辑:单词不加引号,多词加引号(让 GitHub 做短语精确匹配)
+ * - 不再有领域特化逻辑(嵌入式不加引号 / 只用第一个词 等都已删除)
+ * - 修饰词不进 searchTerms,避免 GitHub AND 命中过严
+ * - 反义词 NOT 子句已删除(AI 自己识别反向意图)
+ *
+ * 修饰词交给 Ranker 后处理时做加分/过滤即可。
  */
 export function buildGithubQuery(
   query: string,
@@ -39,22 +42,11 @@ export function buildGithubQuery(
   // 修饰词交给 Ranker 后处理时做加分/过滤即可。
   let searchTerms: string;
   if (parsed && parsed.corePhrase) {
-    const isEmbeddedDomain = parsed.domain === 'embedded';
-    if (isEmbeddedDomain) {
-      // 嵌入式领域只用 corePhrase 的第一个词作为 searchTerms:
-      // 1. 不加引号:让 GitHub 做词干匹配(如 motor → motors)
-      // 2. 只用第一个词:避免多词 AND 搜索过滤掉主流库
-      //    例:corePhrase="serial uart" 时,只搜 "serial",node-serialport
-      //    (description="Node.js package to access serial ports") 才能被命中;
-      //    若搜 "serial uart" AND,node-serialport 不含 uart 会被过滤。
-      //    Ranker 后处理用 coreWords 做精确过滤,保证相关性。
-      const firstWord = parsed.corePhrase.split(' ')[0];
-      searchTerms = firstWord;
-    } else if (!parsed.corePhrase.includes(' ')) {
+    if (!parsed.corePhrase.includes(' ')) {
       // 单词不加引号
       searchTerms = parsed.corePhrase;
     } else {
-      // 非嵌入式多词:用引号短语精确匹配
+      // 多词:用引号短语精确匹配
       searchTerms = `"${parsed.corePhrase}"`;
     }
   } else {
@@ -72,25 +64,8 @@ export function buildGithubQuery(
   // 3. 排除聚合仓库(GitHub NOT 语法)
   parts.push('NOT awesome in:name');
 
-  // 4. 排除反义词(如搜 watermark 时 NOT remove NOT clean NOT strip)
-  if (parsed && parsed.antonymExcludes.length > 0) {
-    // GitHub NOT 语法:NOT <word> in:description
-    // 限制最多 3 个,避免查询过长
-    for (const w of parsed.antonymExcludes.slice(0, 3)) {
-      parts.push(`NOT ${w} in:description`);
-    }
-  }
-
   if (ecosystem && ECOSYSTEM_LANG[ecosystem]) {
-    // 嵌入式领域不加 language 限制:嵌入式库语言混杂(C/C++/Arduino/Python/JS/TS),
-    // 限制成单一语言会漏掉主流库。
-    // 例:node-serialport(8.5k stars)是 JavaScript,但用户可能传 ecosystem=ts;
-    //     Serial-Studio(3k stars)是 C++,用户可能传 ecosystem=cpp。
-    // 与 ECOSYSTEM_LANG 表里 'c' 不映射的设计理念一致。
-    const isEmbeddedDomain = parsed?.domain === 'embedded';
-    if (!isEmbeddedDomain) {
-      parts.push(`language:${ECOSYSTEM_LANG[ecosystem]}`);
-    }
+    parts.push(`language:${ECOSYSTEM_LANG[ecosystem]}`);
   }
   return parts.join(' ');
 }

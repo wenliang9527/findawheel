@@ -2,30 +2,21 @@
 // 给每个 Wheel 生成推荐信息(matchScore + recommendation 等级 + reason 理由)。
 // 目的:让调用方 AI 看到结构化的推荐等级,倾向于列出多个结果让用户选择,
 // 而不是只挑 1 个展示。
+//
+// Phase 6 简化后:
+// 删除领域特定 stars 归一化分母(DOMAIN_STARS_DENOMINATOR)。
+// 统一用 10000 作为 stars 分母,避免领域配置表带来的维护负担。
+// AI 调用方拿到 stars 原值 + matchScore 后自己判断领域相对热度。
 
 import type { Wheel, Recommendation, WheelMatch } from '../normalize/types.js';
 
 /**
- * 领域 → stars 归一化分母配置。
- * 不同领域 stars 天花板不同,用不同分母让分数公平:
- * - 通用软件:10000 stars 才算主流(如 react/vue)
- * - 嵌入式:3000 stars 已是主流(硬件库受众小)
- * - 数据科学:5000 stars(python 生态中等)
- * - DevOps:5000 stars(运维工具中等)
- * - 游戏:3000 stars(游戏库小众)
- * - 安全:3000 stars(安全工具小众)
- * - 前端:10000 stars(组件库天花板高)
- *
- * 添加新领域在此表加一项即可。
+ * stars 归一化分母(统一值)。
+ * 不同领域 stars 天花板不同,但 findawheel 不再硬编码领域分母 ——
+ * AI 看到 stars 原值后自己判断领域相对热度(嵌入式 1k stars 已是主流,
+ * 前端 1k stars 是小众,这种领域知识 AI 比硬规则更准确)。
  */
-const DOMAIN_STARS_DENOMINATOR: Record<string, number> = {
-  embedded: 3000,
-  'data-science': 5000,
-  devops: 5000,
-  game: 3000,
-  security: 3000,
-  frontend: 10000,
-};
+const STARS_DENOMINATOR = 10000;
 
 /**
  * 计算单个 Wheel 的匹配信息。
@@ -40,14 +31,10 @@ const DOMAIN_STARS_DENOMINATOR: Record<string, number> = {
  * - recommended: score >= 0.4
  * - optional: score >= 0.2
  * - not_recommended: score < 0.2
- *
- * @param domain 识别到的领域(如 'embedded'),影响 stars 归一化分母。
- *               嵌入式库 stars 普遍偏低(1k stars 已是主流库),用更小分母 3000。
  */
 export function computeMatch(
   wheel: Wheel,
   queryKeywords: string[],
-  domain?: string | null,
 ): WheelMatch {
   const text = `${wheel.name} ${wheel.description}`.toLowerCase();
   // 命中的关键词
@@ -61,13 +48,9 @@ export function computeMatch(
     : 0;
   const relevanceScore = hitRate * 0.5;
 
-  // 2. 热度(0~0.3):stars 归一化
-  // 不同领域 stars 天花板不同,用领域特定分母让分数公平
-  // 例:simplefoc 2886 stars:通用 0.0866 vs 嵌入式 0.289
-  //     joshr120 912 stars:通用 0.027 vs 嵌入式 0.091
+  // 2. 热度(0~0.3):stars 归一化(统一分母)
   const stars = wheel.metrics.stars ?? 0;
-  const starsDenominator = (domain && DOMAIN_STARS_DENOMINATOR[domain]) || 10000;
-  const popularityScore = Math.min(stars / starsDenominator, 1) * 0.3;
+  const popularityScore = Math.min(stars / STARS_DENOMINATOR, 1) * 0.3;
 
   // 3. 活跃度(0~0.2):最近更新 + activity
   const activity = wheel.metrics.activity;
@@ -89,8 +72,46 @@ export function computeMatch(
   const score = relevanceScore + popularityScore + activityScore;
   const recommendation = gradeRecommendation(score, stars);
   const reason = buildReason(wheel, matchedKeywords, queryKeywords, recommendation);
+  const recallReason = buildRecallReason(wheel, matchedKeywords, stars, activity);
 
-  return { score, recommendation, reason, matchedKeywords };
+  return { score, recommendation, reason, matchedKeywords, recallReason };
+}
+
+/**
+ * 生成召回解释(C 阶段):说明该 wheel 为什么被召回。
+ * 形如 "命中核心词 stepper/motor;3.0k stars;近 1 年有更新"。
+ * 帮助 AI 调用方快速判断相关性,减少误判。
+ *
+ * 与 reason 的区别:
+ * - reason:综合推荐理由,含 license 等次要信息,较长
+ * - recallReason:聚焦"为什么召回"的核心信息,简短,AI 一眼能判断
+ */
+function buildRecallReason(
+  wheel: Wheel,
+  matchedKeywords: string[],
+  stars: number,
+  activity: string | undefined,
+): string {
+  const parts: string[] = [];
+
+  // 1. 命中情况(最关键)
+  if (matchedKeywords.length > 0) {
+    // 只取前 3 个命中词,避免太长
+    const preview = matchedKeywords.slice(0, 3).join('/');
+    parts.push(`命中 ${preview}`);
+  } else {
+    parts.push('零关键词命中(可能不相关)');
+  }
+
+  // 2. 热度
+  if (stars > 0) parts.push(formatStars(stars));
+
+  // 3. 更新活跃度
+  if (activity === 'high') parts.push('活跃维护');
+  else if (activity === 'medium') parts.push('近期有更新');
+  else if (activity === 'low') parts.push('更新缓慢');
+
+  return parts.join('; ');
 }
 
 /** 根据分数和 stars 计算推荐等级。导出供 feedback 调整后重新分级使用。 */
@@ -109,7 +130,7 @@ function buildReason(
   wheel: Wheel,
   matchedKeywords: string[],
   queryKeywords: string[],
-  recommendation: Recommendation,
+  _recommendation: Recommendation,
 ): string {
   const parts: string[] = [];
   const hitRate = queryKeywords.length > 0
@@ -155,12 +176,10 @@ function formatStars(stars: number): string {
 /**
  * 批量给 Wheel 列表填充 match 字段。
  * 输入是已排好序的 Wheel 列表(来自 rank()),原地填充 match 字段。
- * @param domain 识别到的领域(如 'embedded'),影响 stars 归一化分母
  */
 export function enrichWithMatch(
   wheels: Wheel[],
   queryKeywords: string[],
-  domain?: string | null,
 ): Wheel[] {
-  return wheels.map(w => ({ ...w, match: computeMatch(w, queryKeywords, domain) }));
+  return wheels.map(w => ({ ...w, match: computeMatch(w, queryKeywords) }));
 }

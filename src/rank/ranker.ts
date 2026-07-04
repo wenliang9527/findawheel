@@ -1,4 +1,15 @@
 // src/rank/ranker.ts
+// 排序与过滤:基于 stars / recency / activity / 描述匹配度评分。
+//
+// 设计原则(Phase 6 简化后):
+// 只做"召回 + 排序",不做"必命中过滤"。判断相关性交给 AI 调用方,
+// AI 看到 top N 结果后自己挑最适合的。硬规则过滤容易误杀主流库。
+//
+// 删除的机制:
+// - isMissingCoreConcept:核心词必命中 → 误杀 description 不含泛词的主流库
+// - isReverseIntent:反义词过滤 → AI 完全可以自己识别"remove watermark"
+// - coreWords/formatWords/antonymExcludes 参数 → 不再需要
+
 import type { Wheel, Intent, WheelMetrics } from '../normalize/types.js';
 import { isAggregateRepo } from '../sources/githubSourceAdapter.js';
 
@@ -12,6 +23,13 @@ const AGGREGATE_DESC_PATTERNS = [
   'public apis', 'free for dev', 'resources for',
 ];
 
+/**
+ * 基础过滤:剔除明显不可用的结果。
+ * - archived 仓库
+ * - 超过 3 年未更新
+ * - 无描述且 stars < 10
+ * - 聚合类仓库(awesome-xxx、public-apis 等)
+ */
 export function filterOut(wheel: Wheel): boolean {
   const m = wheel.metrics;
   if (m.archived === true) return true;
@@ -63,74 +81,6 @@ function isZeroHit(wheel: Wheel, queryKeywords: string[]): boolean {
   const text = `${wheel.name} ${wheel.description}`.toLowerCase();
   return !queryKeywords.some(kw => text.includes(kw.toLowerCase()));
 }
-
-/**
- * 核心词必命中过滤:结果的 description 或 name 必须包含至少一个核心动作词。
- *
- * 场景:用户搜 "invisible image watermark encryption resistant cropping",
- * 核心动作词是 watermark/encrypt,但裁剪工具 react-image-crop 的 description
- * 里既没 watermark 也没 encrypt —— 这类结果应该被剔除。
- *
- * 格式词检查:如果 query 里有格式词(pdf/word/ppt/excel 等),
- * 结果的 description/name 也必须命中至少一个格式词。
- * 场景:搜 "pdf to markdown" 却返回 HTML 转换器 —— 剔除。
- *
- * 注意:仅当核心词/格式词存在时才过滤;都没有时跳过本规则。
- *
- * @param coreWords query 的核心词(动作词优先),来自 queryParser
- * @param formatWords query 里出现的格式词,来自 queryParser
- */
-export function isMissingCoreConcept(
-  wheel: Wheel,
-  coreWords: string[] = [],
-  formatWords: string[] = [],
-): boolean {
-  // 包名/仓库名也算"描述"的一部分,避免描述简短但包名精准的工具被误杀
-  const text = `${wheel.name} ${wheel.description}`.toLowerCase();
-  // 核心词:至少命中一个(如果有的话)
-  if (coreWords.length > 0 && !coreWords.some(w => text.includes(w.toLowerCase()))) {
-    return true;
-  }
-  // 格式词:如果 query 里有格式词,结果也必须命中至少一个
-  if (formatWords.length > 0 && !formatWords.some(w => text.includes(w.toLowerCase()))) {
-    return true;
-  }
-  return false;
-}
-
-/**
- * 反向意图过滤:检查结果是否是用户想要的"反向动作"。
- * 例:用户搜 watermark(想加水印),但结果是 "remove watermark" / "watermark remover"。
- *
- * 判定规则:antonymExcludes 里的词 + query 核心动作词 同时出现在 description 里 → 剔除。
- * 如 query 含 "watermark",antonymExcludes 含 "remove",
- * 结果描述含 "remove watermark" 或 "watermark remover" → 剔除。
- *
- * @param antonymExcludes 反义词列表(来自 queryParser)
- * @param queryKeywords query 关键词(用于检测反向动作是否针对同一对象)
- */
-export function isReverseIntent(
-  wheel: Wheel,
-  antonymExcludes: string[],
-  queryKeywords: string[] = [],
-): boolean {
-  if (antonymExcludes.length === 0 || !wheel.description) return false;
-  const descLower = wheel.description.toLowerCase();
-  // 描述里必须同时出现"反向动词"和"动作对象"才判定为反向意图
-  // 例:"remove watermark" 同时含 remove 和 watermark → 反向
-  //     "remove files" 含 remove 但不含 watermark → 不是针对 watermark 的反向,保留
-  const hasAntonym = antonymExcludes.some(w => descLower.includes(w));
-  if (!hasAntonym) return false;
-  // 检查描述是否同时包含 query 的核心动作词(说明反向动作是针对同一对象)
-  const actionWords = queryKeywords.filter(kw =>
-    ANTONYM_ACTION_WORDS.has(kw.toLowerCase())
-  );
-  if (actionWords.length === 0) return false;
-  return actionWords.some(w => descLower.includes(w.toLowerCase()));
-}
-
-// 触发反义词检测的动作词(与 queryParser 的 ANTONYMS 表对应)
-const ANTONYM_ACTION_WORDS = new Set(['watermark', 'encrypt']);
 
 function normalize(v: number | undefined, max: number): number {
   if (v === undefined || v <= 0) return 0;
@@ -201,20 +151,21 @@ export function dedupe(wheels: Wheel[]): Wheel[] {
   return [...map.values()];
 }
 
+/**
+ * 排序:基础过滤 + 去重 + 评分排序 + 截断。
+ *
+ * 简化后只做"召回 + 排序",不做"必命中过滤"。
+ * 相关性判断交给 AI 调用方 —— AI 看到 top N 结果后自己挑最适合的。
+ *
+ * @param queryKeywords query 关键词,用于描述匹配加分和覆盖率计算
+ */
 export function rank(
   wheels: Wheel[],
   intent: Intent,
   limit: number,
   queryKeywords: string[] = [],
-  antonymExcludes: string[] = [],
-  coreWords: string[] = [],
-  formatWords: string[] = [],
 ): Wheel[] {
-  const filtered = wheels.filter(w =>
-    !filterOut(w)
-    && !isReverseIntent(w, antonymExcludes, queryKeywords)
-    && !isMissingCoreConcept(w, coreWords, formatWords)
-  );
+  const filtered = wheels.filter(w => !filterOut(w));
   const deduped = dedupe(filtered);
   const scored = deduped
     .map(w => ({ w, s: score(w, intent, queryKeywords) }))

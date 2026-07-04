@@ -3,8 +3,8 @@
 // (wheelDetailsEnricher 反向 import type Wheel,同为 type-only,TS 能正确处理)
 import type { WheelDetails } from '../enrich/wheelDetailsEnricher.js';
 
-export type WheelSource = 'github' | 'gitlab' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'librariesio' | 'web' | 'github-code' | 'vscode-marketplace' | 'paperswithcode';
-export type WheelType = 'project' | 'package' | 'api' | 'cli' | 'sdk' | 'snippet' | 'extension' | 'paper';
+export type WheelSource = 'github' | 'gitlab' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'librariesio' | 'web' | 'github-code' | 'vscode-marketplace' | 'paperswithcode' | 'huggingface';
+export type WheelType = 'project' | 'package' | 'api' | 'cli' | 'sdk' | 'snippet' | 'extension' | 'paper' | 'model';
 export type Activity = 'high' | 'medium' | 'low';
 
 /** 推荐等级:从高到低 */
@@ -26,6 +26,12 @@ export interface WheelMatch {
   matchedKeywords: string[];
   /** 反馈调整量(可选): 用户历史反馈(like/hide/click)带来的 score 增减, 正数=加分负数=扣分 */
   feedbackDelta?: number;
+  /**
+   * 召回解释(C 阶段):说明该 wheel 为什么被召回。
+   * 形如 "命中核心词 stepper/motor;3.0k stars;近 1 年有更新"。
+   * 帮助 AI 调用方快速判断相关性,减少误判。
+   */
+  recallReason?: string;
 }
 
 export interface WheelMetrics {
@@ -59,6 +65,14 @@ export interface FindWheelInput {
   intent?: 'feature' | 'project' | 'auto';
   ecosystem?: string;
   limit?: number;
+  /**
+   * AI 协作深化(C 阶段):要排除的 wheel name 列表(owner/repo 或包名)。
+   * 场景:AI 上一轮看到结果后,识别出某些不相关或反向意图项目,
+   * 调用 find_wheel(exclude: [...]) 重新搜索时跳过这些。
+   * 注意:exclude 不触发新一次 API 调用,只在已召回的结果里过滤。
+   * 若排除后结果不足,AI 应换 query 重新搜。
+   */
+  exclude?: string[];
 }
 
 export interface FindWheelOutput {
@@ -253,4 +267,25 @@ export interface PaperRawResult {
   area?: string;
 }
 
-export type RawResult = GitHubRawResult | NpmRawResult | CratesRawResult | GiteeRawResult | GitlabRawResult | PypiRawResult | LibrariesIoRawResult | WebRawResult | GitHubCodeRawResult | VscodeExtensionRawResult | PaperRawResult;
+/** HuggingFace Hub 模型结果(D 阶段新增,补 AI 模型盲区) */
+export interface HuggingfaceRawResult {
+  source: 'huggingface';
+  /** 模型 ID(org/model-name 格式) */
+  name: string;
+  /** 模型详情页 URL */
+  url: string;
+  /** 描述(pipeline_tag + library + tags 摘要) */
+  description: string;
+  /** 点赞数(作为 stars 近似值,用于排序) */
+  stars: number;
+  /** 下载量 */
+  downloads: number;
+  /** 最近更新时间(ISO date) */
+  lastUpdated: string;
+  /** 任务类型,如 "text-classification" */
+  pipelineTag?: string;
+  /** 框架,如 "transformers"/"pytorch" */
+  libraryName?: string;
+}
+
+export type RawResult = GitHubRawResult | NpmRawResult | CratesRawResult | GiteeRawResult | GitlabRawResult | PypiRawResult | LibrariesIoRawResult | WebRawResult | GitHubCodeRawResult | VscodeExtensionRawResult | PaperRawResult | HuggingfaceRawResult;

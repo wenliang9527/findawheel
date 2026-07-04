@@ -29,7 +29,9 @@ function tmpCacheDir(): string {
   return path.join(os.tmpdir(), `fw-test-${process.pid}-${dirCounter}`);
 }
 
-// description 包含 query 核心词的通用 github 结果,避免被 isMissingCoreConcept 过滤
+// description 含 query 核心词的通用 github 结果
+// Phase 6 简化:不再需要"避免被 isMissingCoreConcept 过滤"(该过滤已删),
+// 但保留 description 含 query 词的习惯,让测试更真实。
 function ghResult(name: string, desc: string): RawResult {
   return {
     source: 'github', name, url: `https://github.com/${name}`,
@@ -52,7 +54,6 @@ describe('findWheelTool.handle', () => {
   });
 
   it('aggregates results from multiple adapters', async () => {
-    // description 包含 query 核心词,否则会被 isMissingCoreConcept 过滤(真实相关结果一定会在描述里提到核心词)
     const gh: RawResult = {
       source: 'github', name: 'a/b', url: 'https://github.com/a/b', description: 'A markdown editor',
       stars: 100, language: null, license: 'MIT', archived: false,
@@ -195,7 +196,7 @@ describe('findWheelTool.handle', () => {
   });
 
   it('summary 含 warning 当 top 1 stars < 10', async () => {
-    // stars=3 的结果应触发低质量警告(模拟嵌入式领域召回差的情况)
+    // stars=3 的结果应触发低质量警告(模拟小众领域召回差的情况)
     const gh: RawResult = {
       source: 'github', name: 'a/tiny-project', url: 'https://github.com/a/tiny-project',
       description: 'A markdown editor', stars: 3, language: null, license: 'MIT',
@@ -220,50 +221,7 @@ describe('findWheelTool.handle', () => {
     expect(output.summary.warning).toBeUndefined();
   });
 
-  // ===== Phase 5 新增:嵌入式领域泛词过滤 =====
-
-  it('filters out domain generic words from queryKeywords for embedded domain', async () => {
-    // 嵌入式领域 query "stepper motor driver microcontroller"
-    // 评分时应过滤掉 microcontroller,只看 stepper/motor/driver
-    // 这样 joshr120/PD-Stepper(description 含 stepper/motor/driver 但不含 microcontroller)
-    // 的 hitRate 从 3/4=0.75 升到 3/3=1.0,推荐等级提升
-    const gh: RawResult = {
-      source: 'github', name: 'joshr120/PD-Stepper', url: 'https://github.com/joshr120/PD-Stepper',
-      description: 'Stepper motor driver for Arduino', stars: 912, language: null, license: 'MIT',
-      archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
-    };
-    const adapter: SourceAdapter = { name: 'github', async search() { return [gh]; } };
-    const tool = createFindWheelTool({ adapters: [adapter] });
-    const res = await tool.handle({ query: 'stepper motor driver microcontroller' });
-    const output = JSON.parse(res.content[0].text);
-    // 过滤泛词 + 嵌入式领域 stars/3000,912 stars 应升到 recommended
-    expect(output.wheels[0].match.recommendation).toBe('recommended');
-    // matchedKeywords 不应包含 microcontroller
-    expect(output.wheels[0].match.matchedKeywords).not.toContain('microcontroller');
-    expect(output.wheels[0].match.matchedKeywords).toEqual(
-      expect.arrayContaining(['stepper', 'motor', 'driver']),
-    );
-  });
-
-  // ===== Phase 5 P9 新增:coreWords 也过滤领域泛词 =====
-
-  it('filters domain generic words from coreWords to prevent isMissingCoreConcept false positive', async () => {
-    // P9 修复:coreWords 也要过滤领域泛词,否则 isMissingCoreConcept 会误杀主流库
-    // 场景:query="serial port debug" → coreWords 可能含 debug + 领域泛词
-    //      主流库 Neutree/COMTool(description="Cross-platform serial port debug tool")
-    //      若 coreWords 含 microcontroller 而 COMTool 不含,会被 isMissingCoreConcept 过滤
-    // 验证:嵌入式领域,description 不含 microcontroller 但含 serial/debug 的主流库应保留
-    const gh: RawResult = {
-      source: 'github', name: 'Neutree/COMTool', url: 'https://github.com/Neutree/COMTool',
-      description: 'Cross-platform serial port debug tool', stars: 1500, language: null, license: 'MIT',
-      archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
-    };
-    const adapter: SourceAdapter = { name: 'github', async search() { return [gh]; } };
-    const tool = createFindWheelTool({ adapters: [adapter] });
-    const res = await tool.handle({ query: 'serial port debug tool microcontroller' });
-    const output = JSON.parse(res.content[0].text);
-    // COMTool 应该保留在结果中(不被 isMissingCoreConcept 过滤)
-    expect(output.wheels).toHaveLength(1);
-    expect(output.wheels[0].name).toBe('Neutree/COMTool');
-  });
+  // Phase 6 简化:删除领域泛词过滤测试和 coreWords 过滤测试。
+  // 这些过滤机制已删除 —— 相关性判断交给 AI 调用方。
+  // 主流库 Neutree/COMTool 等不再被硬规则误杀,会正常出现在结果中。
 });
