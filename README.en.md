@@ -159,7 +159,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
            └────────┬───────┘         │              │
                     ▼                 │              │
     ┌─────────────────────────────────────────────┐  │
-    │  GitHub · Gitee · npm · crates · GitLab · PyPI · Libraries.io · Web    │  │
+    │  GitHub · Gitee · npm · crates · GitLab · PyPI · Libraries.io · GitHub Code · Web    │  │
     │     (Exa primary + Tavily fallback)         │  │
     └─────────────────────┬───────────────────────┘  │
                           ▼                          │
@@ -201,6 +201,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
 | **GitLab** | Open-source repos | Optional | `/api/v4/projects`, complements non-GitHub hosted projects |
 | **PyPI** | Python packages | Not required | Parses `pypi.org/search` HTML, no stars/downloads data |
 | **Libraries.io** | Multi-platform packages | API key required | One query covers 30+ package managers (npm/pypi/cargo/maven...) |
+| **GitHub Code** | Code snippets | reuses `GITHUB_TOKEN` | `/search/code`, searches code snippets instead of repos; auth required, 10 req/min rate limit; returns `textFragment` with matched code |
 
 > ℹ️ **PyPI strategy**: PyPI has no official search JSON API. We parse the HTML of `pypi.org/search` to extract package info (no stars/downloads data).
 >

@@ -161,10 +161,11 @@ findWheelTool 同时发起两组搜索：
 **每个适配器内部**也是并行调用各自的子源：
 
 ```
-GitHubSourceAdapter.search()     ← GitHub Search API（引号短语 + NOT 排除）
-GiteeSourceAdapter.search()      ← Gitee OpenAPI
-RegistrySourceAdapter.search()   ← npm + crates.io API（内部也并行）
-WebSourceAdapter.search()        ← Exa 主，失败 fallback Tavily
+GitHubSourceAdapter.search()        ← GitHub Search API（引号短语 + NOT 排除）
+GitHubCodeSourceAdapter.search()    ← GitHub Code Search（/search/code,代码片段,text-match）
+GiteeSourceAdapter.search()         ← Gitee OpenAPI
+RegistrySourceAdapter.search()      ← npm + crates.io API（内部也并行）
+WebSourceAdapter.search()           ← Exa 主，失败 fallback Tavily
 ```
 
 每个适配器返回各自格式的 `RawResult[]`。使用 `Promise.allSettled` 聚合——任一源失败不影响其他源。

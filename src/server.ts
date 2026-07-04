@@ -17,6 +17,7 @@ import { WebSourceAdapter } from './sources/webSourceAdapter.js';
 import { GitlabSourceAdapter } from './sources/gitlabSourceAdapter.js';
 import { PypiSourceAdapter } from './sources/pypiSourceAdapter.js';
 import { LibrariesIoSourceAdapter } from './sources/librariesIoSourceAdapter.js';
+import { GitHubCodeSourceAdapter } from './sources/githubCodeSourceAdapter.js';
 import { createCache } from './cache/cache.js';
 import type { WheelDetails } from './enrich/wheelDetailsEnricher.js';
 import { createFeedbackStore } from './feedback/feedbackStore.js';
@@ -73,6 +74,7 @@ export function createServer() {
       new GitlabSourceAdapter(),
       new PypiSourceAdapter(),
       new LibrariesIoSourceAdapter(),
+      new GitHubCodeSourceAdapter(),
     ],
     detailsCache,
     enrichOpts,
