@@ -4,3 +4,15 @@ dist/
 *.log
 .DS_Store
 .codegraph/
+
+# IDE / editor configs
+.vscode/
+.idea/
+
+# Test / build artifacts
+coverage/
+*.tsbuildinfo
+*.tgz
+
+# Windows system files
+Thumbs.db

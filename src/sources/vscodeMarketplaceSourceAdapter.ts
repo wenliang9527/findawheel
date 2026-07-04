@@ -2,7 +2,7 @@
 // VS Code Marketplace 适配器 —— 补「IDE 插件」盲区。
 //
 // 关键差异(对比 GitHub):
-// 1. POST 请求,非 GET(http.ts 只有 httpGet,这里直接用 fetch)
+// 1. POST 请求,非 GET(走 httpPost,共享超时/重试/错误处理)
 // 2. 无需 key(路径含 _apis/public,公开 API)
 // 3. 非官方文档化 API,微软未承诺 SLA,结构可能变更
 // 4. 请求体是 GraphQL-like 结构,filterType=8 是 SearchText
@@ -13,6 +13,7 @@
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { VscodeExtensionRawResult, RawResult } from '../normalize/types.js';
 import { SourceError } from '../errors.js';
+import { httpPost, HttpError } from '../util/http.js';
 
 const MARKETPLACE_URL = 'https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery';
 
@@ -85,25 +86,15 @@ export class VscodeMarketplaceSourceAdapter implements SourceAdapter {
       flags: QUERY_FLAGS,
     };
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
-
     try {
-      const res = await fetch(MARKETPLACE_URL, {
-        method: 'POST',
+      const data = await httpPost<MarketplaceResponse>(MARKETPLACE_URL, {
+        timeoutMs: opts.timeoutMs,
         headers: {
           'content-type': 'application/json',
           'accept': 'application/json;api-version=3.0-preview.1',
-          'user-agent': 'findawheel/0.1',
         },
         body: JSON.stringify(body),
-        signal: controller.signal,
       });
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new SourceError('vscode-marketplace', `HTTP ${res.status}: ${text.slice(0, 200)}`);
-      }
-      const data = (await res.json()) as MarketplaceResponse;
 
       // Marketplace 返回结构嵌套: results[0].extensions[]
       const extensions = data.results?.[0]?.extensions ?? [];
@@ -127,11 +118,10 @@ export class VscodeMarketplaceSourceAdapter implements SourceAdapter {
         };
       });
     } catch (err) {
-      if (err instanceof SourceError) throw err;
-      // 网络错误 / abort
+      // HttpError(4xx 等):转 SourceError,保留状态码
+      if (err instanceof HttpError) throw new SourceError('vscode-marketplace', `HTTP ${err.status}`);
+      // 其余(5xx 包装出的 RetryableError / 网络错误 / abort)统一转 SourceError
       throw new SourceError('vscode-marketplace', (err as Error).message);
-    } finally {
-      clearTimeout(timer);
     }
   }
 }
