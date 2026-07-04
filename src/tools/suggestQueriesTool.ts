@@ -52,20 +52,6 @@ export interface SuggestQueriesOutput {
 }
 
 /**
- * 硬件类关键词集合 —— 出现这些词时,推荐用 arduino/cpp ecosystem 搜索。
- * stepper/motor/servo 等主流库(AccelStepper、Marlin、GRBL)主要在 Arduino 生态,
- * 用 python/js 搜会漏掉主流库。
- */
-const HARDWARE_KEYWORDS = new Set([
-  // 电机/驱动类
-  'stepper', 'motor', 'servo', 'encoder', 'pwm', 'pulse',
-  'driver', 'actuator', 'sensor', 'bldc',
-  // 嵌入式平台类
-  'microcontroller', 'mcu', 'embedded', 'hal', 'gpio',
-  'arduino', 'esp32', 'stm32', 'raspberry', 'rpi',
-]);
-
-/**
  * 从翻译后的 query 检测硬件类 ecosystem 推荐。
  *
  * 优先级:

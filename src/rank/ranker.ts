@@ -10,7 +10,7 @@
 // - isReverseIntent:反义词过滤 → AI 完全可以自己识别"remove watermark"
 // - coreWords/formatWords/antonymExcludes 参数 → 不再需要
 
-import type { Wheel, Intent, WheelMetrics } from '../normalize/types.js';
+import type { Wheel, Intent } from '../normalize/types.js';
 import { isAggregateRepo } from '../sources/githubSourceAdapter.js';
 
 const THREE_YEARS_MS = 3 * 365 * 24 * 3600 * 1000;

@@ -98,7 +98,7 @@ export function computeMatch(
   const score = relevanceScore + popularityScore + activityScore;
   const recommendation = gradeRecommendation(score, stars);
   const reason = buildReason(wheel, matchedKeywords, queryKeywords, recommendation);
-  const recallReason = buildRecallReason(wheel, matchedKeywords, stars, activity);
+  const recallReason = buildRecallReason(matchedKeywords, stars, activity);
 
   return { score, recommendation, reason, matchedKeywords, recallReason };
 }
@@ -113,7 +113,6 @@ export function computeMatch(
  * - recallReason:聚焦"为什么召回"的核心信息,简短,AI 一眼能判断
  */
 function buildRecallReason(
-  wheel: Wheel,
   matchedKeywords: string[],
   stars: number,
   activity: string | undefined,
