@@ -212,12 +212,37 @@ export function dedupe(wheels: Wheel[]): Wheel[] {
       map.set(key, w);
       continue;
     }
+    // P1-6:合并 topics(场景:GitHub 项目 + npm 包同名,
+    // 前者有 topics,后者有 keywords 归一化为 topics)。合并后提升 topicsMatchBonus 准确性。
+    const mergedTopics = mergeTopics(existing.topics, w.topics);
+
     // Merge: keep richer metrics (more defined fields)
     const wScore = Object.values(w.metrics).filter(v => v !== undefined).length;
     const eScore = Object.values(existing.metrics).filter(v => v !== undefined).length;
-    if (wScore > eScore) map.set(key, w);
+    if (wScore > eScore) {
+      // w 替换 existing,但用合并后的 topics
+      map.set(key, { ...w, topics: mergedTopics });
+    } else {
+      // 保留 existing,但更新 topics
+      existing.topics = mergedTopics;
+    }
   }
   return [...map.values()];
+}
+
+/** 合并两个 topics 数组(去重,保持顺序) */
+function mergeTopics(a?: string[], b?: string[]): string[] | undefined {
+  if (!a || a.length === 0) return b && b.length > 0 ? [...b] : a;
+  if (!b || b.length === 0) return a;
+  const set = new Set(a.map(t => t.toLowerCase()));
+  const merged = [...a];
+  for (const t of b) {
+    if (!set.has(t.toLowerCase())) {
+      merged.push(t);
+      set.add(t.toLowerCase());
+    }
+  }
+  return merged;
 }
 
 /**

@@ -276,6 +276,78 @@ describe('dedupe', () => {
     expect(out).toHaveLength(1);
     expect(out[0].metrics.stars).toBe(50000);
   });
+
+  // P1-6:dedupe 时合并 topics(场景:GitHub 项目 + npm 包同名)
+  it('P1-6: merges topics from same-name wheels (github + npm)', () => {
+    const github = makeWheel({
+      name: 'lodash',
+      source: 'github',
+      topics: ['javascript', 'utility', 'functional'],
+      metrics: { stars: 50000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const npm = makeWheel({
+      name: 'lodash',
+      source: 'npm',
+      topics: ['javascript', 'modules', 'browser'], // 'javascript' 重复
+      metrics: { lastUpdated: '2025-01-01T00:00:00Z' }, // metrics 更少,会被替换
+    });
+    const out = dedupe([github, npm]);
+    expect(out).toHaveLength(1);
+    expect(out[0].source).toBe('github'); // 保留 metrics 更丰富的 github 版本
+    // topics 应合并且去重:['javascript', 'utility', 'functional', 'modules', 'browser']
+    expect(out[0].topics).toEqual(['javascript', 'utility', 'functional', 'modules', 'browser']);
+  });
+
+  it('P1-6: merges topics when npm wins (richer metrics)', () => {
+    const github = makeWheel({
+      name: 'express',
+      source: 'github',
+      topics: ['node', 'server'],
+      metrics: { lastUpdated: '2025-01-01T00:00:00Z' },
+    });
+    const npm = makeWheel({
+      name: 'express',
+      source: 'npm',
+      topics: ['express', 'router', 'middleware'],
+      metrics: { stars: 50000, downloads: 5000000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const out = dedupe([github, npm]);
+    expect(out).toHaveLength(1);
+    expect(out[0].source).toBe('npm'); // 保留 metrics 更丰富的 npm 版本
+    // topics 应合并:['node', 'server', 'express', 'router', 'middleware']
+    expect(out[0].topics).toEqual(['node', 'server', 'express', 'router', 'middleware']);
+  });
+
+  it('P1-6: handles undefined topics in either wheel', () => {
+    const withTopics = makeWheel({
+      name: 'lib',
+      source: 'github',
+      topics: ['topic-a'],
+      metrics: { stars: 1000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const noTopics = makeWheel({
+      name: 'lib',
+      source: 'npm',
+      metrics: { lastUpdated: '2025-01-01T00:00:00Z' },
+    });
+    const out = dedupe([withTopics, noTopics]);
+    expect(out).toHaveLength(1);
+    expect(out[0].topics).toEqual(['topic-a']); // 保留有 topics 的
+  });
+
+  it('P1-6: both undefined topics stays undefined', () => {
+    const a = makeWheel({
+      name: 'lib', source: 'github',
+      metrics: { stars: 1000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const b = makeWheel({
+      name: 'lib', source: 'npm',
+      metrics: { lastUpdated: '2025-01-01T00:00:00Z' },
+    });
+    const out = dedupe([a, b]);
+    expect(out).toHaveLength(1);
+    expect(out[0].topics).toBeUndefined();
+  });
 });
 
 describe('rank', () => {
