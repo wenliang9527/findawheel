@@ -46,6 +46,16 @@ interface SearchResult {
   allFailed: boolean;
 }
 
+/**
+ * 嵌入式领域泛词:这些词在 query 里是"领域标签",但主流库 description 通常不含。
+ * 评分时过滤掉,避免拉低 hitRate 导致主流库被低估。
+ * 例:"stepper motor driver microcontroller" → 评分时只看 stepper/motor/driver。
+ */
+const DOMAIN_GENERIC_WORDS = new Set([
+  'microcontroller', 'mcu', 'embedded', 'microprocessor',
+  '单片机', '微控制器', '微处理器', '嵌入式',
+]);
+
 export function createFindWheelTool(opts: CreateToolOpts) {
   const env = readEnv();
   const cache: Cache = opts.cache ?? createCache({
@@ -193,7 +203,14 @@ export function createFindWheelTool(opts: CreateToolOpts) {
 
     const wheels: Wheel[] = allRaw.map(normalize).map(enrich);
     // 提取 query 关键词(含中文翻译后的英文),用于排序时描述匹配加分
-    const queryKeywords = extractKeywords(input.query);
+    let queryKeywords = extractKeywords(input.query);
+    // 嵌入式领域:过滤掉领域泛词(microcontroller/mcu/embedded),
+    // 主流库 description 用平台名(arduino/esp32)而非泛词,留着泛词会拉低 hitRate。
+    // 例:joshr120/PD-Stepper(912 stars) description 含 stepper/motor/driver 但不含
+    // microcontroller,若不过滤 hitRate=3/4,过滤后 hitRate=3/3=1.0,推荐等级从 optional 升到 recommended。
+    if (parsedQuery.domain === 'embedded') {
+      queryKeywords = queryKeywords.filter(kw => !DOMAIN_GENERIC_WORDS.has(kw.toLowerCase()));
+    }
     // 反义词排除列表传给 Ranker 过滤反向意图;核心词和格式词用于必命中过滤
     const ranked = rank(
       wheels, intent, limit, queryKeywords,
@@ -201,7 +218,8 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     );
     // 给每个结果填充推荐信息(matchScore + recommendation 等级 + reason 理由)
     // 让调用方 AI 看到结构化的推荐等级,倾向于列出多个结果让用户选择
-    const rankedWithMatch = enrichWithMatch(ranked, queryKeywords);
+    // 传 domain 让 recommender 做领域特定评分调整(如嵌入式 stars 归一化分母更小)
+    const rankedWithMatch = enrichWithMatch(ranked, queryKeywords, parsedQuery.domain);
     return { wheels: rankedWithMatch, degraded, allFailed: false };
   }
 

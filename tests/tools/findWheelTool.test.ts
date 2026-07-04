@@ -219,4 +219,29 @@ describe('findWheelTool.handle', () => {
     const output = JSON.parse(res.content[0].text);
     expect(output.summary.warning).toBeUndefined();
   });
+
+  // ===== Phase 5 新增:嵌入式领域泛词过滤 =====
+
+  it('filters out domain generic words from queryKeywords for embedded domain', async () => {
+    // 嵌入式领域 query "stepper motor driver microcontroller"
+    // 评分时应过滤掉 microcontroller,只看 stepper/motor/driver
+    // 这样 joshr120/PD-Stepper(description 含 stepper/motor/driver 但不含 microcontroller)
+    // 的 hitRate 从 3/4=0.75 升到 3/3=1.0,推荐等级提升
+    const gh: RawResult = {
+      source: 'github', name: 'joshr120/PD-Stepper', url: 'https://github.com/joshr120/PD-Stepper',
+      description: 'Stepper motor driver for Arduino', stars: 912, language: null, license: 'MIT',
+      archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
+    };
+    const adapter: SourceAdapter = { name: 'github', async search() { return [gh]; } };
+    const tool = createFindWheelTool({ adapters: [adapter] });
+    const res = await tool.handle({ query: 'stepper motor driver microcontroller' });
+    const output = JSON.parse(res.content[0].text);
+    // 过滤泛词 + 嵌入式领域 stars/3000,912 stars 应升到 recommended
+    expect(output.wheels[0].match.recommendation).toBe('recommended');
+    // matchedKeywords 不应包含 microcontroller
+    expect(output.wheels[0].match.matchedKeywords).not.toContain('microcontroller');
+    expect(output.wheels[0].match.matchedKeywords).toEqual(
+      expect.arrayContaining(['stepper', 'motor', 'driver']),
+    );
+  });
 });

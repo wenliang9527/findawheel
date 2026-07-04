@@ -18,10 +18,14 @@ import type { Wheel, Recommendation, WheelMatch } from '../normalize/types.js';
  * - recommended: score >= 0.4
  * - optional: score >= 0.2
  * - not_recommended: score < 0.2
+ *
+ * @param domain 识别到的领域(如 'embedded'),影响 stars 归一化分母。
+ *               嵌入式库 stars 普遍偏低(1k stars 已是主流库),用更小分母 3000。
  */
 export function computeMatch(
   wheel: Wheel,
   queryKeywords: string[],
+  domain?: string | null,
 ): WheelMatch {
   const text = `${wheel.name} ${wheel.description}`.toLowerCase();
   // 命中的关键词
@@ -36,8 +40,12 @@ export function computeMatch(
   const relevanceScore = hitRate * 0.5;
 
   // 2. 热度(0~0.3):stars 归一化
+  // 嵌入式领域 stars 普遍偏低(1k stars 已是主流库),用更小分母让分数合理
+  // 例:simplefoc 2886 stars:通用 0.0866 vs 嵌入式 0.289
+  //     joshr120 912 stars:通用 0.027 vs 嵌入式 0.091
   const stars = wheel.metrics.stars ?? 0;
-  const popularityScore = Math.min(stars / 10000, 1) * 0.3;
+  const starsDenominator = domain === 'embedded' ? 3000 : 10000;
+  const popularityScore = Math.min(stars / starsDenominator, 1) * 0.3;
 
   // 3. 活跃度(0~0.2):最近更新 + activity
   const activity = wheel.metrics.activity;
@@ -125,10 +133,12 @@ function formatStars(stars: number): string {
 /**
  * 批量给 Wheel 列表填充 match 字段。
  * 输入是已排好序的 Wheel 列表(来自 rank()),原地填充 match 字段。
+ * @param domain 识别到的领域(如 'embedded'),影响 stars 归一化分母
  */
 export function enrichWithMatch(
   wheels: Wheel[],
   queryKeywords: string[],
+  domain?: string | null,
 ): Wheel[] {
-  return wheels.map(w => ({ ...w, match: computeMatch(w, queryKeywords) }));
+  return wheels.map(w => ({ ...w, match: computeMatch(w, queryKeywords, domain) }));
 }
