@@ -169,16 +169,17 @@ function activityScore(activity?: WheelMetrics['activity']): number {
 export function score(wheel: Wheel, intent: Intent, queryKeywords: string[] = []): number {
   const m = wheel.metrics;
   let stars = normalize(m.stars, 50000) * 0.3;
-  const recency = recencyScore(m.lastUpdated) * 0.3;
+  // 时间占比下调:0.3 → 0.1(时间新鲜度作为次要信号,不再和 stars 并列主导排序)
+  const recency = recencyScore(m.lastUpdated) * 0.1;
   const activity = activityScore(m.activity) * 0.2;
   // R4:downloads 分母从 100000 提到 1000000(覆盖百万级周下载量包)
   let downloads = normalize(m.downloads, 1000000) * 0.1;
   const license = m.license ? 0.1 : 0;
   // 描述匹配加分:描述命中 query 核心词的项目更可能是真正相关的轮子
   const descBonus = descriptionMatchBonus(wheel, queryKeywords);
-  // 全词覆盖率打分:description 命中 query 所有实义词的比例(0~0.2)
-  // 覆盖率高的项目更可能真正相关,voicebox/crawl4ai 覆盖率=0 自然排后面
-  const coverage = queryCoverage(wheel, queryKeywords) * 0.2;
+  // 全词覆盖率打分:description 命中 query 所有实义词的比例
+  // 权重提升:0.2 → 0.4(让真正相关的项目更靠前,而非靠时间新鲜度霸榜)
+  const coverage = queryCoverage(wheel, queryKeywords) * 0.4;
   // R2:name 命中加分(name 权重高于 description)
   const nameBonus = nameMatchBonus(wheel, queryKeywords);
   // R3:精确短语匹配加分(description 含完整 query 短语)
