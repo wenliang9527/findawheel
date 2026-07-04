@@ -223,6 +223,40 @@ describe('parseQuery', () => {
     expect(parseQuery('渗透测试工具').domain).toBe('security');
   });
 
+  // ===== Phase 5 P7 新增:串口调试助手场景 =====
+
+  it('detects embedded domain when query contains serial/uart', () => {
+    expect(parseQuery('serial port debug tool').domain).toBe('embedded');
+    expect(parseQuery('uart terminal').domain).toBe('embedded');
+    expect(parseQuery('rs232 monitor').domain).toBe('embedded');
+  });
+
+  it('detects embedded domain for Chinese 串口/波特率', () => {
+    expect(parseQuery('串口调试助手').domain).toBe('embedded');
+    expect(parseQuery('串口通信工具').domain).toBe('embedded');
+    expect(parseQuery('波特率监视').domain).toBe('embedded');
+  });
+
+  it('translates 串口 to serial/uart in expandedQuery', () => {
+    const r = parseQuery('串口调试助手');
+    // 翻译后应该包含 serial 或 uart
+    expect(r.expandedQuery.toLowerCase()).toMatch(/serial|uart/);
+  });
+
+  it('appends platform words to fuzzyQuery for serial embedded domain', () => {
+    const r = parseQuery('serial port debug');
+    expect(r.domain).toBe('embedded');
+    // 应该追加嵌入式平台扩展词
+    expect(r.fuzzyQuery).toContain('arduino');
+    expect(r.fuzzyQuery).toContain('esp32');
+  });
+
+  it('fuzzyQuery replaces serial with uart for broader recall', () => {
+    const r = parseQuery('serial debug tool');
+    // fuzzyQuery 应该用同义词泛化:serial → uart
+    expect(r.fuzzyQuery).toContain('uart');
+  });
+
   it('uses synonyms for fuzzyQuery on motor/driver/microcontroller', () => {
     const r = parseQuery('motor driver microcontroller');
     // motor→actuator, driver→controller, microcontroller→mcu 应出现在 fuzzyQuery

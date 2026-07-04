@@ -91,6 +91,33 @@ describe('buildGithubQuery', () => {
     const q = buildGithubQuery('stepper motor', 'project', 'c');
     expect(q).not.toContain('language:');
   });
+
+  // ===== Phase 5 P7 新增:embedded 领域不加 language 限制 =====
+
+  it('does NOT add language filter for embedded domain even with ecosystem=ts', () => {
+    // 嵌入式领域语言混杂,即使传 ecosystem=ts 也不加 language 限制
+    // 例:node-serialport(8.5k stars)是 JavaScript,用户传 ecosystem=ts 会漏掉
+    const parsed = parseQuery('serial port debug tool');
+    expect(parsed.domain).toBe('embedded');
+    const q = buildGithubQuery('serial port debug tool', 'project', 'ts', parsed);
+    expect(q).not.toContain('language:');
+  });
+
+  it('does NOT add language filter for embedded domain even with ecosystem=cpp', () => {
+    // Serial-Studio(3k stars)是 C++,用户传 ecosystem=cpp 时也不应限制
+    const parsed = parseQuery('stepper motor driver');
+    expect(parsed.domain).toBe('embedded');
+    const q = buildGithubQuery('stepper motor driver', 'project', 'cpp', parsed);
+    expect(q).not.toContain('language:');
+  });
+
+  it('still adds language filter for non-embedded domain with ecosystem=ts', () => {
+    // 非嵌入式领域应该正常加 language 限制
+    const parsed = parseQuery('react component library');
+    expect(parsed.domain).toBe('frontend');
+    const q = buildGithubQuery('react component library', 'project', 'ts', parsed);
+    expect(q).toContain('language:TypeScript');
+  });
 });
 
 describe('isAggregateRepo', () => {

@@ -72,7 +72,15 @@ export function buildGithubQuery(
   }
 
   if (ecosystem && ECOSYSTEM_LANG[ecosystem]) {
-    parts.push(`language:${ECOSYSTEM_LANG[ecosystem]}`);
+    // 嵌入式领域不加 language 限制:嵌入式库语言混杂(C/C++/Arduino/Python/JS/TS),
+    // 限制成单一语言会漏掉主流库。
+    // 例:node-serialport(8.5k stars)是 JavaScript,但用户可能传 ecosystem=ts;
+    //     Serial-Studio(3k stars)是 C++,用户可能传 ecosystem=cpp。
+    // 与 ECOSYSTEM_LANG 表里 'c' 不映射的设计理念一致。
+    const isEmbeddedDomain = parsed?.domain === 'embedded';
+    if (!isEmbeddedDomain) {
+      parts.push(`language:${ECOSYSTEM_LANG[ecosystem]}`);
+    }
   }
   return parts.join(' ');
 }

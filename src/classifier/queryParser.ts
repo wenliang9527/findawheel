@@ -91,6 +91,8 @@ const ACTION_VERBS = new Set([
   'drive', 'driver', 'control', 'controller', 'spin', 'rotate', 'rotation',
   'step', 'stepper', 'pulse', 'pwm', 'accelerate', 'acceleration', 'decelerate',
   'position', 'move', 'moving',
+  // 串口/调试类(补串口调试助手场景)
+  'scan', 'sniff', 'terminal', 'console', 'bridge', 'tunnel',
 ]);
 
 /**
@@ -132,6 +134,13 @@ const SYNONYMS: Record<string, string[]> = {
   servo: ['servo-motor', 'servo'],
   encoder: ['sensor', 'encoder'],
   pulse: ['pwm', 'pulse'],
+  // 串口/调试类(补串口调试助手场景) - 注意第一项不能是原词
+  serial: ['uart', 'serial', 'rs232'],
+  uart: ['usart', 'uart', 'serial'],
+  debug: ['diagnostic', 'debug', 'troubleshoot'],
+  // monitor 合并原表 + 串口场景,第一项不是原词(保留 observer 兼容现有测试)
+  monitor: ['observer', 'watcher', 'tracker', 'dashboard', 'monitor'],
+  terminal: ['console', 'terminal', 'shell'],
 };
 
 /**
@@ -156,6 +165,9 @@ const DOMAINS: Record<string, DomainConfig> = {
       'stepper', 'motor', 'servo', 'encoder', 'pwm', 'mcu', 'microcontroller',
       '单片机', '电机', '马达', '驱动', '嵌入式', '舵机', '伺服', '编码器',
       'arduino', 'esp32', 'esp8266', 'stm32', 'rp2040', 'pico', 'avr', '8051',
+      // 串口/通信类
+      'serial', 'uart', 'usart', 'rs232', 'rs485', 'modbus', 'can-bus', 'i2c', 'spi',
+      '串口', '波特率', 'baud', '通信',
     ],
     platforms: ['arduino', 'esp32', 'stm32', 'rp2040', 'pico', 'avr', 'pic', '8051'],
   },

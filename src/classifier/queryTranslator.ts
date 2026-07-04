@@ -117,13 +117,25 @@ const ZH_TO_EN: Record<string, string[]> = {
   '外设': ['peripheral'],
   '中断': ['interrupt'],
   '定时器中断': ['timer-interrupt'],
-  '串口': ['uart', 'serial'],
+  '串口': ['serial', 'uart'],
   'SPI': ['spi'],
   'I2C': ['i2c'],
   'CAN': ['can-bus'],
   // 平台名(中文 → 英文)
   '树莓派': ['raspberry-pi', 'rpi'],
   // 注:Arduino/STM32/ESP32/AVR/8051/Pico 通常用英文原名,不需翻译
+
+  // 串口/通信类(补串口调试助手场景)
+  '串口通信': ['serial-communication', 'uart'],
+  '串口调试': ['serial-debug', 'serial-monitor'],
+  '波特率': ['baud-rate', 'baudrate'],
+  '调试': ['debug', 'debugger'],
+  '调试助手': ['debug-tool', 'debugger', 'monitor'],
+  '助手': ['assistant', 'tool', 'utility'],
+  '监视': ['monitor', 'watch'],
+  '终端': ['terminal', 'console'],
+  '通信': ['communication', 'comm'],
+  '收发': ['transceive', 'send-receive'],
 
   // 前端/数据科学/DevOps/游戏/安全领域(补多领域盲区)
   '组件库': ['component-library', 'ui-library'],
