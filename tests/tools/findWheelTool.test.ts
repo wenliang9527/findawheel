@@ -244,4 +244,26 @@ describe('findWheelTool.handle', () => {
       expect.arrayContaining(['stepper', 'motor', 'driver']),
     );
   });
+
+  // ===== Phase 5 P9 新增:coreWords 也过滤领域泛词 =====
+
+  it('filters domain generic words from coreWords to prevent isMissingCoreConcept false positive', async () => {
+    // P9 修复:coreWords 也要过滤领域泛词,否则 isMissingCoreConcept 会误杀主流库
+    // 场景:query="serial port debug" → coreWords 可能含 debug + 领域泛词
+    //      主流库 Neutree/COMTool(description="Cross-platform serial port debug tool")
+    //      若 coreWords 含 microcontroller 而 COMTool 不含,会被 isMissingCoreConcept 过滤
+    // 验证:嵌入式领域,description 不含 microcontroller 但含 serial/debug 的主流库应保留
+    const gh: RawResult = {
+      source: 'github', name: 'Neutree/COMTool', url: 'https://github.com/Neutree/COMTool',
+      description: 'Cross-platform serial port debug tool', stars: 1500, language: null, license: 'MIT',
+      archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
+    };
+    const adapter: SourceAdapter = { name: 'github', async search() { return [gh]; } };
+    const tool = createFindWheelTool({ adapters: [adapter] });
+    const res = await tool.handle({ query: 'serial port debug tool microcontroller' });
+    const output = JSON.parse(res.content[0].text);
+    // COMTool 应该保留在结果中(不被 isMissingCoreConcept 过滤)
+    expect(output.wheels).toHaveLength(1);
+    expect(output.wheels[0].name).toBe('Neutree/COMTool');
+  });
 });

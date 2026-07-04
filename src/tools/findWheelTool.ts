@@ -241,10 +241,22 @@ export function createFindWheelTool(opts: CreateToolOpts) {
         queryKeywords = queryKeywords.filter(kw => !genericWords.has(kw.toLowerCase()));
       }
     }
+    // P9 修复:coreWords 也要过滤领域泛词,否则 isMissingCoreConcept 会用未过滤的
+    // coreWords 检查主流库,导致 description 不含泛词的主流库被误杀。
+    // 例:query="serial port debug" → coreWords=["debug"] (debug 是动词)
+    //     但如果 coreWords 含 microcontroller,Neutree/COMTool(description 不含 microcontroller)
+    //     会被 isMissingCoreConcept 过滤掉。
+    let coreWords = parsedQuery.coreWords;
+    if (parsedQuery.domain) {
+      const genericWords = getDomainGenericWords(parsedQuery.domain);
+      if (genericWords.size > 0) {
+        coreWords = coreWords.filter(w => !genericWords.has(w.toLowerCase()));
+      }
+    }
     // 反义词排除列表传给 Ranker 过滤反向意图;核心词和格式词用于必命中过滤
     const ranked = rank(
       wheels, intent, limit, queryKeywords,
-      parsedQuery.antonymExcludes, parsedQuery.coreWords, parsedQuery.formatWords,
+      parsedQuery.antonymExcludes, coreWords, parsedQuery.formatWords,
     );
     // 给每个结果填充推荐信息(matchScore + recommendation 等级 + reason 理由)
     // 让调用方 AI 看到结构化的推荐等级,倾向于列出多个结果让用户选择
