@@ -203,6 +203,8 @@ HuggingfaceSourceAdapter.search()      ← HuggingFace Hub（/api/models,pretrai
 | `lastUpdated` 在 2 年内 | `medium` |
 | 更旧或缺失 | `low` |
 
+> ℹ️ **P0-3 后 activity 的角色变化**：`activity` 不再被 `score()` 函数使用（原 0.2 权重已删，与 `recency` 重复计分）。现在 `activity` 仅供 `Recommender` 在生成推荐理由时参考（如"活跃维护"描述），不再直接影响排序分数。`score()` 统一用 `recency` 的连续衰减函数计算时间新鲜度。
+
 ### 步骤 6️⃣ 推荐等级 + 基础过滤 + 评分 + 去重
 
 `Recommender` 先为每个 wheel 计算推荐等级，`Ranker` 再执行**基础过滤**、评分、去重。
@@ -235,25 +237,35 @@ HuggingfaceSourceAdapter.search()      ← HuggingFace Hub（/api/models,pretrai
 **6.2 去重**：
 - 按 `name`（小写）合并
 - 保留指标字段更多的那条（如 `lodash` 同时出现在 npm 和 GitHub，保留 GitHub 版本因为多了 `stars`）
+- **topics 合并**（P1-6 新增）：同名 wheel 的 topics 数组合并去重（GitHub topics + npm keywords），提升后续 `topicsMatchBonus` 加分准确性
 
 **6.3 评分排序**：
 
-每个 wheel 计算一个综合分（0~1）：
+P0-2 重构后采用**基础分归一化 + bonus 叠加**结构，总分上限 1.5：
 
 ```
-score = stars权重     × 0.3      ← 归一化到 [0, 50000]（Ranker 基础排序,未变）
-      + recency权重   × 0.3      ← 1年内=1.0, 1-2年=0.7, 2-3年=0.4
-      + activity权重  × 0.2      ← high=1.0, medium=0.5, low=0.2
-      + downloads权重 × 0.1      ← 归一化到 [0, 100000]
-      + license权重   × 0.1      ← 有 license = 1.0，无 = 0
-      + queryCoverage × 0.2      ← 描述命中所有 query 内容词得 0.2，部分命中按比例
-      + descriptionMatchBonus × 0.15  ← 描述命中率软加分(Phase 6 保留)
+基础分 (<=1.0):
+  stars      × 0.25    ← 归一化到 [0, 50000]
+  recency    × 0.2     ← 连续线性衰减:1年内=1.0,1-3年线性衰减到0.1
+  coverage   × 0.4     ← 描述命中所有 query 内容词得 0.4,部分按比例
+  downloads  × 0.1     ← 归一化到 [0, 1000000]
+  license    × 0.05    ← 有 license = 1.0,无 = 0
+
++ bonus (<=0.5,合并上限):
+  descBonus    × 0.15   ← 描述命中率软加分
+  nameBonus    × 0.15   ← name 命中加分(name 权重高于 description)
+  phraseBonus  × 0.1    ← 精确短语匹配加分
+  topicsBonus  × 0.1    ← topics 命中加分
+
+= 总分 (<=1.5)
 ```
 
 **额外调整**：
 - **高 star 零命中降权**：stars 高但 query 关键词一个都没命中，`stars` 权重 ×0.3（Phase 6 强化为更激进的下沉，原 0.7）
 - **意图调整**：当 `intent=feature` 时，`stars` 权重 ×0.7、`downloads` 权重 ×1.5
 
+> ℹ️ **P0-3 简化**：删除了 `activityScore`（原 0.2 权重），因为它和 `recencyScore` 都基于 `lastUpdated`，存在重复计分。现在统一用 `recency` 的连续衰减函数（无阶梯跳跃）。
+>
 > ℹ️ **Recommender 中的 popularityScore**：用统一分母 **10000**（Phase 6 简化，原 6 领域查表），与 Ranker 的 50000 分母独立。
 
 按分数降序排列，截取 `limit` 条。
@@ -551,6 +563,8 @@ interface SourceAdapter {
 3. Tavily 失败 → 返回空数组（不影响其他源）
 ```
 
+> ℹ️ **P1-4 统一 http 层**：Exa 和 Tavily 现在都走 `httpPost`（`src/util/http.ts`），共享超时/重试/错误处理逻辑。5xx 错误会自动指数退避重试(原直接用 `fetch` 无重试)。
+
 **Exa 请求**：
 - Header: `x-api-key`
 - Body: `{ query, numResults: 10, contents: { text: true, highlights: true } }`
@@ -752,18 +766,22 @@ interface SourceAdapter {
 | 函数 | 职责 |
 |:-----|:-----|
 | `filterOut(wheel)` | 基础硬过滤判定，返回 true 表示剔除；仅检查 archived/废弃/聚合仓库（Phase 6 简化后） |
-| `score(wheel, intent, queryKeywords)` | 计算综合分（0~1），含 queryCoverage + descriptionMatchBonus 和高 star 零命中降权 |
-| `dedupe(wheels)` | 按 name 去重，保留指标更全的 |
+| `score(wheel, intent, queryKeywords)` | 计算综合分，采用**基础分(1.0) + bonus(0.5)**结构(P0-2 重构),含 queryCoverage/descBonus/nameBonus/phraseBonus/topicsBonus 和高 star 零命中降权 |
+| `dedupe(wheels)` | 按 name 去重,保留指标更全的;**合并 topics**(P1-6 新增,GitHub topics + npm keywords 合并去重) |
 | `rank(wheels, intent, limit, queryKeywords)` | 串联上述三步，返回最终结果 |
 
 **额外辅助函数**：
 - `isAggregateRepo(wheel)` — 检测 awesome/curated/collection/list 聚合仓库
 - `isZeroHit(wheel, queryWords)` — 零命中检测（用于高 star 零命中降权）
+- `mergeTopics(a, b)` — 合并两个 topics 数组(去重,保留顺序)(P1-6 新增)
 
 > ⚠️ **Phase 6 简化删除的函数**：
 > - `isMissingCoreConcept(wheel, coreWords)` — 核心词缺失过滤（已删，判断交给 AI）
 > - `isReverseIntent(wheel, antonymWords)` — 反向意图过滤（已删，判断交给 AI）
 > - `filterOut` 不再接受 `coreWords`/`antonymWords`/`formatWords` 参数
+>
+> ⚠️ **P0-3 删除的函数**：
+> - `activityScore(activity)` — 已删,与 `recencyScore` 重复计分(都基于 lastUpdated)。统一用 `recency` 的连续衰减函数
 
 ---
 
@@ -800,19 +818,22 @@ interface SourceAdapter {
 ```typescript
 interface Wheel {
   name: string;            // 仓库名 / 包名 / 服务名
-  source: 'github' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'web';
+  source: WheelSource;     // 'github' | 'gitlab' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'librariesio' | 'web' | 'github-code' | 'vscode-marketplace' | 'paperswithcode' | 'huggingface'
   url: string;             // 主页/仓库链接
   description: string;     // 简短描述
-  type: 'project' | 'package' | 'api' | 'cli' | 'sdk';
+  type: WheelType;         // 'project' | 'package' | 'api' | 'cli' | 'sdk' | 'snippet' | 'extension' | 'paper' | 'model'
   metrics: {
-    stars?: number;        // GitHub / Gitee
+    stars?: number;        // GitHub / Gitee / GitLab / HuggingFace(likes 近似)
     lastUpdated?: string;  // ISO 日期
     license?: string;      // SPDX ID，如 'MIT'
-    archived?: boolean;    // 仅 GitHub
-    downloads?: number;    // crates + npm（补充后）
-    activity?: 'high' | 'medium' | 'low';  // 由 MetricsEnricher 推断
+    archived?: boolean;    // 仅 GitHub/GitLab
+    downloads?: number;    // crates + npm(补充后) + HuggingFace + VSCode(installCount)
+    activity?: 'high' | 'medium' | 'low';  // 由 MetricsEnricher 推断(注:P0-3 后 score 不再使用,仅供 Recommender 参考)
   };
+  topics?: string[];       // 仓库标签(GitHub topics / GitLab topics / npm keywords),用于 topicsMatchBonus 加分
   match?: WheelMatch;      // 由 Recommender 填充
+  details?: WheelDetails; // 仅 top N 结果内联填充(README/code/release/license)
+  hasDetails?: boolean;    // 标记详情已预抓取并缓存,AI 可调 get_wheel_details 懒加载
 }
 
 interface WheelMatch {
@@ -820,6 +841,8 @@ interface WheelMatch {
   recommendation: 'highly_recommended' | 'recommended' | 'optional' | 'not_recommended';
   reason: string;                 // 中文推荐理由
   matchedKeywords: string[];      // 命中的查询词
+  feedbackDelta?: number;          // 用户反馈调整量(like +0.2/click +0.05/hide -0.5)
+  recallReason?: string;          // 召回解释(Phase 7 新增)
 }
 ```
 
@@ -828,7 +851,19 @@ interface WheelMatch {
 判别联合类型，每个源有自己的字段：
 
 ```typescript
-type RawResult = GitHubRawResult | GiteeRawResult | NpmRawResult | CratesRawResult | WebRawResult;
+type RawResult =
+  | GitHubRawResult      // GitHub /search/repositories
+  | GitlabRawResult      // GitLab /api/v4/projects
+  | GiteeRawResult       // Gitee /api/v5/search/repositories
+  | NpmRawResult         // npm registry
+  | PypiRawResult        // PyPI HTML 解析
+  | CratesRawResult      // crates.io
+  | LibrariesIoRawResult // libraries.io
+  | WebRawResult         // Exa/Tavily web 搜索
+  | GitHubCodeRawResult  // GitHub /search/code (代码片段)
+  | VscodeExtensionRawResult // VS Code Marketplace
+  | PaperRawResult       // Papers with Code
+  | HuggingfaceRawResult;// HuggingFace Hub
 ```
 
 > 💡 `source` 字段作为判别标签，Normalizer 用 `switch (raw.source)` 分发处理。
@@ -843,21 +878,25 @@ interface FindWheelInput {
   intent?: 'feature' | 'project' | 'auto';
   ecosystem?: string;
   limit?: number;
+  exclude?: string[];    // Phase 7:要排除的 wheel name 列表(AI 二次筛选用)
 }
 
 interface FindWheelOutput {
   summary: {                        // 引导 AI 分组列出所有结果
-    total: number;
-    highly_recommended: string[];   // 结果名列表
-    recommended: string[];
-    optional: string[];
-    not_recommended: string[];
+    instruction: string;            // 给 AI 的展示指引
+    groups: Array<{                 // 按推荐等级分组
+      level: Recommendation;
+      label: string;                // 该等级的中文名
+      items: string[];              // 结果名列表
+    }>;
+    warning?: string;               // 低质量结果警告(top 1 stars < 10 时触发)
   };
   query: string;
   intent: Intent;          // 实际使用的意图（已分类）
   total: number;           // 原始命中数（去重前）
   wheels: Wheel[];         // 排序后的结果（每个带 match 字段）
   degradedSources?: string[];  // 失败的源（仅有降级时出现）
+  cached?: boolean;        // 命中缓存时为 true
 }
 ```
 
@@ -907,16 +946,23 @@ interface SuggestQueriesOutput {
 
 ### 评分公式
 
-综合分 = 加权求和，归一化到 [0, 1]：
+P0-2 重构后采用**基础分归一化(1.0) + bonus(上限 0.5)**结构,总分上限 1.5,语义清晰:
 
 ```
-score = 0.3 × normalize(stars, 50000)            ← Ranker 基础排序分母(未变)
-      + 0.3 × recencyScore(lastUpdated)
-      + 0.2 × activityScore(activity)
-      + 0.1 × normalize(downloads, 100000)
-      + 0.1 × hasLicense(license)
-      + 0.2 × queryCoverage(description, queryContentWords)
-      + 0.15 × descriptionMatchBonus(description, queryKeywords)  ← Phase 6 软加分
+基础分 (<=1.0):
+  stars      × 0.25    ← 归一化到 [0, 50000]
+  recency    × 0.2     ← 连续线性衰减:1年内=1.0,1-3年线性衰减到0.1,3年以上=0
+  coverage   × 0.4     ← 描述命中所有 query 内容词得 0.4,部分按比例
+  downloads  × 0.1     ← 归一化到 [0, 1000000](P0 调整,原 100000)
+  license    × 0.05    ← 有 license = 1.0,无 = 0
+
++ bonus (<=0.5,合并上限):
+  descBonus    × 0.15   ← 描述命中率软加分
+  nameBonus    × 0.15   ← name 命中加分(name 权重高于 description)
+  phraseBonus  × 0.1    ← 精确短语匹配加分(description 含完整 query 短语)
+  topicsBonus  × 0.1    ← topics 命中加分(仓库标签命中 query 词)
+
+= 总分 (<=1.5)
 ```
 
 **各子分计算**：
@@ -925,12 +971,15 @@ score = 0.3 × normalize(stars, 50000)            ← Ranker 基础排序分母(
 |:-----|:---------|
 | `stars`（Ranker） | `min(stars / 50000, 1)` — 5 万 stars 满分（未变） |
 | `popularityScore`（Recommender） | `min(stars / 10000, 1) × 0.3` — Phase 6 统一分母（原 6 领域查表） |
-| `recency` | 1 年内 = 1.0；1-2 年 = 0.7；2-3 年 = 0.4；更旧 = 0 |
-| `activity` | high = 1.0；medium = 0.5；low = 0.2 |
-| `downloads` | `min(downloads / 100000, 1)` — 10 万下载满分 |
+| `recency` | **连续线性衰减**（P0-3 替代阶梯式）:1 年内 = 1.0;1-3 年线性衰减到 0.1;3 年以上 = 0 |
+| ~~`activity`~~ | **已删除**（P0-3,与 recency 重复计分） |
+| `downloads` | `min(downloads / 1000000, 1)` — 100 万下载满分（P0 调整,原 10 万） |
 | `license` | 有 = 1.0；无 = 0 |
-| `queryCoverage` | 描述命中所有 query 内容词 = 0.2；部分命中按比例；都不命中 = 0 |
-| `descriptionMatchBonus` | 描述命中率 × 0.15（软加分，Phase 6 保留） |
+| `coverage` | 描述命中所有 query 内容词 = 0.4；部分命中按比例；都不命中 = 0 |
+| `descBonus` | 描述命中率 × 0.15（软加分,Phase 6 保留） |
+| `nameBonus` | name 命中 query 词加分,上限 0.15（P0-2 新增,name 权重高于 description） |
+| `phraseBonus` | description 含完整 query 短语(前 3 词)加 0.1（P0-2 新增） |
+| `topicsBonus` | topics 命中 query 词加分,上限 0.1（P0-2 新增,需源提供 topics 字段） |
 
 **额外调整**：
 
@@ -951,16 +1000,29 @@ score = 0.3 × normalize(stars, 50000)            ← Ranker 基础排序分母(
 | `optional` | ≥ 0.2 | 仅供参考 |
 | `not_recommended` | < 0.2 | 相关性低 |
 
-### 权重设计思路
+### 权重设计思路（P0-2 重构后）
+
+**基础分(1.0)— 项目质量与活跃度信号:**
 
 | 指标 | 权重 | 为什么 |
 |:-----|:----:|:-------|
-| stars + recency | 各 0.3（共 0.6） | 社区认可度和维护活跃度是质量的最强信号 |
-| activity | 0.2 | 区分"近期还活着"和"只是没归档" |
-| downloads | 0.1 | crates + npm（补充后）有，权重低避免偏袒包源 |
-| license | 0.1 | 有 license 是基本要求，但不强求特定协议 |
-| queryCoverage | 0.2 | 描述命中查询词是最直接的相关性信号 |
+| coverage | 0.4 | 描述命中查询词是最直接的相关性信号,权重最高避免高 star 但不相关项目霸榜 |
+| stars | 0.25 | 社区认可度,次要信号(避免单凭 star 排序) |
+| recency | 0.2 | 维护活跃度(连续衰减,无阶梯跳跃) |
+| downloads | 0.1 | crates + npm(补充后)有,权重低避免偏袒包源 |
+| license | 0.05 | 有 license 是基本要求,但不强求特定协议 |
 
+**bonus(上限 0.5)— query 相关性加分:**
+
+| 指标 | 上限 | 为什么 |
+|:-----|:----:|:-------|
+| descBonus | 0.15 | 描述命中 query 核心词的软加分 |
+| nameBonus | 0.15 | name 命中权重高于 description(name 是项目本质) |
+| phraseBonus | 0.1 | 精确短语匹配(如 "stepper motor" 命中) |
+| topicsBonus | 0.1 | topics 命中(仓库标签 = 作者主动分类,信号强) |
+
+> ⚠️ **P0-3 简化**：删除了 `activity`（原 0.2 权重），因为它和 `recency` 都基于 `lastUpdated`，存在重复计分。合并后统一用 `recency` 的连续衰减函数，避免阶梯式边界跳跃。
+>
 > ⚠️ **MVP 声明**：评分公式为启发式权重，未做机器学习/调参。能跑出"明显的垃圾在后、明显的好货在前"就达标。精确排序是三期增强项。
 
 ---
@@ -996,13 +1058,14 @@ class RateLimitError extends SourceError {
 | **Exa 失败（401/403 key 无效）** | **不 fallback**，WebSourceAdapter 返回空数组 | 200 |
 | **Tavily 也失败** | WebSourceAdapter 返回空数组，不影响其他源 | 200 |
 
-### 不重试策略
+### 重试策略（P1-4 后）
 
-> ⚠️ 一期**不实现自动重试**：
+> ⚠️ 一期**已实现自动重试**（P1-4 新增 `httpPost` + `withRetry`）：
 >
-> - 避免雪崩效应（限流时重试会加重负担）
-> - 简化实现
-> - 二期可加指数退避重试（见路线图）
+> - 5xx 错误和网络错误：指数退避重试（默认 3 次,base 200ms）
+> - 4xx 错误：不重试，直接抛 `HttpError`
+> - 限流（429）：不重试（避免雪崩），抛 `RateLimitError` 由主流程降级处理
+> - 适用于所有走 `httpGet`/`httpPost` 的源（含 P1-4 后的 Exa/Tavily）
 
 ---
 
