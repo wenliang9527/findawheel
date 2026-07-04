@@ -904,23 +904,35 @@ interface FindWheelOutput {
 
 除了 `find_wheel`，findawheel 还注册了 `suggest_queries` 工具，用于 AI 不确定怎么构造搜索词时生成建议。
 
-**输入**：`query`（用户原始描述）
+**输入**：`query`（用户原始描述）、可选 `ecosystem`
 
-**输出**：4 个角度的搜索词变体 + 推荐选项
+**输出**：4 个角度的搜索词变体 + 推荐选项 + 可选的 `recommendedEcosystem`
 
 ```typescript
 interface SuggestQueriesOutput {
-  variants: {
-    precise: string;        // 精准版，保留原意
-    action_oriented: string;// 动作导向，突出动词
-    fuzzy: string;          // 模糊版，同义词泛化
-    concise: string;        // 简洁版，去修饰词
-  };
-  recommended: 'precise' | 'action_oriented' | 'fuzzy' | 'concise';
+  originalQuery: string;
+  translatedQuery: string;
+  intent: 'feature' | 'project';
+  suggestions: QuerySuggestion[];  // 4 个变体:precise/action_oriented/fuzzy/concise
+  recommended: string;            // 推荐的搜索词(动作导向优先)
+  reason: string;
+  recommendedEcosystem?: string;  // 硬件类 query 时自动推荐 'arduino'/'cpp'
 }
 ```
 
-> 💡 AI 应在用户表达模糊需求时先调 `suggest_queries`，选最合适的变体再调 `find_wheel`。
+#### 硬件类 ecosystem 自动推荐
+
+当 query 包含硬件类关键词(stepper/motor/servo/encoder/pwm/esp32/stm32/raspberry 等)时，`suggest_queries` 自动推荐 `recommendedEcosystem` 字段，AI 应把它传给 `find_wheel` 的 `ecosystem` 参数。原因是这类库主要分布在 C++/Arduino 生态（如 AccelStepper、Marlin、GRBL），用 python/js 搜会漏掉主流库。
+
+推荐规则优先级：
+1. 用户显式传 `ecosystem` 参数 → 用用户的（不覆盖）
+2. `parseQuery` 从 query 识别出 ecosystem（如 "python 库" → python）→ 用识别到的
+3. 硬件关键词检测：
+   - 含 `arduino` → `arduino`
+   - 含 `esp32`/`stm32`/`raspberry`/`microcontroller`/`mcu`/`embedded`/`hal`/`gpio` → `cpp`
+   - 含通用硬件词（`stepper`/`motor`/`servo`/`encoder`/`pwm`/`pulse`/`driver`）→ 默认 `arduino`（Arduino 生态库最丰富）
+
+> 💡 AI 应在用户表达模糊需求时先调 `suggest_queries`，选最合适的变体再调 `find_wheel`。若输出包含 `recommendedEcosystem`，必须传给 `find_wheel` 的 `ecosystem` 参数。
 
 ---
 
@@ -1253,7 +1265,7 @@ findawheel 注册了五个工具：
 | 硬规则相关性过滤 | Phase 6 已删除——判断交给 AI 调用方（RAG 范式） |
 | 领域特化配置表 | Phase 6 已删除 DOMAINS/GENERIC_WORDS/STARS_DENOMINATOR——统一处理 |
 
-> ✅ **Phase 6 简化（RAG 范式）**：findawheel 重新定位为"AI 编程的上下文增强器"。检索器只负责召回，相关性判断交给 AI。删除了 isMissingCoreConcept / isReverseIntent 等硬过滤函数、6 领域配置表、embedded 4 处特殊逻辑。保留翻译表/同义词表/ACTION_VERBS/feedback 加权/详情预抓取等纯增益机制。444 测试全通过。
+> ✅ **Phase 6 简化（RAG 范式）**：findawheel 重新定位为"AI 编程的上下文增强器"。检索器只负责召回，相关性判断交给 AI。删除了 isMissingCoreConcept / isReverseIntent 等硬过滤函数、6 领域配置表、embedded 4 处特殊逻辑。保留翻译表/同义词表/ACTION_VERBS/feedback 加权/详情预抓取/硬件 ecosystem 推荐等纯增益机制。473 测试全通过。
 
 这些会在三期按需加入，见 [README 路线图](../README.md#-路线图)。
 

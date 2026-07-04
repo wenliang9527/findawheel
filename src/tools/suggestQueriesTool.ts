@@ -41,6 +41,52 @@ export interface SuggestQueriesOutput {
   recommended: string;
   /** 推荐理由 */
   reason: string;
+  /**
+   * 推荐的 ecosystem(可选)。
+   * 当检测到硬件类 query(stepper/motor/servo/encoder/esp32/stm32 等)时,
+   * 自动推荐 'arduino' 或 'cpp',因为这类库主要分布在 Arduino/C++ 生态,
+   * 而非 python/js。AI 调 find_wheel 时应把这个值传给 ecosystem 参数。
+   * 用户已显式传 ecosystem 时不覆盖(用用户的)。
+   */
+  recommendedEcosystem?: string;
+}
+
+/**
+ * 硬件类关键词集合 —— 出现这些词时,推荐用 arduino/cpp ecosystem 搜索。
+ * stepper/motor/servo 等主流库(AccelStepper、Marlin、GRBL)主要在 Arduino 生态,
+ * 用 python/js 搜会漏掉主流库。
+ */
+const HARDWARE_KEYWORDS = new Set([
+  // 电机/驱动类
+  'stepper', 'motor', 'servo', 'encoder', 'pwm', 'pulse',
+  'driver', 'actuator', 'sensor', 'bldc',
+  // 嵌入式平台类
+  'microcontroller', 'mcu', 'embedded', 'hal', 'gpio',
+  'arduino', 'esp32', 'stm32', 'raspberry', 'rpi',
+]);
+
+/**
+ * 从翻译后的 query 检测硬件类 ecosystem 推荐。
+ *
+ * 优先级:
+ * 1. 含 'arduino' → 'arduino'(Arduino 生态最丰富)
+ * 2. 含 'esp32'/'stm32'/'raspberry'/'embedded'/'mcu'/'hal'/'gpio' → 'cpp'
+ * 3. 含通用硬件词(stepper/motor/servo/encoder/pwm/pulse/driver/...)→ 'arduino'(默认最常见)
+ *
+ * 注意:输入用翻译后的英文 query,这样中文"步进电机"也能被识别。
+ */
+function detectHardwareEcosystem(translatedQuery: string): string | undefined {
+  const lower = translatedQuery.toLowerCase();
+  // 用 \b 词边界,避免 'motor' 误匹配 'motivation'
+  // 1. 显式 Arduino → arduino
+  if (/\barduino\b/.test(lower)) return 'arduino';
+  // 2. 嵌入式平台关键词 → cpp(ESP32/STM32/树莓派等以 C++ 开发为主)
+  if (/\b(esp32|stm32|raspberry|rpi|microcontroller|mcu|embedded|hal|gpio)\b/.test(lower)) return 'cpp';
+  // 3. 通用硬件词 → 默认 arduino(AccelStepper 等主流库在 Arduino 生态)
+  for (const word of ['stepper', 'motor', 'servo', 'encoder', 'pwm', 'pulse', 'driver', 'actuator', 'sensor', 'bldc']) {
+    if (new RegExp(`\\b${word}\\b`).test(lower)) return 'arduino';
+  }
+  return undefined;
 }
 
 export function createSuggestQueriesTool() {
@@ -86,7 +132,16 @@ export function createSuggestQueriesTool() {
 
     // 推荐:动作导向通常最精准(动词表达意图)
     const recommended = suggestions[1].query;
-    const reason = `动作导向搜索词"${recommended}"优先使用了动词(${parsed.coreWords.join('/')}),最能表达用户意图,推荐作为 find_wheel 的 query 参数`;
+    let reason = `动作导向搜索词"${recommended}"优先使用了动词(${parsed.coreWords.join('/')}),最能表达用户意图,推荐作为 find_wheel 的 query 参数`;
+
+    // 硬件类 ecosystem 推荐:检测到硬件关键词时建议用 arduino/cpp 搜索
+    // 优先级:用户显式传 > parseQuery 识别 > 硬件关键词检测
+    // 用户已传 input.ecosystem 时不覆盖(用用户的)
+    const detectedEcosystem = input.ecosystem ?? parsed.ecosystem;
+    const recommendedEcosystem = detectedEcosystem ?? detectHardwareEcosystem(translated);
+    if (recommendedEcosystem && !input.ecosystem) {
+      reason += `。检测到硬件类关键词,建议同时传 ecosystem="${recommendedEcosystem}" 给 find_wheel(stepper/motor/servo 等库主要在 C++/Arduino 生态,python/js 搜会漏主流库)`;
+    }
 
     const output: SuggestQueriesOutput = {
       originalQuery: input.query,
@@ -95,6 +150,7 @@ export function createSuggestQueriesTool() {
       suggestions,
       recommended,
       reason,
+      ...(recommendedEcosystem ? { recommendedEcosystem } : {}),
     };
 
     return { content: [{ type: 'text', text: JSON.stringify(output) }] };

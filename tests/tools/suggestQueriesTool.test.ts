@@ -55,4 +55,58 @@ describe('suggest_queries', () => {
     expect(action.query).toContain('pdf');
     expect(action.query).toContain('markdown');
   });
+
+  // ===== 硬件类 query 自动推荐 ecosystem =====
+  // 场景:stepper/motor/servo 等库主要在 Arduino/C++ 生态,
+  // 用 python/js 搜会漏掉 AccelStepper、Marlin 等主流库。
+
+  it('recommends ecosystem=arduino for stepper motor query', async () => {
+    const out = await run('stepper motor control');
+    expect(out.recommendedEcosystem).toBe('arduino');
+    expect(out.reason).toContain('硬件');
+    expect(out.reason).toContain('arduino');
+  });
+
+  it('recommends ecosystem=arduino for explicit arduino query', async () => {
+    const out = await run('arduino servo control');
+    expect(out.recommendedEcosystem).toBe('arduino');
+  });
+
+  it('recommends ecosystem=cpp for esp32 query', async () => {
+    const out = await run('esp32 wifi scanner');
+    expect(out.recommendedEcosystem).toBe('cpp');
+  });
+
+  it('recommends ecosystem=cpp for stm32 query', async () => {
+    const out = await run('stm32 hal driver');
+    expect(out.recommendedEcosystem).toBe('cpp');
+  });
+
+  it('translates Chinese stepper query and recommends ecosystem', async () => {
+    // 中文"步进电机"应翻译为 stepper-motor,识别为硬件类
+    const out = await run('步进电机驱动器');
+    expect(out.recommendedEcosystem).toBe('arduino');
+    expect(out.translatedQuery.toLowerCase()).toContain('stepper');
+  });
+
+  it('does not override user-provided ecosystem', async () => {
+    // 用户显式传 ecosystem=python,不应被硬件推荐覆盖
+    const res = await tool.handle({ query: 'stepper motor', ecosystem: 'python' });
+    const out = JSON.parse(res.content[0].text);
+    expect(out.recommendedEcosystem).toBe('python');
+    // reason 不应包含"检测到硬件类关键词"(因为用户已显式指定)
+    expect(out.reason).not.toContain('检测到硬件类关键词');
+  });
+
+  it('does not recommend ecosystem for non-hardware query', async () => {
+    // 普通非硬件 query 不应有 recommendedEcosystem
+    const out = await run('pdf to markdown converter');
+    expect(out.recommendedEcosystem).toBeUndefined();
+  });
+
+  it('recommendedEcosystem field is exposed in output schema', async () => {
+    // 确认输出结构包含 recommendedEcosystem 字段(仅在硬件类 query 时出现)
+    const out = await run('stepper motor control');
+    expect(out).toHaveProperty('recommendedEcosystem');
+  });
 });

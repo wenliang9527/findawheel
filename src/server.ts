@@ -113,12 +113,13 @@ export function createServer() {
           '1. Pass user\'s original words (Chinese/English/any language) as input.\n' +
           '2. Returns 4 variants + 1 recommended — pick recommended or combine variants for find_wheel.\n' +
           '3. NEVER pass raw user words to find_wheel — always go through this tool first.\n' +
+          '4. If output includes "recommendedEcosystem" (e.g., "arduino"/"cpp" for hardware queries like stepper/motor/servo/esp32/stm32), PASS IT to find_wheel\'s ecosystem parameter — hardware libraries live in C++/Arduino ecosystem, not python/js.\n' +
           '\n== WHY CALL THIS FIRST ==\n' +
           '- AI knowledge has training cutoff → may hallucinate libraries or use outdated APIs.\n' +
           '- Real search (npm/GitHub/PyPI/...) returns real libraries, current APIs, community-vetted choices.\n' +
           '- Searching first then coding with reference = dramatically fewer AI mistakes.\n' +
           '\n== WORKFLOW ==\n' +
-          '(1) user says "I want to make X" / "我想做一个..." → (2) call suggest_queries → (3) pick recommended query → (4) call find_wheel → (5) recommend 2-3 to user → (6) code with chosen wheel as reference.',
+          '(1) user says "I want to make X" / "我想做一个..." → (2) call suggest_queries → (3) pick recommended query (+ use recommendedEcosystem if present) → (4) call find_wheel → (5) recommend 2-3 to user → (6) code with chosen wheel as reference.',
         inputSchema: {
           type: 'object',
           properties: {
