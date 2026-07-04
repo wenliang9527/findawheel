@@ -79,6 +79,8 @@ const ACTION_VERBS = new Set([
   'search', 'query', 'analyze', 'analysis', 'inspect', 'profile', 'debug',
   // 适配/桥接
   'adapter', 'wrapper', 'proxy', 'bridge', 'gateway', 'router',
+  // 代码片段/实现类(补 GitHub Code Search 盲区)
+  'implement', 'implementation', 'function', 'snippet', 'example', 'sample',
 ]);
 
 /**
@@ -106,6 +108,12 @@ const SYNONYMS: Record<string, string[]> = {
   converter: ['transformer', 'renderer', 'exporter'],
   status: ['health', 'state', 'metric'],
   ai: ['artificial intelligence', 'llm', 'machine learning'],
+  // 代码片段类(补 GitHub Code Search 盲区)
+  implement: ['realize', 'implement'],
+  implementation: ['realization', 'implementation'],
+  function: ['method', 'function', 'routine'],
+  snippet: ['fragment', 'snippet', 'excerpt'],
+  example: ['sample', 'example', 'demo'],
 };
 
 /**

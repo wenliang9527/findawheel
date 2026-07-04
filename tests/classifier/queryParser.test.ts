@@ -94,4 +94,29 @@ describe('parseQuery', () => {
     // 'a' 'for' 'tool' are stopwords, core = 'markdown' (only 1 content word left)
     expect(r.corePhrase).toBe('markdown');
   });
+
+  // ===== Phase 4.1 新增:代码片段关键字 =====
+
+  it('translates Chinese 代码片段 keywords to English', () => {
+    expect(parseQuery('实现 函数').expandedQuery).toContain('implementation');
+    expect(parseQuery('实现 函数').expandedQuery).toContain('function');
+    expect(parseQuery('代码示例').expandedQuery).toContain('snippet');
+    expect(parseQuery('代码示例').expandedQuery).toContain('example');
+    expect(parseQuery('源码').expandedQuery).toContain('source');
+  });
+
+  it('treats implement/function/snippet as action verbs for coreWords', () => {
+    // 用户搜 "implement quicksort function"
+    // implement 和 function 都是动作动词,应优先成为 coreWords
+    const r = parseQuery('implement quicksort function');
+    expect(r.coreWords).toContain('implement');
+    expect(r.coreWords).toContain('function');
+  });
+
+  it('uses synonyms for fuzzyQuery on snippet-related words', () => {
+    const r = parseQuery('parse snippet example');
+    // snippet→fragment, example→sample 应出现在 fuzzyQuery
+    expect(r.fuzzyQuery).toContain('fragment');
+    expect(r.fuzzyQuery).toContain('sample');
+  });
 });

@@ -26,6 +26,15 @@ const ZH_TO_EN: Record<string, string[]> = {
   '轮询': ['polling'],
   '缓存': ['cache', 'caching'],
 
+  // 代码片段类(补 GitHub Code Search 盲区)
+  '实现': ['implementation', 'implement'],
+  '函数': ['function'],
+  '代码': ['code', 'snippet'],
+  '片段': ['snippet', 'fragment'],
+  '示例': ['example', 'sample'],
+  '源码': ['source', 'source-code'],
+  '用法': ['usage', 'example'],
+
   // 对象类
   '图片': ['image'],
   '视频': ['video'],
