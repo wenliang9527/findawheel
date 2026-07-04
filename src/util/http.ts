@@ -61,3 +61,59 @@ export async function httpGet<T>(url: string, opts: HttpGetOptions): Promise<T> 
   if (!opts.retry) return doFetch();
   return withRetry(doFetch, opts.retry);
 }
+
+export interface HttpPostOptions {
+  timeoutMs: number;
+  /** 请求头(如 Content-Type / x-api-key 等) */
+  headers?: Record<string, string>;
+  /** 请求体(已 JSON.stringify 的字符串) */
+  body: string;
+  /** 重试配置,不传则不重试 */
+  retry?: RetryOpts;
+  /** 返回 text 而非 JSON(用于特殊响应) */
+  text?: boolean;
+}
+
+/**
+ * POST 请求,与 httpGet 共享超时/重试/错误处理逻辑。
+ * 用于 Exa/Tavily 等 POST API,统一走 http 层获得 5xx 重试能力。
+ */
+export async function httpPost<T>(url: string, opts: HttpPostOptions): Promise<T> {
+  const doFetch = async (): Promise<T> => {
+    const headers: Record<string, string> = {
+      'accept': 'application/json',
+      'user-agent': 'findawheel/0.1',
+      ...opts.headers,
+    };
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: opts.body,
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        const err = new HttpError(res.status, url, body);
+        // 5xx 包装成 RetryableError 让 withRetry 重试
+        if (err.retryable) throw new RetryableError(err.message);
+        throw err;
+      }
+      if (opts.text) return (await res.text()) as T;
+      return (await res.json()) as T;
+    } catch (err) {
+      if (err instanceof RetryableError) throw err;
+      if (err instanceof HttpError) throw err;
+      // TypeError(fetch failed) / AbortError
+      throw new RetryableError((err as Error).message);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  if (!opts.retry) return doFetch();
+  return withRetry(doFetch, opts.retry);
+}

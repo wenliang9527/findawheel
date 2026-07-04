@@ -6,6 +6,8 @@
 // 2. Exa 失败(额度耗尽 402 / 限流 429 / 网络错误 / 无 key)时 fallback 到 Tavily
 // 3. 两个都失败:返回空数组,不影响主搜索
 //
+// P1-4:统一走 httpPost(共享超时/重试/错误处理),获得 5xx 重试能力。
+//
 // Exa API: https://docs.exa.ai/reference/search
 //   POST https://api.exa.ai/search
 //   header: x-api-key
@@ -19,6 +21,7 @@
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { WebRawResult, RawResult } from '../normalize/types.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
+import { httpPost, HttpError } from '../util/http.js';
 
 interface ExaSearchResponse {
   results: Array<{
@@ -48,93 +51,68 @@ function isQuotaExhausted(status: number): boolean {
  * 调 Exa 搜索。
  * Exa 用神经网络搜索,对代码/技术语义更准,适合"找轮子"。
  * 不需要 include_domains,默认就偏向代码内容。
+ * P1-4:走 httpPost,共享超时/重试逻辑(5xx 自动重试)。
  */
 async function searchExa(
   query: string,
   apiKey: string,
   timeoutMs: number,
 ): Promise<WebRawResult[]> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch('https://api.exa.ai/search', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        query,
-        numResults: 10,
-        // use_autoprompt: true, // 让 Exa 自动优化 query
-        contents: {
-          text: true,
-          highlights: true,
-        },
-      }),
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      const err = new Error(`Exa HTTP ${res.status}: ${body.slice(0, 200)}`);
-      (err as any).status = res.status;
-      throw err;
-    }
-    const data = (await res.json()) as ExaSearchResponse;
-    return (data.results ?? []).map((item): WebRawResult => ({
-      source: 'web',
-      name: item.title,
-      url: item.url,
-      // 优先用 highlights(更精炼),其次 text
-      description: (item.highlights?.join(' ') || item.text || '').slice(0, 300),
-      score: item.score,
-    }));
-  } finally {
-    clearTimeout(timer);
-  }
+  const body = JSON.stringify({
+    query,
+    numResults: 10,
+    contents: {
+      text: true,
+      highlights: true,
+    },
+  });
+  const data = await httpPost<ExaSearchResponse>('https://api.exa.ai/search', {
+    timeoutMs,
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+    },
+    body,
+  });
+  return (data.results ?? []).map((item): WebRawResult => ({
+    source: 'web',
+    name: item.title,
+    url: item.url,
+    // 优先用 highlights(更精炼),其次 text
+    description: (item.highlights?.join(' ') || item.text || '').slice(0, 300),
+    score: item.score,
+  }));
 }
 
 /**
  * 调 Tavily 搜索(兜底)。
  * 限定 include_domains 偏向工具/项目页面。
+ * P1-4:走 httpPost,共享超时/重试逻辑(5xx 自动重试)。
  */
 async function searchTavily(
   query: string,
   apiKey: string,
   timeoutMs: number,
 ): Promise<WebRawResult[]> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        api_key: apiKey,
-        query,
-        search_depth: 'basic',
-        max_results: 10,
-        include_domains: ['github.com', 'npmjs.com', 'crates.io', 'pypi.org'],
-      }),
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      const err = new Error(`Tavily HTTP ${res.status}: ${body.slice(0, 200)}`);
-      (err as any).status = res.status;
-      throw err;
-    }
-    const data = (await res.json()) as TavilySearchResponse;
-    return (data.results ?? []).map((item): WebRawResult => ({
-      source: 'web',
-      name: item.title,
-      url: item.url,
-      description: item.content.slice(0, 300),
-      score: item.score,
-    }));
-  } finally {
-    clearTimeout(timer);
-  }
+  const body = JSON.stringify({
+    api_key: apiKey,
+    query,
+    search_depth: 'basic',
+    max_results: 10,
+    include_domains: ['github.com', 'npmjs.com', 'crates.io', 'pypi.org'],
+  });
+  const data = await httpPost<TavilySearchResponse>('https://api.tavily.com/search', {
+    timeoutMs,
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  });
+  return (data.results ?? []).map((item): WebRawResult => ({
+    source: 'web',
+    name: item.title,
+    url: item.url,
+    description: item.content.slice(0, 300),
+    score: item.score,
+  }));
 }
 
 export class WebSourceAdapter implements SourceAdapter {
@@ -151,7 +129,7 @@ export class WebSourceAdapter implements SourceAdapter {
       } catch (err) {
         // Exa 失败,继续尝试 Tavily
         // (额度耗尽 402 / 限流 429 / 网络错误 都走 fallback)
-        const status = (err as any).status;
+        const status = err instanceof HttpError ? err.status : undefined;
         if (status && !isQuotaExhausted(status) && status >= 400 && status < 500) {
           // 4xx 非额度问题(如 401 key 无效):不 fallback,直接返回空
           // 因为 Tavily 大概率也会遇到类似问题,且避免无意义请求
