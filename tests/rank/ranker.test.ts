@@ -381,3 +381,53 @@ describe('rank', () => {
     expect(out.map(w => w.name)).toContain('blind-watermark-wasm');
   });
 });
+
+// ===== T5: mergeTopics 边界测试(via dedupe) =====
+describe('mergeTopics (via dedupe)', () => {
+  it('T5: case-insensitive dedup preserves first occurrence case', () => {
+    const a = makeWheel({
+      name: 'lib', source: 'github',
+      topics: ['Foo', 'bar'],
+      metrics: { stars: 1000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const b = makeWheel({
+      name: 'lib', source: 'npm',
+      topics: ['foo', 'baz'],
+      metrics: { lastUpdated: '2025-01-01T00:00:00Z' },
+    });
+    const out = dedupe([a, b]);
+    expect(out).toHaveLength(1);
+    // 'foo' (lowercase from b) should be deduped with 'Foo' (from a), keeping 'Foo'
+    expect(out[0].topics).toEqual(['Foo', 'bar', 'baz']);
+  });
+
+  it('T5: empty topics arrays are handled', () => {
+    const a = makeWheel({
+      name: 'lib', source: 'github', topics: [],
+      metrics: { stars: 1000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const b = makeWheel({
+      name: 'lib', source: 'npm', topics: ['topic'],
+      metrics: { lastUpdated: '2025-01-01T00:00:00Z' },
+    });
+    const out = dedupe([a, b]);
+    expect(out).toHaveLength(1);
+    expect(out[0].topics).toEqual(['topic']);
+  });
+
+  it('T5: preserves order when merging unique topics', () => {
+    const a = makeWheel({
+      name: 'lib', source: 'github',
+      topics: ['first', 'second'],
+      metrics: { stars: 1000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false },
+    });
+    const b = makeWheel({
+      name: 'lib', source: 'npm',
+      topics: ['third', 'fourth'],
+      metrics: { lastUpdated: '2025-01-01T00:00:00Z' },
+    });
+    const out = dedupe([a, b]);
+    expect(out).toHaveLength(1);
+    expect(out[0].topics).toEqual(['first', 'second', 'third', 'fourth']);
+  });
+});

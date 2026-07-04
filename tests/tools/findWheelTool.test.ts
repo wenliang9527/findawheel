@@ -221,6 +221,40 @@ describe('findWheelTool.handle', () => {
     expect(output.summary.warning).toBeUndefined();
   });
 
+  // ===== T2: degraded 场景测试 =====
+  // H3 修复:主搜索失败时无条件标记 degraded,无论副搜索是否成功
+
+  it('T2: marks source degraded when it fails (other sources succeed)', async () => {
+    const good = mockAdapter('github', [ghResult('a/b', 'markdown editor')]);
+    const bad = failingAdapter('gitee');
+    const tool = createFindWheelTool({ adapters: [good, bad] });
+    const res = await tool.handle({ query: 'markdown editor' });
+    expect(res.isError).toBeFalsy();
+    const output = JSON.parse(res.content[0].text);
+    expect(output.degradedSources).toContain('gitee');
+    expect(output.wheels.length).toBeGreaterThan(0);
+  });
+
+  it('T2: returns isError when all sources fail', async () => {
+    const bad1 = failingAdapter('github');
+    const bad2 = failingAdapter('gitee');
+    const tool = createFindWheelTool({ adapters: [bad1, bad2] });
+    const res = await tool.handle({ query: 'markdown editor' });
+    expect(res.isError).toBe(true);
+  });
+
+  it('T2: no degradedSources when all sources succeed', async () => {
+    const good1 = mockAdapter('github', [ghResult('a/b', 'markdown editor')]);
+    const good2 = mockAdapter('npm', [{
+      source: 'npm', name: 'pkg', url: 'https://www.npmjs.com/package/pkg',
+      description: 'markdown editor lib', version: '1.0', keywords: [], date: '2025-06-01T00:00:00Z',
+    }]);
+    const tool = createFindWheelTool({ adapters: [good1, good2] });
+    const res = await tool.handle({ query: 'markdown editor' });
+    const output = JSON.parse(res.content[0].text);
+    expect(output.degradedSources).toBeUndefined();
+  });
+
   // Phase 6 简化:删除领域泛词过滤测试和 coreWords 过滤测试。
   // 这些过滤机制已删除 —— 相关性判断交给 AI 调用方。
   // 主流库 Neutree/COMTool 等不再被硬规则误杀,会正常出现在结果中。

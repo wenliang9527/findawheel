@@ -116,4 +116,41 @@ describe('applyFeedbackScore', () => {
     // 6 likes raw = 1.2, 触上限 1.0
     expect(applyFeedbackScore(0, makeRecord({ likes: 6 })).breakdown.likeDelta).toBeCloseTo(1.0, 5);
   });
+
+  // ===== T1: base > 1.0 边界测试 =====
+  // recommender 的 matchScore 理论上限是 1.1(0.6 相关度 + 0.3 热度 + 0.2 活跃度)
+  // feedbackWeighter 钳制到 [0, 1.5],保留正反馈的相对排序提升
+
+  it('T1: base=1.1 (recommender max) + 1 like → 1.3 (under 1.5 cap)', () => {
+    const result = applyFeedbackScore(1.1, makeRecord({ likes: 1 }));
+    expect(result.adjustedScore).toBeCloseTo(1.3, 5);
+    expect(result.feedbackDelta).toBeCloseTo(0.2, 5);
+  });
+
+  it('T1: base=1.1 + 5 likes (delta capped at 1.0) → clamped to 1.5', () => {
+    const result = applyFeedbackScore(1.1, makeRecord({ likes: 5 }));
+    // 1.1 + 1.0 = 2.1, clamped to 1.5
+    expect(result.adjustedScore).toBe(1.5);
+    expect(result.feedbackDelta).toBeCloseTo(1.0, 5);
+  });
+
+  it('T1: base=1.1 + 1 hide → 0.6 (negative feedback drops below max)', () => {
+    const result = applyFeedbackScore(1.1, makeRecord({ hides: 1 }));
+    expect(result.adjustedScore).toBeCloseTo(0.6, 5);
+    expect(result.feedbackDelta).toBeCloseTo(-0.5, 5);
+  });
+
+  it('T1: base=1.1 + no feedback → stays 1.1 (no clamp needed)', () => {
+    const result = applyFeedbackScore(1.1, null);
+    expect(result.adjustedScore).toBe(1.1);
+    expect(result.feedbackDelta).toBe(0);
+  });
+
+  it('T1: base=0.5 + like + click + hide → combined delta', () => {
+    const result = applyFeedbackScore(0.5, makeRecord({ likes: 2, clicks: 3, hides: 1 }));
+    // like: 2*0.2=0.4, click: 3*0.05=0.15, hide: -0.5
+    // delta = 0.4 + 0.15 - 0.5 = 0.05
+    expect(result.adjustedScore).toBeCloseTo(0.55, 5);
+    expect(result.feedbackDelta).toBeCloseTo(0.05, 5);
+  });
 });
