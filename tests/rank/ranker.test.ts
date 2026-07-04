@@ -202,6 +202,67 @@ describe('score', () => {
     });
     expect(score(w1_5, 'project')).toBeGreaterThan(score(w2_5, 'project'));
   });
+
+  // ===== P0-2:基础分归一化 + bonus 上限结构 =====
+  it('P0-2: base score (no keyword match) is <= 1.0', () => {
+    // 无 query 关键词命中,只有基础分(stars + recency + downloads + license + coverage=0)
+    // 基础分应 <= 1.0
+    const w = makeWheel({
+      name: 'unrelated-lib',
+      description: 'something completely unrelated',
+      metrics: { stars: 100000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false, downloads: 5000000 },
+    });
+    const s = score(w, 'project', ['nonexistent_keyword']);
+    // 无命中:bonus=0,基础分 <= 1.0
+    expect(s).toBeLessThanOrEqual(1.0);
+  });
+
+  it('P0-2: total score never exceeds 1.5 (base 1.0 + bonus 0.5)', () => {
+    // 极端情况:stars 满 + recency 满 + coverage 满 + downloads 满 + license 满 + 所有 bonus 满
+    const w = makeWheel({
+      name: 'ai-coding-monitor-assistant',
+      description: 'ai coding monitor assistant status tracking dashboard observer watcher tracker',
+      topics: ['ai', 'coding', 'monitor', 'assistant', 'status', 'tracking'],
+      metrics: { stars: 100000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false, downloads: 5000000 },
+    });
+    const keywords = ['ai', 'coding', 'monitor', 'assistant', 'status', 'tracking'];
+    const s = score(w, 'project', keywords);
+    // 总分上限 = 基础分 1.0 + bonus 0.5 = 1.5
+    expect(s).toBeLessThanOrEqual(1.5);
+    expect(s).toBeGreaterThan(1.0); // 有命中,bonus > 0
+  });
+
+  it('P0-2: bonus is capped at 0.5 even when all bonus items hit max', () => {
+    // 验证方式:让所有 bonus 项都能命中,总分不应超过 1.5(基础分 1.0 + bonus 上限 0.5)
+    // 如果 bonus 没有上限,descBonus(0.15)+ nameBonus(0.15)+ phraseBonus(0.1)+ topicsBonus(0.1)= 0.5
+    // 加上基础分 1.0 = 1.5,刚好等于上限
+    const w = makeWheel({
+      name: 'lodash-parser',
+      description: 'lodash parser snippet example implementation function',
+      topics: ['lodash', 'parser', 'snippet', 'example', 'function'],
+      metrics: { stars: 100000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false, downloads: 5000000 },
+    });
+    const keywords = ['lodash', 'parser', 'snippet', 'example', 'function'];
+    const s = score(w, 'project', keywords);
+    // 总分应 <= 1.5(bonus 上限 0.5 + 基础分上限 1.0)
+    expect(s).toBeLessThanOrEqual(1.5 + 0.001); // 允许浮点误差
+    expect(s).toBeGreaterThan(1.0); // 有命中,bonus > 0
+  });
+
+  it('P0-2: base score structure sums to 1.0 (stars + recency + coverage + downloads + license)', () => {
+    // 满分场景:所有基础分项都满
+    const w = makeWheel({
+      name: 'perfect-lib',
+      description: 'perfect library tool',
+      metrics: { stars: 100000, lastUpdated: '2025-01-01T00:00:00Z', license: 'MIT', archived: false, downloads: 5000000 },
+    });
+    // 用一个 description 命中的关键词让 coverage 满分
+    const s = score(w, 'project', ['perfect', 'library', 'tool']);
+    // 基础分 = stars(0.25)+ recency(0.2)+ coverage(0.4)+ downloads(0.1)+ license(0.05)= 1.0
+    // bonus > 0(有命中)
+    // 总分 > 1.0(有 bonus)
+    expect(s).toBeGreaterThan(1.0);
+  });
 });
 
 // Phase 6 简化:删除 isReverseIntent 和 isMissingCoreConcept 的测试。

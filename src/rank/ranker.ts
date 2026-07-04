@@ -163,26 +163,30 @@ function recencyScore(lastUpdated?: string): number {
 
 export function score(wheel: Wheel, intent: Intent, queryKeywords: string[] = []): number {
   const m = wheel.metrics;
-  let stars = normalize(m.stars, 50000) * 0.3;
-  // P0-3:合并 recency 与 activity 重复计分。
-  // 原两者都基于 lastUpdated,存在重复:recency(0.1)+ activity(0.2)= 0.3。
-  // 删除 activity,保留 recency 的连续衰减函数,权重提到 0.2。
-  // 这样消除重复计分,同时保留连续衰减的平滑性(无阶梯跳跃)。
+
+  // ===== P0-2:基础分(归一化到 1.0)+ bonus(上限 0.5)结构 =====
+  // 基础分:项目质量与活跃度信号,各项相加 = 1.0
+  //   stars 0.25 + recency 0.2 + coverage 0.4 + downloads 0.1 + license 0.05
+  // bonus:query 相关性加分,独立叠加,合并上限 0.5
+  //   descBonus(0.15)+ nameBonus(0.15)+ phraseBonus(0.1)+ topicsBonus(0.1)
+
+  let stars = normalize(m.stars, 50000) * 0.25;
   const recency = recencyScore(m.lastUpdated) * 0.2;
   // R4:downloads 分母从 100000 提到 1000000(覆盖百万级周下载量包)
   let downloads = normalize(m.downloads, 1000000) * 0.1;
-  const license = m.license ? 0.1 : 0;
-  // 描述匹配加分:描述命中 query 核心词的项目更可能是真正相关的轮子
-  const descBonus = descriptionMatchBonus(wheel, queryKeywords);
-  // 全词覆盖率打分:description 命中 query 所有实义词的比例
-  // 权重提升:0.4 → 0.5(P0-3 释放的 0.1 给 coverage,强化相关性信号)
-  const coverage = queryCoverage(wheel, queryKeywords) * 0.5;
-  // R2:name 命中加分(name 权重高于 description)
-  const nameBonus = nameMatchBonus(wheel, queryKeywords);
-  // R3:精确短语匹配加分(description 含完整 query 短语)
-  const phraseBonus = phraseMatchBonus(wheel, queryKeywords);
-  // R1:topics 命中加分(仓库标签命中 query 词)
-  const topicsBonus = topicsMatchBonus(wheel, queryKeywords);
+  const license = m.license ? 0.05 : 0;
+  // coverage 是基础分里的相关性信号(描述全词覆盖率)
+  const coverage = queryCoverage(wheel, queryKeywords) * 0.4;
+
+  // bonus 加分项(query 相关性,独立于基础分,合并上限 0.5)
+  const descBonus = descriptionMatchBonus(wheel, queryKeywords);    // 上限 0.15
+  const nameBonus = nameMatchBonus(wheel, queryKeywords);            // 上限 0.15
+  const phraseBonus = phraseMatchBonus(wheel, queryKeywords);        // 上限 0.1
+  const topicsBonus = topicsMatchBonus(wheel, queryKeywords);        // 上限 0.1
+  const bonusTotal = Math.min(
+    descBonus + nameBonus + phraseBonus + topicsBonus,
+    0.5, // P0-2:bonus 统一上限 0.5
+  );
 
   // 高 star 零命中降权:如果一个 query 关键词都不命中,stars 权重砍半
   // 场景:voicebox(⭐37k)搜 "AI coding monitor" 时零命中,不应靠 star 霸榜
@@ -194,8 +198,9 @@ export function score(wheel: Wheel, intent: Intent, queryKeywords: string[] = []
     stars *= 0.7;
     downloads *= 1.5;
   }
-  return stars + recency + downloads + license + descBonus + coverage
-    + nameBonus + phraseBonus + topicsBonus;
+
+  // 总分 = 基础分(<=1.0)+ bonus(<=0.5),上限 1.5
+  return stars + recency + coverage + downloads + license + bonusTotal;
 }
 
 export function dedupe(wheels: Wheel[]): Wheel[] {
