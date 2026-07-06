@@ -42,13 +42,47 @@ describe('routeSources', () => {
       expect(result.ruleName).toBe('js-ts-ecosystem');
     });
 
-    it('routes rust ecosystem to GitHub/Libraries.io/web', () => {
+    it('routes rust ecosystem to crates.io/GitHub/Libraries.io/web', () => {
       const result = routeSources(makeCtx('rust crate', 'rust'));
-      expect(result.selected).toEqual(['github', 'librariesio', 'web']);
+      // O3:rust 现在路由到 registry(crates.io)+ GitHub + Libraries.io + web
+      expect(result.selected).toEqual(['registry', 'github', 'librariesio', 'web']);
+      expect(result.skipped).toContain('pypi');
+      expect(result.skipped).toContain('maven');
+      expect(result.skipped).toContain('rubygems');
+      expect(result.skipped).toContain('gopkg');
+      expect(result.ruleName).toBe('rust-ecosystem');
+      expect(result.reason).toContain('rust');
+    });
+
+    it('routes go ecosystem to pkg.go.dev/GitHub/Libraries.io/web', () => {
+      const result = routeSources(makeCtx('go module', 'go'));
+      expect(result.selected).toEqual(['gopkg', 'github', 'librariesio', 'web']);
       expect(result.skipped).toContain('registry');
       expect(result.skipped).toContain('pypi');
-      expect(result.ruleName).toBe('compiled-ecosystem');
-      expect(result.reason).toContain('rust');
+      expect(result.ruleName).toBe('go-ecosystem');
+    });
+
+    it('routes java ecosystem to Maven Central/GitHub/Libraries.io/web', () => {
+      const result = routeSources(makeCtx('java library', 'java'));
+      expect(result.selected).toEqual(['maven', 'github', 'librariesio', 'web']);
+      expect(result.skipped).toContain('registry');
+      expect(result.skipped).toContain('pypi');
+      expect(result.skipped).toContain('rubygems');
+      expect(result.ruleName).toBe('java-ecosystem');
+    });
+
+    it('routes ruby ecosystem to RubyGems/GitHub/Libraries.io/web', () => {
+      const result = routeSources(makeCtx('ruby gem', 'ruby'));
+      expect(result.selected).toEqual(['rubygems', 'github', 'librariesio', 'web']);
+      expect(result.skipped).toContain('registry');
+      expect(result.skipped).toContain('pypi');
+      expect(result.ruleName).toBe('ruby-ecosystem');
+    });
+
+    it('routes kotlin ecosystem same as java (Maven Central)', () => {
+      const result = routeSources(makeCtx('kotlin library', 'kotlin'));
+      expect(result.selected).toContain('maven');
+      expect(result.ruleName).toBe('java-ecosystem');
     });
 
     it('routes cpp ecosystem to GitHub/Gitee/PapersWithCode/web', () => {
@@ -225,8 +259,9 @@ describe('routeSources', () => {
   });
 
   describe('ALL_SOURCES completeness', () => {
-    it('contains all 11 sources', () => {
-      expect(ALL_SOURCES).toHaveLength(11);
+    it('contains all 14 sources', () => {
+      // O3:新增 maven/rubygems/gopkg 三个数据源,总数从 11 → 14
+      expect(ALL_SOURCES).toHaveLength(14);
     });
 
     it('selected + skipped = ALL_SOURCES for any rule', () => {

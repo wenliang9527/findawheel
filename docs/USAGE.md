@@ -107,8 +107,8 @@ npm test
 预期输出：
 
 ```
- Test Files  49 passed (49)
-      Tests  585 passed (585)
+ Test Files  52 passed (52)
+      Tests  619 passed (619)
 ```
 
 也可以做一次手动冒烟测试，验证 MCP 服务能响应请求：
@@ -897,7 +897,7 @@ npm run test:watch # 测试监听模式
 
 **但好消息是**：findawheel 的核心价值在代码托管平台和包管理器，Web 搜索只是补充覆盖教程站/博客。
 
-**11 个数据源(按 adapter 聚合,npm+crates.io 共享 RegistrySourceAdapter,Exa+Tavily 共享 WebSourceAdapter)的国内可达性**：
+**14 个数据源(按 adapter 聚合,npm+crates.io 共享 RegistrySourceAdapter,Exa+Tavily 共享 WebSourceAdapter)的国内可达性**：
 
 | 源 | 域名 | 国内可达 | 需要 key |
 |:-----|:-----|:------:|:------:|
@@ -906,6 +906,9 @@ npm run test:watch # 测试监听模式
 | crates.io | crates.io | ✅ | 否 |
 | PyPI | pypi.org | ✅ | 否 |
 | VS Code Marketplace | marketplace.visualstudio.com | ✅ | 否 |
+| Maven Central | search.maven.org | ✅ | 否 |
+| RubyGems | rubygems.org | ✅ | 否 |
+| pkg.go.dev | pkg.go.dev | ✅ | 否 |
 | GitHub | api.github.com | ⚠️ 慢但通 | 可选 |
 | GitLab | gitlab.com | ⚠️ 慢但通 | 可选 |
 | Exa | api.exa.ai | ❌ 国外 | 必需 |
@@ -915,7 +918,7 @@ npm run test:watch # 测试监听模式
 | Papers with Code | paperswithcode.com | ❌ 国外 | 否 |
 | GitHub Code Search | api.github.com | ⚠️ 同 GitHub | 必需 |
 
-**纯国内网络下仍可用的源**：Gitee + npm + crates.io + PyPI + VS Code Marketplace + GitHub（慢但通）+ GitLab（慢但通）
+**纯国内网络下仍可用的源**：Gitee + npm + crates.io + PyPI + VS Code Marketplace + Maven Central + RubyGems + pkg.go.dev + GitHub（慢但通）+ GitLab（慢但通）
 
 **失去的**：Web 教程搜索、AI 模型、论文、多包管理器聚合
 

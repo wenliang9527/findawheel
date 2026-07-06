@@ -146,9 +146,10 @@ describe('findWheelTool.handle', () => {
       tool.handle({ query: 'markdown editor' }),
       tool.handle({ query: 'markdown editor' }),
     ]);
-    // dedupe 应让搜索流程只跑一次(主+副共 2 次 adapter 调用)
-    // 若无 dedupe 会跑两次(4 次)
-    expect(searchSpy.mock.calls.length).toBe(2);
+    // O1:github 在 RATE_LIMITED_SOURCES 中,副搜索跳过它,
+    // 所以 dedupe 后只有 1 次主搜索调用(无副搜索)。
+    // 若无 dedupe 会跑两次(2 次主搜索)。
+    expect(searchSpy.mock.calls.length).toBe(1);
     await fs.promises.rm(dir, { recursive: true, force: true });
   });
 

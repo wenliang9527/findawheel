@@ -3,7 +3,7 @@
 // (wheelDetailsEnricher 反向 import type Wheel,同为 type-only,TS 能正确处理)
 import type { WheelDetails } from '../enrich/wheelDetailsEnricher.js';
 
-export type WheelSource = 'github' | 'gitlab' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'librariesio' | 'web' | 'github-code' | 'vscode-marketplace' | 'paperswithcode' | 'huggingface';
+export type WheelSource = 'github' | 'gitlab' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'librariesio' | 'web' | 'github-code' | 'vscode-marketplace' | 'paperswithcode' | 'huggingface' | 'maven' | 'rubygems' | 'gopkg';
 export type WheelType = 'project' | 'package' | 'api' | 'cli' | 'sdk' | 'snippet' | 'extension' | 'paper' | 'model';
 export type Activity = 'high' | 'medium' | 'low';
 
@@ -194,6 +194,10 @@ export interface PypiRawResult {
   url: string;
   description: string;
   version: string;
+  /** GitHub stars(如果包关联了 GitHub 仓库,enrich 阶段补充) */
+  stars?: number;
+  /** 关联的 GitHub 仓库地址(enrich 阶段从 home_page 提取) */
+  githubUrl?: string;
 }
 
 /** Libraries.io 搜索结果(覆盖 30+ 包管理器) */
@@ -302,4 +306,57 @@ export interface HuggingfaceRawResult {
   libraryName?: string;
 }
 
-export type RawResult = GitHubRawResult | NpmRawResult | CratesRawResult | GiteeRawResult | GitlabRawResult | PypiRawResult | LibrariesIoRawResult | WebRawResult | GitHubCodeRawResult | VscodeExtensionRawResult | PaperRawResult | HuggingfaceRawResult;
+/** Maven Central 包结果(Java/Kotlin 生态) */
+export interface MavenRawResult {
+  source: 'maven';
+  /** 坐标(groupId:artifactId) */
+  name: string;
+  /** Maven Central 详情页 URL */
+  url: string;
+  /** 描述(从 pom 中提取,可能为空) */
+  description: string;
+  /** 最新版本 */
+  version: string;
+  /** 最后更新时间(ISO date,可能为空) */
+  lastUpdated?: string;
+  /** 仓库名(如 "central") */
+  repository?: string;
+}
+
+/** RubyGems 包结果(Ruby 生态) */
+export interface RubyGemsRawResult {
+  source: 'rubygems';
+  /** gem 名 */
+  name: string;
+  /** RubyGems 详情页 URL */
+  url: string;
+  /** 描述 */
+  description: string;
+  /** 最新版本 */
+  version: string;
+  /** 下载量 */
+  downloads: number;
+  /** 最近更新时间(ISO date) */
+  updatedAt: string;
+  /** 许可证 */
+  license?: string;
+  /** 关联的源码仓库 URL */
+  sourceCodeUri?: string;
+}
+
+/** Go 模块结果(pkg.go.dev,HTML 解析) */
+export interface GoModuleRawResult {
+  source: 'gopkg';
+  /** 模块路径(如 github.com/gin-gonic/gin) */
+  name: string;
+  /** pkg.go.dev 详情页 URL */
+  url: string;
+  /** 模块摘要(在 pkg.go.dev 搜索结果里显示) */
+  description: string;
+  /** 最新版本 */
+  version: string;
+  /** 最近发布时间(ISO date,可能为空) */
+  publishedAt?: string;
+}
+
+export type RawResult = GitHubRawResult | NpmRawResult | CratesRawResult | GiteeRawResult | GitlabRawResult | PypiRawResult | LibrariesIoRawResult | WebRawResult | GitHubCodeRawResult | VscodeExtensionRawResult | PaperRawResult | HuggingfaceRawResult | MavenRawResult | RubyGemsRawResult | GoModuleRawResult;

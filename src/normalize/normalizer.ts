@@ -91,7 +91,9 @@ export function normalize(raw: RawResult): Wheel {
         url: raw.url,
         description: raw.description,
         type: 'package',
-        metrics: {},
+        metrics: {
+          ...(raw.stars !== undefined ? { stars: raw.stars } : {}),
+        },
       };
     case 'librariesio':
       return {
@@ -167,6 +169,41 @@ export function normalize(raw: RawResult): Wheel {
           stars: raw.stars,
           downloads: raw.downloads,
           lastUpdated: raw.lastUpdated || undefined,
+        },
+      };
+    case 'maven':
+      return {
+        name: raw.name,
+        source: 'maven',
+        url: raw.url,
+        description: raw.description,
+        type: 'package',
+        metrics: {
+          ...(raw.lastUpdated ? { lastUpdated: raw.lastUpdated } : {}),
+        },
+      };
+    case 'rubygems':
+      return {
+        name: raw.name,
+        source: 'rubygems',
+        url: raw.url,
+        description: raw.description,
+        type: 'package',
+        metrics: {
+          downloads: raw.downloads,
+          lastUpdated: raw.updatedAt,
+          ...(raw.license ? { license: raw.license } : {}),
+        },
+      };
+    case 'gopkg':
+      return {
+        name: raw.name,
+        source: 'gopkg',
+        url: raw.url,
+        description: raw.description,
+        type: 'package',
+        metrics: {
+          ...(raw.publishedAt ? { lastUpdated: raw.publishedAt } : {}),
         },
       };
   }

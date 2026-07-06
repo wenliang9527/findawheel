@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-1.29-orange.svg?style=flat-square)](https://modelcontextprotocol.io/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](./)
-[![Tests](https://img.shields.io/badge/tests-585%2F585-brightgreen.svg?style=flat-square)](./)
+[![Tests](https://img.shields.io/badge/tests-619%2F619-brightgreen.svg?style=flat-square)](./)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](./LICENSE)
 
 </div>
@@ -236,14 +236,19 @@ Restart your client, describe your idea in conversation, and the AI will automat
 | **Web (Exa)** | Pages / tutorials / tool sites | API key required | Neural search, code-semantic friendly (primary) |
 | **Web (Tavily)** | Pages / tutorials / tool sites | API key required | Auto-fallback when Exa fails / quota exhausted |
 | **GitLab** | Open-source repos | Optional | `/api/v4/projects`, complements non-GitHub hosted projects |
-| **PyPI** | Python packages | Not required | Parses `pypi.org/search` HTML, no stars/downloads data |
+| **PyPI** | Python packages | Not required | Parses `pypi.org/search` HTML; top 10 auto-enriched with GitHub stars (requires `GITHUB_TOKEN`) |
 | **Libraries.io** | Multi-platform packages | API key required | One query covers 30+ package managers (npm/pypi/cargo/maven...) |
 | **GitHub Code** | Code snippets | reuses `GITHUB_TOKEN` | `/search/code`, searches code snippets instead of repos; auth required, 10 req/min rate limit; returns `textFragment` with matched code |
 | **VS Code Marketplace** | IDE extensions | not required | `extensionquery` POST API, searches VS Code extensions; returns install count/rating; unofficially-documented API |
 | **Papers with Code** | Papers / algorithms | not required | `/api/v1/papers/`, searches papers and algorithm implementations; returns title/abstract/year/arxiv link; fills the algorithm gap |
 | **HuggingFace Hub** | AI models | not required | `/api/models?search=...`, searches pretrained models; returns likes/downloads/task type; fills the AI model gap |
+| **Maven Central** | Java/Kotlin packages | not required | `search.maven.org/solrsearch/select`, searches Java/Kotlin artifacts; returns groupId/artifactId/timestamp |
+| **RubyGems** | Ruby gems | not required | `rubygems.org/api/v1/search.json`, searches Ruby gems; returns downloads/version/license |
+| **pkg.go.dev** | Go modules | not required | Parses `pkg.go.dev/search` HTML, searches Go modules; no official JSON API |
 
-> ℹ️ **PyPI strategy**: PyPI has no official search JSON API. We parse the HTML of `pypi.org/search` to extract package info (no stars/downloads data).
+> ℹ️ **PyPI strategy**: PyPI has no official search JSON API. We parse the HTML of `pypi.org/search` to extract package info; top 10 results are auto-enriched by querying the PyPI JSON API for `home_page`, and if it points to GitHub we fetch GitHub API for stars (requires `GITHUB_TOKEN`; skipped without token).
+>
+> ℹ️ **pkg.go.dev strategy**: No official JSON API; we parse `pkg.go.dev/search` HTML to extract module info (similar to the PyPI pattern).
 >
 > ℹ️ **Zero-config Web search**: If you don't want to sign up for Exa/Tavily keys, you can additionally enable the [Open-WebSearch MCP](https://github.com/OpenWebSearch) — the AI will orchestrate it automatically.
 

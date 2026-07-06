@@ -14,4 +14,9 @@ export const ECOSYSTEM_LANG: Record<string, string> = {
   java: 'Java',
   cpp: 'C++',
   arduino: 'Arduino',
+  csharp: 'C#',
+  php: 'PHP',
+  ruby: 'Ruby',
+  swift: 'Swift',
+  kotlin: 'Kotlin',
 };

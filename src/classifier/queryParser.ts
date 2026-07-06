@@ -244,8 +244,9 @@ const ECOSYSTEM_PATTERNS: Array<{ pattern: RegExp; ecosystem: string }> = [
   { pattern: new RegExp(`\\brust\\b[\\s_-]*(库|包|框架|模块|module|library|package|framework|crate)`, 'i'), ecosystem: 'rust' },
   { pattern: new RegExp(`\\bgo(lang)?\\b${LANG_RES}`, 'i'), ecosystem: 'go' },
   { pattern: new RegExp(`\\bjava\\b${LANG_RES}`, 'i'), ecosystem: 'java' },
-  { pattern: new RegExp(`\\b(c#|csharp|dotnet|\\.net)\\b${LANG_RES}`, 'i'), ecosystem: 'csharp' },
-  { pattern: new RegExp(`\\bc\\+\\+\\b${LANG_RES}`, 'i'), ecosystem: 'cpp' },
+  // c#/c++ 的 # 和 + 是非单词字符,结尾不能用 \b(否则 "c#库"/"c++库" 不匹配)
+  { pattern: new RegExp(`\\b(c#|csharp|dotnet|\\.net)[\\s_-]*(库|包|框架|模块|module|library|package|framework)`, 'i'), ecosystem: 'csharp' },
+  { pattern: new RegExp(`\\bc\\+\\+[\\s_-]*(库|包|框架|模块|module|library|package|framework)`, 'i'), ecosystem: 'cpp' },
   { pattern: new RegExp(`\\bphp\\b${LANG_RES}`, 'i'), ecosystem: 'php' },
   { pattern: new RegExp(`\\bruby\\b[\\s_-]*(库|包|框架|模块|module|library|package|framework|gem)`, 'i'), ecosystem: 'ruby' },
   { pattern: new RegExp(`\\bswift\\b${LANG_RES}`, 'i'), ecosystem: 'swift' },

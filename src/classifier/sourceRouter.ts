@@ -30,6 +30,9 @@ export const ALL_SOURCES = [
   'paperswithcode',
   'huggingface',
   'web',
+  'maven',              // Java/Kotlin
+  'rubygems',           // Ruby
+  'gopkg',              // Go modules
 ] as const;
 
 /** 路由上下文 —— 把判断需要的字段打包,避免函数签名爆炸 */
@@ -94,19 +97,40 @@ const ROUTING_RULES: RoutingRule[] = [
     selectedSources: ['registry', 'github', 'librariesio', 'web'],
     reason: () => 'ecosystem=js/ts → JS/TS 生态(npm/GitHub/Libraries.io),跳过 PyPI/HuggingFace',
   },
-  // 3. ecosystem=rust/go/java → 编译型语言,主要在 GitHub
+  // 3. ecosystem=rust → Rust 生态(crates.io/GitHub)
   {
-    name: 'compiled-ecosystem',
-    match: (ctx) => ctx.ecosystem === 'rust' || ctx.ecosystem === 'go' || ctx.ecosystem === 'java',
-    selectedSources: ['github', 'librariesio', 'web'],
-    reason: (ctx) => `ecosystem=${ctx.ecosystem} → 编译型语言(GitHub/Libraries.io),跳过 npm/PyPI/VSCode/HuggingFace`,
+    name: 'rust-ecosystem',
+    match: (ctx) => ctx.ecosystem === 'rust',
+    selectedSources: ['registry', 'github', 'librariesio', 'web'],
+    reason: () => 'ecosystem=rust → Rust 生态(crates.io/GitHub/Libraries.io),跳过 npm/PyPI/Maven/RubyGems/GoPkg',
   },
-  // 4. ecosystem=cpp/arduino → 硬件类,只在 GitHub/Gitee/PapersWithCode 搜
+  // 4. ecosystem=go → Go 生态(pkg.go.dev/GitHub)
+  {
+    name: 'go-ecosystem',
+    match: (ctx) => ctx.ecosystem === 'go',
+    selectedSources: ['gopkg', 'github', 'librariesio', 'web'],
+    reason: () => 'ecosystem=go → Go 生态(pkg.go.dev/GitHub/Libraries.io),跳过 npm/PyPI/Maven/RubyGems',
+  },
+  // 5. ecosystem=java → Java/Kotlin 生态(Maven Central/GitHub)
+  {
+    name: 'java-ecosystem',
+    match: (ctx) => ctx.ecosystem === 'java' || ctx.ecosystem === 'kotlin',
+    selectedSources: ['maven', 'github', 'librariesio', 'web'],
+    reason: (ctx) => `ecosystem=${ctx.ecosystem} → Java/Kotlin 生态(Maven Central/GitHub/Libraries.io),跳过 npm/PyPI/RubyGems/GoPkg`,
+  },
+  // 6. ecosystem=ruby → Ruby 生态(RubyGems/GitHub)
+  {
+    name: 'ruby-ecosystem',
+    match: (ctx) => ctx.ecosystem === 'ruby',
+    selectedSources: ['rubygems', 'github', 'librariesio', 'web'],
+    reason: () => 'ecosystem=ruby → Ruby 生态(RubyGems/GitHub/Libraries.io),跳过 npm/PyPI/Maven/GoPkg',
+  },
+  // 7. ecosystem=cpp/arduino → 硬件类,只在 GitHub/Gitee/PapersWithCode 搜
   {
     name: 'cpp-arduino-ecosystem',
     match: (ctx) => ctx.ecosystem === 'cpp' || ctx.ecosystem === 'arduino',
-    selectedSources: ['github', 'gitee', 'github-code', 'paperswithcode', 'web'],
-    reason: (ctx) => `ecosystem=${ctx.ecosystem} → C++/Arduino 生态(GitHub/Gitee),跳过 npm/PyPI/Libraries.io/VSCode/HuggingFace`,
+    selectedSources: ['github', 'gitee', 'github-code', 'librariesio', 'paperswithcode', 'web'],
+    reason: (ctx) => `ecosystem=${ctx.ecosystem} → C++/Arduino 生态(GitHub/Gitee/Libraries.io),跳过 npm/PyPI/Maven/RubyGems/GoPkg`,
   },
   // 5. 硬件类关键词(stepper/motor/servo/esp32/stm32 等)—— 即使没传 ecosystem 也路由
   {

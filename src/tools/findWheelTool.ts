@@ -54,6 +54,18 @@ const FALLBACK_MIN_RESULTS = 5;
 /** 低 star 阈值:低于此值视为低质量结果(用于兜底扩展 + 低质量警告) */
 const LOW_STARS_THRESHOLD = 10;
 
+/**
+ * 严格限流源:这些源对副搜索(同义词泛化)会双倍消耗配额,跳过副搜索。
+ * - github: 5000/hour (token) / 60/hour (anonymous)
+ * - github-code: 10 req/min (极严格)
+ * - gitee: 5000/hour (token) / 60/hour (anonymous)
+ * - gitlab: 1000 req/min (token),但国内不稳定
+ *
+ * 宽松源(web/huggingface/paperswithcode/vscode-marketplace/pypi/registry/librariesio)
+ * 仍并行主+副搜索以最大化召回。
+ */
+const RATE_LIMITED_SOURCES = new Set(['github', 'github-code', 'gitee', 'gitlab']);
+
 export function createFindWheelTool(opts: CreateToolOpts) {
   const env = readEnv();
   const cache: Cache = opts.cache ?? createCache({
@@ -201,10 +213,14 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     const { parsedQuery: _omit, ...fuzzyOpts } = searchOpts;
     void _omit;
 
-    // 主搜索 + 副搜索并行(只用路由选中的源),结果合并去重(由 rank() 的 dedupe 处理)
+    // O1:严格限流源(github/github-code/gitee/gitlab)跳过副搜索,避免双倍消耗配额。
+    // 副搜索用同义词泛化,与主搜索高度重叠,对限流源 ROI 低。
+    const fuzzyAdapters = selectedAdapters.filter(a => !RATE_LIMITED_SOURCES.has(a.name));
+
+    // 主搜索(全量源)+ 副搜索(仅宽松源)并行,结果合并去重(由 rank() 的 dedupe 处理)
     const [mainSettled, fuzzySettled] = await Promise.all([
       Promise.allSettled(selectedAdapters.map(a => a.search(input.query, searchOpts))),
-      Promise.allSettled(selectedAdapters.map(a => a.search(parsedQuery.fuzzyQuery, fuzzyOpts))),
+      Promise.allSettled(fuzzyAdapters.map(a => a.search(parsedQuery.fuzzyQuery, fuzzyOpts))),
     ]);
 
     const allRaw: RawResult[] = [];
@@ -259,10 +275,12 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       const needsExpansion = totalResults < FALLBACK_MIN_RESULTS || topStars < FALLBACK_TOP_STARS_THRESHOLD;
       if (needsExpansion) {
         logInfo(`fallback expansion triggered: topStars=${topStars} results=${totalResults} → search ${skippedAdapters.length} skipped sources`);
+        // O1:兜底扩展也跳过限流源的副搜索
+        const extFuzzyAdapters = skippedAdapters.filter(a => !RATE_LIMITED_SOURCES.has(a.name));
         // 搜索被跳过的源,合并结果后重新 rank
         const [extMain, extFuzzy] = await Promise.all([
           Promise.allSettled(skippedAdapters.map(a => a.search(input.query, searchOpts))),
-          Promise.allSettled(skippedAdapters.map(a => a.search(parsedQuery.fuzzyQuery, fuzzyOpts))),
+          Promise.allSettled(extFuzzyAdapters.map(a => a.search(parsedQuery.fuzzyQuery, fuzzyOpts))),
         ]);
         // 收集扩展结果
         const extRaw: RawResult[] = [];

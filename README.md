@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-1.29-orange.svg?style=flat-square)](https://modelcontextprotocol.io/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](./)
-[![Tests](https://img.shields.io/badge/tests-585%2F585-brightgreen.svg?style=flat-square)](./)
+[![Tests](https://img.shields.io/badge/tests-619%2F619-brightgreen.svg?style=flat-square)](./)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](./LICENSE)
 
 </div>
@@ -233,14 +233,19 @@ npm run build
 | **Web (Exa)** | 网页/教程/工具站 | 需要 API key | 神经网络搜索，对代码语义友好（主源） |
 | **Web (Tavily)** | 网页/教程/工具站 | 需要 API key | Exa 失败/额度耗尽时自动 fallback |
 | **GitLab** | 开源仓库 | 可选 | `/api/v4/projects`，补充非 GitHub 托管的项目 |
-| **PyPI** | Python 包 | 不需要 | 解析 `pypi.org/search` HTML，无 stars/downloads 数据 |
+| **PyPI** | Python 包 | 不需要 | 解析 `pypi.org/search` HTML；top 10 自动 enrich GitHub stars(需 `GITHUB_TOKEN`) |
 | **Libraries.io** | 多平台包 | 需要 API key | 一次查询覆盖 30+ 包管理器（npm/pypi/cargo/maven...） |
 | **GitHub Code** | 代码片段 | 复用 `GITHUB_TOKEN` | `/search/code`，搜代码片段而非仓库；强制认证，10 req/min 限流；命中文件返回 `textFragment` 代码片段 |
 | **VS Code Marketplace** | IDE 扩展 | 不需要 | `extensionquery` POST API，搜 VS Code 插件；返回安装数/评分；非官方文档化 API |
 | **Papers with Code** | 论文/算法 | 不需要 | `/api/v1/papers/`，搜论文与算法实现；返回标题/摘要/年份/arxiv 链接；补算法盲区 |
 | **HuggingFace Hub** | AI 模型 | 不需要 | `/api/models?search=...`，搜 pretrained model；返回点赞数/下载数/任务类型；补 AI 模型盲区 |
+| **Maven Central** | Java/Kotlin 包 | 不需要 | `search.maven.org/solrsearch/select`，搜 Java/Kotlin artifact；返回 groupId/artifactId/timestamp |
+| **RubyGems** | Ruby gem | 不需要 | `rubygems.org/api/v1/search.json`，搜 Ruby gem；返回下载量/版本/license |
+| **pkg.go.dev** | Go module | 不需要 | 解析 `pkg.go.dev/search` HTML，搜 Go module；无官方 JSON API |
 
-> ℹ️ **PyPI 策略**：PyPI 无官方搜索 JSON API，通过解析 `pypi.org/search` 的 HTML 提取包信息，无 stars/downloads 数据。
+> ℹ️ **PyPI 策略**：PyPI 无官方搜索 JSON API，通过解析 `pypi.org/search` 的 HTML 提取包信息；top 10 会自动调用 PyPI JSON API 取 `home_page`,若指向 GitHub 则查 GitHub API 补 stars(需 `GITHUB_TOKEN`,无 token 跳过 enrich)。
+>
+> ℹ️ **pkg.go.dev 策略**：无官方 JSON API,通过解析 `pkg.go.dev/search` 的 HTML 提取 module 信息(类似 PyPI 模式)。
 >
 > ℹ️ **零配置 Web 搜索**：如果不想申请 Exa/Tavily key，可并启 [Open-WebSearch MCP](https://github.com/OpenWebSearch) 作为补充，AI 会自动编排。
 

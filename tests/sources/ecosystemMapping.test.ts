@@ -24,9 +24,13 @@ describe('ECOSYSTEM_LANG', () => {
     expect(ECOSYSTEM_LANG['']).toBeUndefined();
   });
 
-  it('has exactly 8 ecosystems registered', () => {
+  it('has exactly 13 ecosystems registered', () => {
+    // O3:新增 csharp/php/ruby/swift/kotlin 五个语言映射,总数从 8 → 13
     const keys = Object.keys(ECOSYSTEM_LANG);
-    expect(keys).toHaveLength(8);
-    expect(keys.sort()).toEqual(['arduino', 'cpp', 'go', 'java', 'js', 'python', 'rust', 'ts']);
+    expect(keys).toHaveLength(13);
+    expect(keys.sort()).toEqual([
+      'arduino', 'cpp', 'csharp', 'go', 'java', 'js',
+      'kotlin', 'php', 'python', 'ruby', 'rust', 'swift', 'ts',
+    ]);
   });
 });

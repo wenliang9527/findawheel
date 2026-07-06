@@ -20,6 +20,9 @@ import { GitHubCodeSourceAdapter } from './sources/githubCodeSourceAdapter.js';
 import { VscodeMarketplaceSourceAdapter } from './sources/vscodeMarketplaceSourceAdapter.js';
 import { PapersWithCodeSourceAdapter } from './sources/papersWithCodeSourceAdapter.js';
 import { HuggingfaceSourceAdapter } from './sources/huggingfaceSourceAdapter.js';
+import { MavenSourceAdapter } from './sources/mavenSourceAdapter.js';
+import { RubyGemsSourceAdapter } from './sources/rubygemsSourceAdapter.js';
+import { GoModuleSourceAdapter } from './sources/goModuleSourceAdapter.js';
 import { createCache } from './cache/cache.js';
 import type { WheelDetails } from './enrich/wheelDetailsEnricher.js';
 import { createFeedbackStore } from './feedback/feedbackStore.js';
@@ -88,6 +91,9 @@ export function createServer() {
       new VscodeMarketplaceSourceAdapter(),
       new PapersWithCodeSourceAdapter(),
       new HuggingfaceSourceAdapter(),
+      new MavenSourceAdapter(),
+      new RubyGemsSourceAdapter(),
+      new GoModuleSourceAdapter(),
     ],
     detailsCache,
     enrichOpts,
