@@ -126,6 +126,15 @@ export interface FindWheelOutput {
   skippedSources?: string[];
   /** 路由原因(可选),解释为什么跳过某些源。供 AI 调试和理解召回范围。 */
   routingReason?: string;
+  /**
+   * N13:兜底扩展信息(可选)。当 top 1 stars < 10 或结果 < 5 条时,
+   * findawheel 会自动扩展到全源重搜。此字段告知 AI 触发了扩展,
+   * 避免误以为"路由命中所有源"或"本次 query 未命中路由规则"。
+   */
+  fallbackExpansion?: {
+    /** 触发原因简述 */
+    reason: string;
+  };
 }
 
 // Discriminated union of raw results per source

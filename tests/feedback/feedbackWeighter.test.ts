@@ -73,9 +73,10 @@ describe('applyFeedbackScore', () => {
     expect(r2.feedbackDelta).toBeCloseTo(0.3, 5);
   });
 
-  it('hide has no cap: 5 hides = -2.5', () => {
+  it('N9: hide has cap -1.0: 5 hides = -1.0 (capped)', () => {
+    // N9:hide 累加上限 -1.0(与 like +1.0 对称),5 hides = -2.5 被钳制到 -1.0
     const result = applyFeedbackScore(0.5, makeRecord({ hides: 5 }));
-    expect(result.feedbackDelta).toBeCloseTo(-2.5, 5);
+    expect(result.feedbackDelta).toBeCloseTo(-1.0, 5);
     expect(result.adjustedScore).toBe(0); // 钳制到 0
   });
 

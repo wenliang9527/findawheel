@@ -1,6 +1,6 @@
 // src/feedback/feedbackWeighter.ts
 // 反馈加权计算: 将用户反馈(like/hide/click)转换为 score 调整量,叠加到 matchScore 上。
-// 策略: 固定分值加减, 累加上限防刷, hide 无上限(强负面信号)。
+// 策略: 固定分值加减, 累加上限防刷(含 hide 上限, 避免误操作永久降权)。
 import type { FeedbackRecord } from './feedbackStore.js';
 import type { Wheel } from '../normalize/types.js';
 import { gradeRecommendation } from '../rank/recommender.js';
@@ -12,11 +12,18 @@ export const FEEDBACK_WEIGHTS = {
   hide: -0.5,
 } as const;
 
-/** 累加上限(防刷): 正向反馈封顶, 负向不封顶 */
+/**
+ * 累加上限(防刷): 正向和负向反馈都封顶。
+ * N9:hide 增加上限 -1.0(与 like 上限 +1.0 对称)。
+ * 原逻辑 hide 无上限,3 次 hide = -1.5 会把任何项目压到最低,
+ * 且无 unhide 机制,误操作后需 5 次 like 才能抵消。
+ * 改为 -1.0 后,1 次 hide(-0.5)仍能显著降权,但极端压制受限,
+ * 与 like 上限对称,更符合"反馈是调整而非屏蔽"的设计理念。
+ */
 export const FEEDBACK_CAPS = {
   like: 1.0,   // 最多 +1.0 (5 个 like 封顶)
   click: 0.3,  // 最多 +0.3 (6 个 click 封顶)
-  // hide 无上限: 用户明确不想要, 扣分越多越好
+  hide: -1.0,  // N9:最多 -1.0 (2 个 hide 封顶,避免极端压制)
 } as const;
 
 export interface FeedbackWeightResult {
@@ -36,7 +43,7 @@ export interface FeedbackWeightResult {
  * 计算反馈对 score 的调整。
  * - like: +0.2/次, 累加上限 +1.0
  * - click: +0.05/次, 累加上限 +0.3
- * - hide: -0.5/次, 无上限(强负面信号)
+ * - hide: -0.5/次, 累加上限 -1.0 (N9:避免误操作极端压制)
  * - feedback 为 null(无记录)时, 返回 baseScore 不变
  * - 最终 score 钳制在 [0, 1.5]
  *
@@ -68,8 +75,9 @@ export function applyFeedbackScore(
   const clickRaw = feedback.clicks * FEEDBACK_WEIGHTS.click;
   const clickDelta = Math.min(clickRaw, FEEDBACK_CAPS.click);
 
-  // hide: 无上限
-  const hideDelta = feedback.hides * FEEDBACK_WEIGHTS.hide;
+  // hide: N9 累加上限 -1.0(与 like +1.0 对称,避免极端压制)
+  const hideRaw = feedback.hides * FEEDBACK_WEIGHTS.hide;
+  const hideDelta = Math.max(hideRaw, FEEDBACK_CAPS.hide);  // 负值取 max(更接近 0)
 
   const feedbackDelta = likeDelta + clickDelta + hideDelta;
   // 钳制到 [0, 1.5](与 recommender 实际上限 1.1 + 0.4 反馈空间对齐)

@@ -133,9 +133,9 @@ describe('findWheelTool feedback 集成 (Task 4)', () => {
     const res = await tool.handle({ query: 'markdown editor' });
     const payload = JSON.parse(res.content[0].text);
     const ab = payload.wheels[0];
-    // 3 hides = -1.5, score 大幅降低, recommendation 应降级
+    // N9:3 hides = -1.5,但 hide 累加上限 -1.0,实际 delta = -1.0,score 大幅降低
     expect(ab.match.recommendation).not.toBe('highly_recommended');
-    expect(ab.match.feedbackDelta).toBeCloseTo(-1.5, 5);
+    expect(ab.match.feedbackDelta).toBeCloseTo(-1.0, 5);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 

@@ -68,6 +68,35 @@ const LOW_STARS_THRESHOLD = 10;
  */
 const RATE_LIMITED_SOURCES = new Set(['github', 'github-code', 'gitee', 'gitlab']);
 
+/**
+ * N2:全文搜索型源 — 这些源 API 无精确短语语法,对 fuzzyQuery(同义词泛化)召回噪声大。
+ * 例:HuggingFace 搜 actuator(motor 同义词)会召回机械臂模型,与 stepper motor 无关。
+ * 这些源主搜索已足够(全文匹配召回面广),副搜索 ROI 低且稀释主搜索精确结果。
+ */
+const FUZZY_NOISY_SOURCES = new Set([
+  'huggingface',        // 模型搜索:likes 字段语义不同于 stars,同义词泛化后召回大量无关模型
+  'paperswithcode',     // 论文搜索:同义词泛化会召回大量不相关论文
+  'vscode-marketplace', // 扩展搜索:全文匹配,同义词泛化召回不相关扩展
+]);
+
+/**
+ * N11:exclude 过滤 helper。
+ * - 普通 wheel:用 name.toLowerCase() 精确匹配
+ * - github-code wheel:name 是 "owner/repo#path" 格式,额外检查 owner/repo 部分
+ *   场景:AI 想一次性排除整个 facebook/react 仓库的文件级结果,
+ *   传 exclude: ["facebook/react"] 即可排除所有 #path 变体
+ */
+function shouldExclude(wheel: Wheel, excludeSet: Set<string>): boolean {
+  const name = wheel.name.toLowerCase();
+  if (excludeSet.has(name)) return true;
+  // N11:github-code 的 name 是 owner/repo#path,检查 owner/repo 部分
+  if (wheel.source === 'github-code') {
+    const repo = name.split('#')[0];
+    if (excludeSet.has(repo)) return true;
+  }
+  return false;
+}
+
 export function createFindWheelTool(opts: CreateToolOpts) {
   const env = readEnv();
   const cache: Cache = opts.cache ?? createCache({
@@ -100,8 +129,9 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     if (cached) {
       logInfo(`cache hit: query="${input.query}" intent=${intent} ${cached.length} wheels`);
       // 缓存命中后也应用 exclude 过滤(让 AI 能用 exclude 二次筛选缓存结果)
+      // N11:用 shouldExclude helper,支持 github-code 的 owner/repo#path 格式
       const filtered = excludeSet.size > 0
-        ? cached.filter(w => !excludeSet.has(w.name.toLowerCase()))
+        ? cached.filter(w => !shouldExclude(w, excludeSet))
         : cached;
       const output: FindWheelOutput = {
         query: input.query,
@@ -132,8 +162,9 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       finalWheels = await applyFeedback(finalWheels);
     }
     // C 阶段:exclude 过滤(AI 二次筛选不相关项目)
+    // N11:用 shouldExclude helper,支持 github-code 的 owner/repo#path 格式
     if (excludeSet.size > 0) {
-      finalWheels = finalWheels.filter(w => !excludeSet.has(w.name.toLowerCase()));
+      finalWheels = finalWheels.filter(w => !shouldExclude(w, excludeSet));
     }
     // 混合呈现:enrichOpts 配置时对 top 10 预抓取详情,top 3 内联,4-10 加 hasDetails 标记
     // 预抓取失败不阻断主流程(容错);缓存里存的是已内联 details 的 wheels,命中时直接返回
@@ -142,10 +173,16 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     }
     await cache.set(key, finalWheels);
 
-    // 构造输出:仅在路由跳过了源(且未触发兜底扩展)时返回 skippedSources/routingReason
-    // 触发扩展时所有源都搜过了,不再算"跳过"
+    // 构造路由信息输出:
+    // - N13:触发兜底扩展时输出 fallbackExpansion,让 AI 知道召回范围已扩大
+    // - 未触发扩展且路由跳过了源时,输出 skippedSources/routingReason
+    // - 无路由信息时(如 fallback-all 全搜)两者都不输出
     const routingInfo = result.expandedFallback
-      ? undefined  // 扩展后不再报告 skipped(全部源都搜过)
+      ? {
+          fallbackExpansion: {
+            reason: 'top 1 stars < 10 or results < 5, expanded to all sources',
+          },
+        }
       : (result.routing && result.routing.skipped.length > 0
         ? {
             skippedSources: result.routing.skipped,
@@ -218,8 +255,11 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     void _omit;
 
     // O1:严格限流源(github/github-code/gitee/gitlab)跳过副搜索,避免双倍消耗配额。
-    // 副搜索用同义词泛化,与主搜索高度重叠,对限流源 ROI 低。
-    const fuzzyAdapters = selectedAdapters.filter(a => !RATE_LIMITED_SOURCES.has(a.name));
+    // N2:全文搜索型源(huggingface/paperswithcode/vscode-marketplace)也跳过副搜索,
+    // 因为这些源 API 无精确短语语法,同义词泛化后召回噪声大,主搜索已足够。
+    const fuzzyAdapters = selectedAdapters.filter(
+      a => !RATE_LIMITED_SOURCES.has(a.name) && !FUZZY_NOISY_SOURCES.has(a.name),
+    );
 
     // 主搜索(全量源)+ 副搜索(仅宽松源)并行,结果合并去重(由 rank() 的 dedupe 处理)
     const [mainSettled, fuzzySettled] = await Promise.all([
@@ -279,8 +319,10 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       const needsExpansion = totalResults < FALLBACK_MIN_RESULTS || topStars < FALLBACK_TOP_STARS_THRESHOLD;
       if (needsExpansion) {
         logInfo(`fallback expansion triggered: topStars=${topStars} results=${totalResults} → search ${skippedAdapters.length} skipped sources`);
-        // O1:兜底扩展也跳过限流源的副搜索
-        const extFuzzyAdapters = skippedAdapters.filter(a => !RATE_LIMITED_SOURCES.has(a.name));
+        // O1+N2:兜底扩展也跳过限流源和全文噪声源的副搜索
+        const extFuzzyAdapters = skippedAdapters.filter(
+          a => !RATE_LIMITED_SOURCES.has(a.name) && !FUZZY_NOISY_SOURCES.has(a.name),
+        );
         // 搜索被跳过的源,合并结果后重新 rank
         const [extMain, extFuzzy] = await Promise.all([
           Promise.allSettled(skippedAdapters.map(a => a.search(input.query, searchOpts))),
