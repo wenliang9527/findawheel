@@ -132,6 +132,7 @@ export class WebSourceAdapter implements SourceAdapter {
         // - 401/403:Exa key 无效,Tavily key 仍可能有效(独立账号)
         // - 5xx/网络:服务端故障或网络抖动,Tavily 可能仍可用
         // 4xx 非额度问题不在此提前 return,继续走 Tavily fallback
+        logError('exa search failed, falling back to tavily', err);
       }
     }
 

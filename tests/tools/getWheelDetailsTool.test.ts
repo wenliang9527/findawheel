@@ -1,8 +1,6 @@
 // tests/tools/getWheelDetailsTool.test.ts
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
 
 vi.mock('../../src/enrich/wheelDetailsEnricher.js', () => ({
   enrichDetails: vi.fn(),
@@ -12,6 +10,7 @@ import { createGetWheelDetailsTool } from '../../src/tools/getWheelDetailsTool.j
 import { enrichDetails } from '../../src/enrich/wheelDetailsEnricher.js';
 import { createCache } from '../../src/cache/cache.js';
 import type { WheelDetails } from '../../src/enrich/wheelDetailsEnricher.js';
+import { makeTmpDir } from './helpers.js';
 
 const sampleDetails: WheelDetails = {
   name: 'owner/repo',
@@ -23,11 +22,10 @@ const sampleDetails: WheelDetails = {
 };
 
 let tmpDir: string;
-let dirCounter = 0;
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  tmpDir = path.join(os.tmpdir(), `findawheel-details-test-${Date.now()}-${dirCounter++}`);
+  tmpDir = makeTmpDir('findawheel-details-test');
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 

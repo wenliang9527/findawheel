@@ -9,38 +9,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createFindWheelTool } from '../../src/tools/findWheelTool.js';
 import { createCache } from '../../src/cache/cache.js';
-import type { SourceAdapter, SearchOpts } from '../../src/sources/sourceAdapter.js';
 import type { RawResult } from '../../src/normalize/types.js';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
-
-let dirCounter = 0;
-function tmpDir(): string {
-  dirCounter += 1;
-  return path.join(os.tmpdir(), `fw-real-${process.pid}-${dirCounter}`);
-}
-
-function gh(name: string, desc: string, stars: number): RawResult {
-  return {
-    source: 'github', name, url: `https://github.com/${name}`,
-    description: desc, stars, language: null, license: 'MIT',
-    archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
-  } as RawResult;
-}
+import { makeTmpDir, makeMockAdapter, makeGhResult, makeFailingAdapter } from '../tools/helpers.js';
 
 function hf(name: string, desc: string, likes: number, downloads: number): RawResult {
   return {
     source: 'huggingface', name, url: `https://huggingface.co/${name}`,
     description: desc, stars: likes, downloads, lastUpdated: '2025-06-01T00:00:00Z',
   } as RawResult;
-}
-
-function mockAdapter(name: string, results: RawResult[]): SourceAdapter {
-  return {
-    name,
-    async search(_q: string, _o: SearchOpts): Promise<RawResult[]> { return results; },
-  };
 }
 
 describe('G 阶段:实战验证', () => {
@@ -52,10 +29,10 @@ describe('G 阶段:实战验证', () => {
   describe('G1. 串口调试助手场景(中文 query)', () => {
     it('"串口调试" 翻译为 serial debug,能召回英文串口工具', async () => {
       const results = [
-        gh('Neutree/COMTool', 'Cross-platform serial port debug tool', 1200),
-        gh('pyserial/pyserial', 'Python serial port access library', 1500),
+        makeGhResult('Neutree/COMTool', { desc: 'Cross-platform serial port debug tool', stars: 1200 }),
+        makeGhResult('pyserial/pyserial', { desc: 'Python serial port access library', stars: 1500 }),
       ];
-      const tool = createFindWheelTool({ adapters: [mockAdapter('github', results)] });
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results, 'github')] });
       const res = await tool.handle({ query: '串口调试' });
       const payload = JSON.parse(res.content[0].text);
       expect(payload.wheels.length).toBeGreaterThanOrEqual(1);
@@ -65,8 +42,8 @@ describe('G 阶段:实战验证', () => {
     });
 
     it('"serial debug assistant" 召回的项目含 recallReason', async () => {
-      const results = [gh('Neutree/COMTool', 'serial debug assistant tool', 1200)];
-      const tool = createFindWheelTool({ adapters: [mockAdapter('github', results)] });
+      const results = [makeGhResult('Neutree/COMTool', { desc: 'serial debug assistant tool', stars: 1200 })];
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results, 'github')] });
       const res = await tool.handle({ query: 'serial debug assistant' });
       const payload = JSON.parse(res.content[0].text);
       expect(payload.wheels[0].match.recallReason).toBeDefined();
@@ -76,13 +53,13 @@ describe('G 阶段:实战验证', () => {
 
   describe('G2. AI 模型场景(HuggingFace 源混合排序)', () => {
     it('"image segmentation model" 召回 HuggingFace 模型,与 GitHub 项目混合', async () => {
-      const githubResults = [gh('qubvel/segmentation_models', 'Image segmentation models library', 4000)];
+      const githubResults = [makeGhResult('qubvel/segmentation_models', { desc: 'Image segmentation models library', stars: 4000 })];
       const hfResults = [hf('nvidia/segformer-b0-finetuned-ade-512-512', 'semantic-segmentation (transformers)', 200, 50000)];
 
       const tool = createFindWheelTool({
         adapters: [
-          mockAdapter('github', githubResults),
-          mockAdapter('huggingface', hfResults),
+          makeMockAdapter(githubResults, 'github'),
+          makeMockAdapter(hfResults, 'huggingface'),
         ],
       });
       const res = await tool.handle({ query: 'image segmentation model' });
@@ -101,7 +78,7 @@ describe('G 阶段:实战验证', () => {
 
     it('HuggingFace 模型的 recallReason 含 stars(downloads)信息', async () => {
       const hfResults = [hf('bert-base-uncased', 'fill-mask (transformers)', 1500, 50000000)];
-      const tool = createFindWheelTool({ adapters: [mockAdapter('huggingface', hfResults)] });
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(hfResults, 'huggingface')] });
       const res = await tool.handle({ query: 'bert fill mask model' });
       const payload = JSON.parse(res.content[0].text);
       expect(payload.wheels[0].match.recallReason).toBeDefined();
@@ -111,16 +88,16 @@ describe('G 阶段:实战验证', () => {
 
   describe('G3. exclude 参数在缓存路径生效', () => {
     it('第一次未命中缓存 → exclude 过滤 → 写缓存;第二次命中缓存 → exclude 仍过滤', async () => {
-      const dir = tmpDir();
+      const dir = makeTmpDir('fw-real');
       fs.rmSync(dir, { recursive: true, force: true });
       const cache = createCache({ dir, ttlMs: 3600000, enabled: true });
 
       const results = [
-        gh('a/lib1', 'markdown editor', 1000),
-        gh('b/lib2', 'markdown editor', 800),
-        gh('c/lib3', 'markdown editor', 500),
+        makeGhResult('a/lib1', { desc: 'markdown editor', stars: 1000 }),
+        makeGhResult('b/lib2', { desc: 'markdown editor', stars: 800 }),
+        makeGhResult('c/lib3', { desc: 'markdown editor', stars: 500 }),
       ];
-      const tool = createFindWheelTool({ adapters: [mockAdapter('github', results)], cache });
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results, 'github')], cache });
 
       // 第一次:未命中,全返回
       const res1 = await tool.handle({ query: 'markdown editor' });
@@ -142,17 +119,17 @@ describe('G 阶段:实战验证', () => {
     });
 
     it('缓存命中时 exclude 多个 wheel,结果正确过滤', async () => {
-      const dir = tmpDir();
+      const dir = makeTmpDir('fw-real');
       fs.rmSync(dir, { recursive: true, force: true });
       const cache = createCache({ dir, ttlMs: 3600000, enabled: true });
 
       const results = [
-        gh('a/lib1', 'markdown editor', 1000),
-        gh('b/lib2', 'markdown editor', 800),
-        gh('c/lib3', 'markdown editor', 500),
-        gh('d/lib4', 'markdown editor', 300),
+        makeGhResult('a/lib1', { desc: 'markdown editor', stars: 1000 }),
+        makeGhResult('b/lib2', { desc: 'markdown editor', stars: 800 }),
+        makeGhResult('c/lib3', { desc: 'markdown editor', stars: 500 }),
+        makeGhResult('d/lib4', { desc: 'markdown editor', stars: 300 }),
       ];
-      const tool = createFindWheelTool({ adapters: [mockAdapter('github', results)], cache });
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results, 'github')], cache });
 
       // 先填充缓存
       await tool.handle({ query: 'markdown editor' });
@@ -173,8 +150,8 @@ describe('G 阶段:实战验证', () => {
 
   describe('G4. recallReason 在边界场景的表现', () => {
     it('零命中且 stars=0 时 recallReason 提示可能不相关', async () => {
-      const results = [gh('unrelated/project', 'completely unrelated', 0)];
-      const tool = createFindWheelTool({ adapters: [mockAdapter('github', results)] });
+      const results = [makeGhResult('unrelated/project', { desc: 'completely unrelated', stars: 0 })];
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results, 'github')] });
       const res = await tool.handle({ query: 'markdown editor' });
       const payload = JSON.parse(res.content[0].text);
       const recall = payload.wheels[0].match.recallReason;
@@ -184,8 +161,8 @@ describe('G 阶段:实战验证', () => {
 
     it('命中多个关键词时 recallReason 只取前 3 个', async () => {
       // description 含 5 个 query 词,recallReason 只显示前 3 个
-      const results = [gh('a/super-lib', 'markdown editor pdf converter cli tool', 1000)];
-      const tool = createFindWheelTool({ adapters: [mockAdapter('github', results)] });
+      const results = [makeGhResult('a/super-lib', { desc: 'markdown editor pdf converter cli tool', stars: 1000 })];
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results, 'github')] });
       const res = await tool.handle({ query: 'markdown editor pdf converter cli tool' });
       const payload = JSON.parse(res.content[0].text);
       const recall = payload.wheels[0].match.recallReason;
@@ -202,8 +179,8 @@ describe('G 阶段:实战验证', () => {
       // 如果 schema 没加 exclude,会返回 zod 错误
       // 由于这里直接测 tool.handle(绕过 server.ts 的 schema),
       // 真正的 schema 验证在 server.ts 层,这里用单元测试补
-      const results = [gh('a/lib', 'markdown editor', 1000)];
-      const tool = createFindWheelTool({ adapters: [mockAdapter('github', results)] });
+      const results = [makeGhResult('a/lib', { desc: 'markdown editor', stars: 1000 })];
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results, 'github')] });
       const res = await tool.handle({
         query: 'markdown editor',
         exclude: ['a/lib'],
@@ -217,15 +194,11 @@ describe('G 阶段:实战验证', () => {
 
   describe('G6. 多源降级场景', () => {
     it('HuggingFace 源失败时,其他源结果正常返回', async () => {
-      const githubResults = [gh('a/ml-lib', 'image segmentation library', 2000)];
-      const failingHfAdapter: SourceAdapter = {
-        name: 'huggingface',
-        async search(): Promise<RawResult[]> { throw new Error('hf API down'); },
-      };
+      const githubResults = [makeGhResult('a/ml-lib', { desc: 'image segmentation library', stars: 2000 })];
       const tool = createFindWheelTool({
         adapters: [
-          mockAdapter('github', githubResults),
-          failingHfAdapter,
+          makeMockAdapter(githubResults, 'github'),
+          makeFailingAdapter('huggingface'),
         ],
       });
       const res = await tool.handle({ query: 'image segmentation' });

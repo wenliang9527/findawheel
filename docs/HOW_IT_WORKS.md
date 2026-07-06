@@ -1314,7 +1314,7 @@ findawheel 注册了五个工具：
 | 硬规则相关性过滤 | Phase 6 已删除——判断交给 AI 调用方（RAG 范式） |
 | 领域特化配置表 | Phase 6 已删除 DOMAINS/GENERIC_WORDS/STARS_DENOMINATOR——统一处理 |
 
-> ✅ **Phase 6 简化（RAG 范式）**：findawheel 重新定位为"AI 编程的上下文增强器"。检索器只负责召回，相关性判断交给 AI。删除了 isMissingCoreConcept / isReverseIntent 等硬过滤函数、6 领域配置表、embedded 4 处特殊逻辑。保留翻译表/同义词表/ACTION_VERBS/feedback 加权/详情预抓取/硬件 ecosystem 推荐等纯增益机制。473 测试全通过。
+> ✅ **Phase 6 简化（RAG 范式）**：findawheel 重新定位为"AI 编程的上下文增强器"。检索器只负责召回，相关性判断交给 AI。删除了 isMissingCoreConcept / isReverseIntent 等硬过滤函数、6 领域配置表、embedded 4 处特殊逻辑。保留翻译表/同义词表/ACTION_VERBS/feedback 加权/详情预抓取/硬件 ecosystem 推荐等纯增益机制。585 测试全通过。
 
 这些会在三期按需加入，见 [README 路线图](../README.md#-路线图)。
 
@@ -1328,8 +1328,6 @@ findawheel 注册了五个工具：
 |:---:|:-----|:-----|
 | 🏠 | [README](../README.md) | 项目总览 |
 | 📖 | [使用指南](./USAGE.md) | 下载、安装、配置、使用 |
-| 📐 | [设计规格](./superpowers/specs/2026-07-02-findawheel-design.md) | 完整设计决策记录 |
-| 📝 | [实现计划](./superpowers/plans/2026-07-02-findawheel.md) | 16 个任务的 TDD 步骤 |
 | 🌐 | [MCP 协议官网](https://modelcontextprotocol.io/) | 理解 MCP 协议本身 |
 
 </div>

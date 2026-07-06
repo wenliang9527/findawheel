@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-1.29-orange.svg?style=flat-square)](https://modelcontextprotocol.io/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](./)
-[![Tests](https://img.shields.io/badge/tests-516%2F516-brightgreen.svg?style=flat-square)](./)
+[![Tests](https://img.shields.io/badge/tests-585%2F585-brightgreen.svg?style=flat-square)](./)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](./LICENSE)
 
 </div>
@@ -24,7 +24,7 @@
 |:---:|:-----|:-----|
 | 🎯 | [Introduction](#-introduction) | What is findawheel |
 | 🤔 | [Why](#-why) | The problem it solves |
-| ✨ | [Core Features](#-core-features) | Seven capabilities |
+| ✨ | [Core Features](#-core-features) | Eight capabilities |
 | 🚀 | [Quick Start](#-quick-start) | Three steps |
 | ⚡ | [Quick Trigger](#-quick-trigger-user-spells) | Force-trigger when AI doesn't auto-call |
 | 🤖 | [Connect to AI Client](#-connect-to-ai-client) | Trae / Cursor / Claude |
@@ -165,6 +165,10 @@ Restart your client, describe your idea in conversation, and the AI will automat
 | `FINDAWHEEL_LIMIT` | no | `20` | Default result count. |
 | `FINDAWHEEL_TIMEOUT_MS` | no | `8000` | Per-source timeout (ms). |
 | `FINDAWHEEL_LOG_LEVEL` | no | `info` | `error` \| `warn` \| `info` \| `debug`. |
+| `FINDAWHEEL_KB_ENABLED` | No | `false` | Enable the `search_knowledge` tool (searches local Markdown knowledge base). When `true`, also set `FINDAWHEEL_KB_ROOT`. See [USAGE.md §3.6](./docs/USAGE.md). |
+| `FINDAWHEEL_KB_ROOT` | No | — | Knowledge base root directory (comma-separated for multiple vaults). E.g., `/path/to/obsidian-vault` or `D:\notes,D:\docs`. Only effective when `FINDAWHEEL_KB_ENABLED=true`. |
+| `FINDAWHEEL_KB_MAX_FILE_KB` | No | `100` | Max single .md file size in KB; larger files are skipped to keep scanning fast. |
+| `FINDAWHEEL_KB_CACHE_ENABLED` | No | `false` | Enable knowledge base search cache (shares `cacheDir` with `find_wheel` but with isolated `kb:` key prefix). TTL follows `FINDAWHEEL_CACHE_TTL_MS`. |
 
 ---
 

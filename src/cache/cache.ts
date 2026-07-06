@@ -4,9 +4,9 @@
 import type { Wheel } from '../normalize/types.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as crypto from 'node:crypto';
 import { z } from 'zod';
 import { logError } from '../util/logger.js';
+import { sha1Short } from '../util/hash.js';
 
 export interface CacheOpts {
   /** 缓存目录(磁盘持久化) */
@@ -40,7 +40,7 @@ export function cacheKey(
   query: string, intent: string, ecosystem: string | undefined, limit: number,
 ): string {
   const raw = `${query}|${intent}|${ecosystem ?? ''}|${limit}`;
-  return crypto.createHash('sha1').update(raw).digest('hex').slice(0, 24);
+  return sha1Short(raw);
 }
 
 export interface Cache<T = Wheel[]> {

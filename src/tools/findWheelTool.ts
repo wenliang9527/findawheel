@@ -224,14 +224,17 @@ export function createFindWheelTool(opts: CreateToolOpts) {
         // 副搜索(同义词泛化)只能补充召回,不能替代主搜索的精确性。
         // AI 需要知道哪些源的主搜索失败了,以便判断结果是否可信。
         degraded.push(name);
+        logError(`${name} main search failed`, r.reason);
       }
     }
     // 收集副搜索结果(追加到 allRaw,后续 dedupe 会按 name 去重)
     for (const r of fuzzySettled) {
       if (r.status === 'fulfilled') {
         allRaw.push(...r.value);
+      } else {
+        // 副搜索失败不影响 allFailed 判定,但记录错误原因便于诊断
+        logError('fuzzy search failed', r.reason);
       }
-      // 副搜索失败不影响 allFailed 判定(allFailed 只看主搜索)
     }
 
     if (allFailed) {
@@ -271,10 +274,12 @@ export function createFindWheelTool(opts: CreateToolOpts) {
             // 扩展阶段失败的源也加入 degraded(让 AI 知道哪些源不可用)
             const name = skippedAdapters[i].name;
             if (!degraded.includes(name)) degraded.push(name);
+            logError(`${name} fallback search failed`, r.reason);
           }
         }
         for (const r of extFuzzy) {
           if (r.status === 'fulfilled') extRaw.push(...r.value);
+          else logError('fallback fuzzy search failed', r.reason);
         }
         if (extRaw.length > 0) {
           // 合并扩展结果到主结果,重新 rank
@@ -338,7 +343,11 @@ async function enrichTopWheels(
 
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
-    if (r.status !== 'fulfilled') continue; // 抓取失败:跳过,不加标记
+    if (r.status !== 'fulfilled') {
+      // 详情抓取失败:记录原因便于诊断(rate limit/网络错误等),不阻断其他 wheel
+      logError(`details prefetch failed for ${top[i].name}`, r.reason);
+      continue;
+    }
     const details = r.value;
     if (!details) continue; // 非 GitHub 源:跳过,不加标记
 

@@ -6,9 +6,9 @@ import {
   type EnrichDetailsOpts,
 } from '../enrich/wheelDetailsEnricher.js';
 import { type Cache } from '../cache/cache.js';
-import * as crypto from 'node:crypto';
 import type { McpToolResult } from './types.js';
 import { isValidOwnerRepo } from '../util/nameValidator.js';
+import { sha1Short } from '../util/hash.js';
 
 export interface GetWheelDetailsInput {
   /** GitHub 仓库标识,owner/repo 格式 */
@@ -24,7 +24,7 @@ export interface CreateGetWheelDetailsToolOpts {
 
 /** 计算 details cache key:sha1("details:" + name) */
 export function detailsCacheKey(name: string): string {
-  return crypto.createHash('sha1').update(`details:${name}`).digest('hex').slice(0, 24);
+  return sha1Short(`details:${name}`);
 }
 
 /**

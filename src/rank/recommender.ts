@@ -89,7 +89,7 @@ export function computeMatch(
 
   const score = relevanceScore + popularityScore + activityScore;
   const recommendation = gradeRecommendation(score, stars);
-  const reason = buildReason(wheel, matchedKeywords, queryKeywords, recommendation);
+  const reason = buildReason(wheel, matchedKeywords, queryKeywords);
   const recallReason = buildRecallReason(matchedKeywords, stars, activity);
 
   return { score, recommendation, reason, matchedKeywords, recallReason };
@@ -176,7 +176,6 @@ function buildReason(
   wheel: Wheel,
   matchedKeywords: string[],
   queryKeywords: string[],
-  _recommendation: Recommendation,
 ): string {
   const parts: string[] = [];
   const hitRate = queryKeywords.length > 0

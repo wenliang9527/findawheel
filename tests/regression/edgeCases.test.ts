@@ -8,8 +8,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { computeMatch, enrichWithMatch } from '../../src/rank/recommender.js';
 import { HuggingfaceSourceAdapter } from '../../src/sources/huggingfaceSourceAdapter.js';
 import { createFindWheelTool } from '../../src/tools/findWheelTool.js';
-import type { SourceAdapter, SearchOpts } from '../../src/sources/sourceAdapter.js';
+import type { SearchOpts } from '../../src/sources/sourceAdapter.js';
 import type { RawResult, Wheel } from '../../src/normalize/types.js';
+import { makeMockAdapter, makeGhResult } from '../tools/helpers.js';
 
 vi.mock('../../src/util/http.js', () => ({
   httpGet: vi.fn(),
@@ -32,21 +33,6 @@ function makeWheel(over: Partial<Wheel> = {}): Wheel {
   };
 }
 
-function gh(name: string, desc: string, stars: number): RawResult {
-  return {
-    source: 'github', name, url: `https://github.com/${name}`,
-    description: desc, stars, language: null, license: 'MIT',
-    archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
-  } as RawResult;
-}
-
-function mockAdapter(name: string, results: RawResult[]): SourceAdapter {
-  return {
-    name,
-    async search(_q: string, _o: SearchOpts): Promise<RawResult[]> { return results; },
-  };
-}
-
 const baseOpts: SearchOpts = { intent: 'project', timeoutMs: 5000 };
 
 describe('K 阶段:边界场景覆盖', () => {
@@ -58,7 +44,7 @@ describe('K 阶段:边界场景覆盖', () => {
   describe('K1. HuggingFace 异常数据容错', () => {
     it('模型对象缺少 id 字段时容错(不崩溃)', async () => {
       // 异常:返回的对象没有 id 字段
-      (httpGet as any).mockResolvedValue([
+      vi.mocked(httpGet).mockResolvedValue([
         { downloads: 100, likes: 5 }, // 缺 id
       ]);
 
@@ -71,7 +57,7 @@ describe('K 阶段:边界场景覆盖', () => {
     });
 
     it('API 返回 null 时容错为空数组', async () => {
-      (httpGet as any).mockResolvedValue(null);
+      vi.mocked(httpGet).mockResolvedValue(null);
 
       const adapter = new HuggingfaceSourceAdapter();
       const results = await adapter.search('test', baseOpts);
@@ -79,7 +65,7 @@ describe('K 阶段:边界场景覆盖', () => {
     });
 
     it('模型 tags 是非数组类型时容错', async () => {
-      (httpGet as any).mockResolvedValue([
+      vi.mocked(httpGet).mockResolvedValue([
         {
           id: 'bad-tags-model',
           downloads: 100,
@@ -97,7 +83,7 @@ describe('K 阶段:边界场景覆盖', () => {
     });
 
     it('lastModified 是无效日期字符串时 lastUpdated 为空', async () => {
-      (httpGet as any).mockResolvedValue([
+      vi.mocked(httpGet).mockResolvedValue([
         {
           id: 'bad-date-model',
           downloads: 100,
@@ -169,10 +155,10 @@ describe('K 阶段:边界场景覆盖', () => {
   describe('K3. exclude 参数边界场景', () => {
     it('exclude 空数组时不过滤任何结果', async () => {
       const results = [
-        gh('a/lib1', 'markdown editor', 1000),
-        gh('b/lib2', 'markdown editor', 800),
+        makeGhResult('a/lib1', { desc: 'markdown editor', stars: 1000 }),
+        makeGhResult('b/lib2', { desc: 'markdown editor', stars: 800 }),
       ];
-      const tool = createFindWheelTool({ adapters: [mockAdapter('github', results)] });
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results, 'github')] });
       const res = await tool.handle({
         query: 'markdown editor',
         exclude: [],
@@ -183,10 +169,10 @@ describe('K 阶段:边界场景覆盖', () => {
 
     it('exclude 排除所有结果时返回空数组,total=0', async () => {
       const results = [
-        gh('a/lib1', 'markdown editor', 1000),
-        gh('b/lib2', 'markdown editor', 800),
+        makeGhResult('a/lib1', { desc: 'markdown editor', stars: 1000 }),
+        makeGhResult('b/lib2', { desc: 'markdown editor', stars: 800 }),
       ];
-      const tool = createFindWheelTool({ adapters: [mockAdapter('github', results)] });
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results, 'github')] });
       const res = await tool.handle({
         query: 'markdown editor',
         exclude: ['a/lib1', 'b/lib2'],
@@ -199,8 +185,8 @@ describe('K 阶段:边界场景覆盖', () => {
     });
 
     it('exclude 含重复 name 时正常过滤(去重后匹配)', async () => {
-      const results = [gh('a/lib1', 'markdown editor', 1000)];
-      const tool = createFindWheelTool({ adapters: [mockAdapter('github', results)] });
+      const results = [makeGhResult('a/lib1', { desc: 'markdown editor', stars: 1000 })];
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results, 'github')] });
       const res = await tool.handle({
         query: 'markdown editor',
         exclude: ['a/lib1', 'a/lib1', 'a/lib1'],
@@ -212,7 +198,7 @@ describe('K 阶段:边界场景覆盖', () => {
 
   describe('K4. 多源混合时 recallReason 一致性', () => {
     it('GitHub 源和 HuggingFace 源的 recallReason 格式一致', async () => {
-      const githubResult = gh('a/ml-lib', 'image segmentation library', 4000);
+      const githubResult = makeGhResult('a/ml-lib', { desc: 'image segmentation library', stars: 4000 });
       const hfResult: RawResult = {
         source: 'huggingface', name: 'org/seg-model',
         url: 'https://huggingface.co/org/seg-model',
@@ -222,8 +208,8 @@ describe('K 阶段:边界场景覆盖', () => {
 
       const tool = createFindWheelTool({
         adapters: [
-          mockAdapter('github', [githubResult]),
-          mockAdapter('huggingface', [hfResult]),
+          makeMockAdapter([githubResult], 'github'),
+          makeMockAdapter([hfResult], 'huggingface'),
         ],
       });
       const res = await tool.handle({ query: 'image segmentation' });

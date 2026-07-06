@@ -5,6 +5,7 @@ import { fetchLatestRelease, type LatestRelease } from './releaseFetcher.js';
 import { extractCodeSnippets, type CodeSnippet } from './codeSnippetExtractor.js';
 import { checkLicenseCompatibility, type LicenseCheck } from './licenseCompatibility.js';
 import { isValidOwnerRepo } from '../util/nameValidator.js';
+import { logError } from '../util/logger.js';
 
 export interface WheelDetails {
   /** 所属 wheel 标识（GitHub 源为 owner/repo） */
@@ -56,8 +57,12 @@ export async function enrichDetails(
     fetchLatestRelease(repo, { timeoutMs: opts.timeoutMs, githubToken: opts.githubToken }),
   ]);
 
-  const readmeSnippet = readmeResult.status === 'fulfilled' ? readmeResult.value : '';
-  const release = releaseResult.status === 'fulfilled' ? releaseResult.value : null;
+  const readmeSnippet = readmeResult.status === 'fulfilled'
+    ? readmeResult.value
+    : (logError(`readme fetch failed for ${wheel.name}`, readmeResult.reason), '');
+  const release = releaseResult.status === 'fulfilled'
+    ? releaseResult.value
+    : (logError(`release fetch failed for ${wheel.name}`, releaseResult.reason), null);
   const codeExamples = readmeSnippet ? extractCodeSnippets(readmeSnippet) : [];
 
   const details: WheelDetails = {

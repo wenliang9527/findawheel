@@ -3,15 +3,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createCache, cacheKey } from '../../src/cache/cache.js';
 import type { Wheel } from '../../src/normalize/types.js';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
+import { makeTmpDir } from '../tools/helpers.js';
 
 // 每个用例用独立子目录,避免并行测试互相干扰
 let tmpDir: string;
-let dirCounter = 0;
 
 beforeEach(() => {
-  tmpDir = path.join(os.tmpdir(), `findawheel-test-${Date.now()}-${dirCounter++}`);
+  tmpDir = makeTmpDir('findawheel-test');
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -69,7 +67,7 @@ describe('createCache', () => {
     await cache.set('key-1', [sampleWheel]);
     expect(await cache.get('key-1')).toBeUndefined();
     // 不应写文件
-    expect(fs.existsSync(path.join(tmpDir, 'key-1.json'))).toBe(false);
+    expect(fs.existsSync(`${tmpDir}/key-1.json`)).toBe(false);
   });
 
   describe('dedupe', () => {

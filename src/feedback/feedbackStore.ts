@@ -4,9 +4,9 @@
 // 与 cache/ 分离: 反馈是持久用户数据, 不参与 TTL 过期。
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as crypto from 'node:crypto';
 import { z } from 'zod';
 import { logError, logInfo } from '../util/logger.js';
+import { sha1Short } from '../util/hash.js';
 
 /** 反馈动作类型 */
 export type FeedbackAction = 'like' | 'hide' | 'click';
@@ -82,7 +82,7 @@ export interface FeedbackStoreOpts {
 
 /** 计算 feedback 文件名: feedback-<sha1(name)[0..24]>.json */
 export function feedbackFileKey(name: string): string {
-  return 'feedback-' + crypto.createHash('sha1').update(name).digest('hex').slice(0, 24);
+  return 'feedback-' + sha1Short(name);
 }
 
 /**

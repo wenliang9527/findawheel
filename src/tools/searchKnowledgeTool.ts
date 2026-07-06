@@ -9,7 +9,7 @@
 import { searchKnowledgeBase, type KnowledgeItem, type KbType } from '../sources/knowledgeSourceAdapter.js';
 import type { EnvConfig } from '../util/env.js';
 import { BASE_STOPWORDS } from '../util/stopwords.js';
-import * as crypto from 'node:crypto';
+import { sha1Short } from '../util/hash.js';
 
 export interface SearchKnowledgeInput {
   query: string;
@@ -40,7 +40,7 @@ function kbCacheKey(
   maxFileKb: number,
 ): string {
   const raw = `${kbRoots.join(',')}|${keywords.join(',')}|${limit}|${maxFileKb}`;
-  return 'kb:' + crypto.createHash('sha1').update(raw).digest('hex').slice(0, 24);
+  return 'kb:' + sha1Short(raw);
 }
 
 export interface SearchKnowledgeToolOpts {

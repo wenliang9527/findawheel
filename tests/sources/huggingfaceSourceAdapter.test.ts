@@ -15,7 +15,7 @@ vi.mock('../../src/util/http.js', () => ({
   },
 }));
 
-import { httpGet } from '../../src/util/http.js';
+import { httpGet, HttpError } from '../../src/util/http.js';
 
 const baseOpts: SearchOpts = {
   intent: 'project',
@@ -39,7 +39,7 @@ describe('HuggingfaceSourceAdapter', () => {
         tags: ['pytorch', 'tf', 'bert'],
       },
     ];
-    (httpGet as any).mockResolvedValue(mockResponse);
+    vi.mocked(httpGet).mockResolvedValue(mockResponse);
 
     const adapter = new HuggingfaceSourceAdapter();
     const results = await adapter.search('bert fill mask', baseOpts);
@@ -65,7 +65,7 @@ describe('HuggingfaceSourceAdapter', () => {
         tags: [],
       },
     ];
-    (httpGet as any).mockResolvedValue(mockResponse);
+    vi.mocked(httpGet).mockResolvedValue(mockResponse);
 
     const adapter = new HuggingfaceSourceAdapter();
     const results = await adapter.search('text generation', baseOpts);
@@ -84,7 +84,7 @@ describe('HuggingfaceSourceAdapter', () => {
         tags: ['tag1', 'tag2', 'tag3', 'tag4', 'tag5', 'tag6', 'tag7'],
       },
     ];
-    (httpGet as any).mockResolvedValue(mockResponse);
+    vi.mocked(httpGet).mockResolvedValue(mockResponse);
 
     const adapter = new HuggingfaceSourceAdapter();
     const results = await adapter.search('model', baseOpts);
@@ -95,7 +95,7 @@ describe('HuggingfaceSourceAdapter', () => {
   });
 
   it('空结果时返回空数组', async () => {
-    (httpGet as any).mockResolvedValue([]);
+    vi.mocked(httpGet).mockResolvedValue([]);
 
     const adapter = new HuggingfaceSourceAdapter();
     const results = await adapter.search('nonexistent', baseOpts);
@@ -105,7 +105,7 @@ describe('HuggingfaceSourceAdapter', () => {
 
   it('API 返回非数组时容错为空数组', async () => {
     // 异常情况:API 返回了对象而非数组
-    (httpGet as any).mockResolvedValue({ results: [] });
+    vi.mocked(httpGet).mockResolvedValue({ results: [] });
 
     const adapter = new HuggingfaceSourceAdapter();
     const results = await adapter.search('test', baseOpts);
@@ -120,7 +120,7 @@ describe('HuggingfaceSourceAdapter', () => {
         // 缺少 downloads/likes/lastModified/tags
       },
     ];
-    (httpGet as any).mockResolvedValue(mockResponse);
+    vi.mocked(httpGet).mockResolvedValue(mockResponse);
 
     const adapter = new HuggingfaceSourceAdapter();
     const results = await adapter.search('minimal', baseOpts);
@@ -133,20 +133,19 @@ describe('HuggingfaceSourceAdapter', () => {
   });
 
   it('HTTP 错误时抛 SourceError', async () => {
-    const { HttpError } = await import('../../src/util/http.js');
-    (httpGet as any).mockRejectedValue(new (HttpError as any)(500, 'https://huggingface.co/api/models', 'server error'));
+    vi.mocked(httpGet).mockRejectedValue(new HttpError(500, 'https://huggingface.co/api/models', 'server error'));
 
     const adapter = new HuggingfaceSourceAdapter();
     await expect(adapter.search('test', baseOpts)).rejects.toThrow();
   });
 
   it('URL 含 search/limit/sort 参数', async () => {
-    (httpGet as any).mockResolvedValue([]);
+    vi.mocked(httpGet).mockResolvedValue([]);
 
     const adapter = new HuggingfaceSourceAdapter();
     await adapter.search('image segmentation', baseOpts);
 
-    const calledUrl = (httpGet as any).mock.calls[0][0];
+    const calledUrl = vi.mocked(httpGet).mock.calls[0][0];
     expect(calledUrl).toContain('search=image+segmentation');
     expect(calledUrl).toContain('limit=20');
     expect(calledUrl).toContain('sort=downloads');

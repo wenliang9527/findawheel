@@ -324,7 +324,7 @@ export function parseQuery(query: string): ParsedQuery {
   // 5. 生成 fuzzyQuery:用同义词/上位词泛化,用于副搜索扩大召回
   const fuzzyWords = allWords.map(w => {
     const syns = SYNONYMS[w];
-    // 70% 概率用同义词,30% 保留原词(避免完全偏离原意)
+    // 优先取第一个同义词(通常是最佳泛化词);无同义词时保留原词
     return syns && syns.length > 0 ? syns[0] : w;
   });
   const fuzzyQuery = fuzzyWords.join(' ');

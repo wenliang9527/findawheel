@@ -51,7 +51,7 @@ describe('GiteeSourceAdapter.search', () => {
   });
 
   it('基本调用:解析 GiteeSearchResponse 为 RawResult[]', async () => {
-    (httpGet as any).mockResolvedValue(sampleGiteeResponse());
+    vi.mocked(httpGet).mockResolvedValue(sampleGiteeResponse());
 
     const adapter = new GiteeSourceAdapter();
     const results = await adapter.search('markdown editor', baseOpts);
@@ -59,11 +59,11 @@ describe('GiteeSourceAdapter.search', () => {
     expect(results).toHaveLength(1);
     // 校验 httpGet 被调用一次,且是字符串 URL
     expect(httpGet).toHaveBeenCalledTimes(1);
-    expect(typeof (httpGet as any).mock.calls[0][0]).toBe('string');
+    expect(typeof vi.mocked(httpGet).mock.calls[0][0]).toBe('string');
   });
 
   it('字段映射正确:name/url/description/stars/language/license/updatedAt/humanName', async () => {
-    (httpGet as any).mockResolvedValue(sampleGiteeResponse());
+    vi.mocked(httpGet).mockResolvedValue(sampleGiteeResponse());
 
     const adapter = new GiteeSourceAdapter();
     const results = await adapter.search('markdown editor', baseOpts);
@@ -97,7 +97,7 @@ describe('GiteeSourceAdapter.search', () => {
         },
       ],
     };
-    (httpGet as any).mockResolvedValue(resp);
+    vi.mocked(httpGet).mockResolvedValue(resp);
 
     const adapter = new GiteeSourceAdapter();
     const results = await adapter.search('foo', baseOpts);
@@ -108,12 +108,12 @@ describe('GiteeSourceAdapter.search', () => {
   });
 
   it('URL 含 q/sort/order/per_page 参数,且走 /api/v5/search/repositories', async () => {
-    (httpGet as any).mockResolvedValue({ items: [] });
+    vi.mocked(httpGet).mockResolvedValue({ items: [] });
 
     const adapter = new GiteeSourceAdapter();
     await adapter.search('markdown editor', baseOpts);
 
-    const calledUrl = new URL((httpGet as any).mock.calls[0][0] as string);
+    const calledUrl = new URL(vi.mocked(httpGet).mock.calls[0][0] as string);
     expect(calledUrl.pathname).toBe('/api/v5/search/repositories');
     expect(calledUrl.searchParams.get('q')).toBe('markdown editor');
     expect(calledUrl.searchParams.get('sort')).toBe('stars');
@@ -126,58 +126,58 @@ describe('GiteeSourceAdapter.search', () => {
   });
 
   it('ecosystem=js → language=JavaScript', async () => {
-    (httpGet as any).mockResolvedValue({ items: [] });
+    vi.mocked(httpGet).mockResolvedValue({ items: [] });
 
     const adapter = new GiteeSourceAdapter();
     await adapter.search('editor', { ...baseOpts, ecosystem: 'js' });
 
-    const calledUrl = new URL((httpGet as any).mock.calls[0][0] as string);
+    const calledUrl = new URL(vi.mocked(httpGet).mock.calls[0][0] as string);
     expect(calledUrl.searchParams.get('language')).toBe('JavaScript');
   });
 
   it('ecosystem=python → language=Python', async () => {
-    (httpGet as any).mockResolvedValue({ items: [] });
+    vi.mocked(httpGet).mockResolvedValue({ items: [] });
 
     const adapter = new GiteeSourceAdapter();
     await adapter.search('parse', { ...baseOpts, ecosystem: 'python' });
 
-    const calledUrl = new URL((httpGet as any).mock.calls[0][0] as string);
+    const calledUrl = new URL(vi.mocked(httpGet).mock.calls[0][0] as string);
     expect(calledUrl.searchParams.get('language')).toBe('Python');
   });
 
   it('ecosystem=cpp → language=C++', async () => {
-    (httpGet as any).mockResolvedValue({ items: [] });
+    vi.mocked(httpGet).mockResolvedValue({ items: [] });
 
     const adapter = new GiteeSourceAdapter();
     await adapter.search('stepper', { ...baseOpts, ecosystem: 'cpp' });
 
-    const calledUrl = new URL((httpGet as any).mock.calls[0][0] as string);
+    const calledUrl = new URL(vi.mocked(httpGet).mock.calls[0][0] as string);
     expect(calledUrl.searchParams.get('language')).toBe('C++');
   });
 
   it('ecosystem=arduino → language=Arduino', async () => {
-    (httpGet as any).mockResolvedValue({ items: [] });
+    vi.mocked(httpGet).mockResolvedValue({ items: [] });
 
     const adapter = new GiteeSourceAdapter();
     await adapter.search('sensor', { ...baseOpts, ecosystem: 'arduino' });
 
-    const calledUrl = new URL((httpGet as any).mock.calls[0][0] as string);
+    const calledUrl = new URL(vi.mocked(httpGet).mock.calls[0][0] as string);
     expect(calledUrl.searchParams.get('language')).toBe('Arduino');
   });
 
   it('ecosystem=c 不映射(不传 language,符合 ECOSYSTEM_LANG 表)', async () => {
     // ECOSYSTEM_LANG 故意不含 'c':单片机 C 项目语言标注混乱
-    (httpGet as any).mockResolvedValue({ items: [] });
+    vi.mocked(httpGet).mockResolvedValue({ items: [] });
 
     const adapter = new GiteeSourceAdapter();
     await adapter.search('motor', { ...baseOpts, ecosystem: 'c' });
 
-    const calledUrl = new URL((httpGet as any).mock.calls[0][0] as string);
+    const calledUrl = new URL(vi.mocked(httpGet).mock.calls[0][0] as string);
     expect(calledUrl.searchParams.has('language')).toBe(false);
   });
 
   it('空结果(空 items 数组)返回空数组', async () => {
-    (httpGet as any).mockResolvedValue({ total_count: 0, items: [] });
+    vi.mocked(httpGet).mockResolvedValue({ total_count: 0, items: [] });
 
     const adapter = new GiteeSourceAdapter();
     const results = await adapter.search('nonexistent', baseOpts);
@@ -187,7 +187,7 @@ describe('GiteeSourceAdapter.search', () => {
 
   it('items 缺失时容错为空数组', async () => {
     // 异常情况:响应里没有 items 字段
-    (httpGet as any).mockResolvedValue({ total_count: 0 });
+    vi.mocked(httpGet).mockResolvedValue({ total_count: 0 });
 
     const adapter = new GiteeSourceAdapter();
     const results = await adapter.search('whatever', baseOpts);
@@ -196,7 +196,7 @@ describe('GiteeSourceAdapter.search', () => {
   });
 
   it('限流错误(403)抛 RateLimitError', async () => {
-    (httpGet as any).mockRejectedValue(
+    vi.mocked(httpGet).mockRejectedValue(
       new HttpError(403, 'https://gitee.com/api/v5/search/repositories', 'rate limited'),
     );
 
@@ -205,7 +205,7 @@ describe('GiteeSourceAdapter.search', () => {
   });
 
   it('其他 HttpError 抛 SourceError(如 500)', async () => {
-    (httpGet as any).mockRejectedValue(
+    vi.mocked(httpGet).mockRejectedValue(
       new HttpError(500, 'https://gitee.com/api/v5/search/repositories', 'server error'),
     );
 
@@ -215,7 +215,7 @@ describe('GiteeSourceAdapter.search', () => {
   });
 
   it('404 HttpError 抛 SourceError 含 HTTP 404', async () => {
-    (httpGet as any).mockRejectedValue(
+    vi.mocked(httpGet).mockRejectedValue(
       new HttpError(404, 'https://gitee.com/api/v5/search/repositories', 'not found'),
     );
 
@@ -224,7 +224,7 @@ describe('GiteeSourceAdapter.search', () => {
   });
 
   it('非 HttpError 异常包装成 SourceError', async () => {
-    (httpGet as any).mockRejectedValue(new Error('network down'));
+    vi.mocked(httpGet).mockRejectedValue(new Error('network down'));
 
     const adapter = new GiteeSourceAdapter();
     await expect(adapter.search('x', baseOpts)).rejects.toBeInstanceOf(SourceError);
@@ -232,18 +232,18 @@ describe('GiteeSourceAdapter.search', () => {
   });
 
   it('token 注入:传 giteeToken 时 URL 带 access_token 查询参数', async () => {
-    (httpGet as any).mockResolvedValue({ items: [] });
+    vi.mocked(httpGet).mockResolvedValue({ items: [] });
 
     const adapter = new GiteeSourceAdapter();
     await adapter.search('editor', { ...baseOpts, giteeToken: 'gitee_token_xxx' });
 
-    const calledUrl = new URL((httpGet as any).mock.calls[0][0] as string);
+    const calledUrl = new URL(vi.mocked(httpGet).mock.calls[0][0] as string);
     // Gitee API v5 标准做法:access_token 作为 query 参数(非 Authorization header)
     expect(calledUrl.searchParams.get('access_token')).toBe('gitee_token_xxx');
   });
 
   it('parsedQuery.expandedQuery 优先于 translateQuery', async () => {
-    (httpGet as any).mockResolvedValue({ items: [] });
+    vi.mocked(httpGet).mockResolvedValue({ items: [] });
 
     const adapter = new GiteeSourceAdapter();
     await adapter.search('原文 query', {
@@ -257,7 +257,7 @@ describe('GiteeSourceAdapter.search', () => {
       } as any,
     });
 
-    const calledUrl = new URL((httpGet as any).mock.calls[0][0] as string);
+    const calledUrl = new URL(vi.mocked(httpGet).mock.calls[0][0] as string);
     expect(calledUrl.searchParams.get('q')).toBe('custom expanded query');
   });
 });

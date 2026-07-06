@@ -1,7 +1,7 @@
 // src/enrich/releaseFetcher.ts
 import { httpGet, HttpError } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
-import { SourceError } from '../errors.js';
+import { toSourceError } from '../sources/sourceError.js';
 
 export interface FetchReleaseOpts {
   timeoutMs: number;
@@ -50,7 +50,6 @@ export async function fetchLatestRelease(
   } catch (err) {
     // 404 = 仓库无 release，返回 null（不报错）
     if (err instanceof HttpError && err.status === 404) return null;
-    if (err instanceof HttpError) throw new SourceError('github', `release HTTP ${err.status}`);
-    throw new SourceError('github', (err as Error).message);
+    throw toSourceError('github', err);
   }
 }

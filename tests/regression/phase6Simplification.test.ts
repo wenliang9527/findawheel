@@ -4,8 +4,9 @@
 // 防止未来改动破坏简化成果(如重新引入过拟合的硬过滤)。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createFindWheelTool } from '../../src/tools/findWheelTool.js';
-import type { SourceAdapter, SearchOpts } from '../../src/sources/sourceAdapter.js';
+import type { SourceAdapter } from '../../src/sources/sourceAdapter.js';
 import type { RawResult } from '../../src/normalize/types.js';
+import { makeMockAdapter } from '../tools/helpers.js';
 
 // 构造 GitHub RawResult
 function gh(
@@ -30,10 +31,7 @@ function gh(
 }
 
 function mockAdapter(results: RawResult[]): SourceAdapter {
-  return {
-    name: 'github',
-    async search(_q: string, _o: SearchOpts): Promise<RawResult[]> { return results; },
-  };
+  return makeMockAdapter(results, 'github');
 }
 
 describe('Phase 6 简化回归测试', () => {

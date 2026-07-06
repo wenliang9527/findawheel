@@ -58,5 +58,7 @@ export function toSourceError(
     return new SourceError(source, `HTTP ${err.status}: ${err.message}`);
   }
   // 非 HTTP 错误(网络错误、解析错误等)
-  return new SourceError(source, (err as Error).message ?? String(err));
+  // 注:err 可能是 null/undefined/字符串,用 instanceof Error 安全判断
+  const errMsg = err instanceof Error ? err.message : String(err ?? '');
+  return new SourceError(source, errMsg);
 }

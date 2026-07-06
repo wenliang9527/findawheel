@@ -1,20 +1,13 @@
 // tests/tools/recordFeedbackTool.test.ts
 import { describe, it, expect, vi } from 'vitest';
+import * as fs from 'node:fs';
 import { createRecordFeedbackTool } from '../../src/tools/recordFeedbackTool.js';
 import { createFeedbackStore } from '../../src/feedback/feedbackStore.js';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
-
-let dirCounter = 0;
-function tmpDir(): string {
-  dirCounter += 1;
-  return path.join(os.tmpdir(), `fw-record-test-${process.pid}-${dirCounter}`);
-}
+import { makeTmpDir } from './helpers.js';
 
 describe('recordFeedbackTool.handle', () => {
   it('rejects empty name', async () => {
-    const store = createFeedbackStore({ dir: tmpDir() });
+    const store = createFeedbackStore({ dir: makeTmpDir('fw-record') });
     const tool = createRecordFeedbackTool({ store });
     const res = await tool.handle({ name: '', action: 'like' });
     expect(res.isError).toBe(true);
@@ -22,7 +15,7 @@ describe('recordFeedbackTool.handle', () => {
   });
 
   it('rejects name without / (not owner/repo)', async () => {
-    const store = createFeedbackStore({ dir: tmpDir() });
+    const store = createFeedbackStore({ dir: makeTmpDir('fw-record') });
     const tool = createRecordFeedbackTool({ store });
     const res = await tool.handle({ name: 'justname', action: 'like' });
     expect(res.isError).toBe(true);
@@ -30,7 +23,7 @@ describe('recordFeedbackTool.handle', () => {
   });
 
   it('rejects invalid action', async () => {
-    const store = createFeedbackStore({ dir: tmpDir() });
+    const store = createFeedbackStore({ dir: makeTmpDir('fw-record') });
     const tool = createRecordFeedbackTool({ store });
     const res = await tool.handle({ name: 'a/b', action: 'love' as never });
     expect(res.isError).toBe(true);
@@ -38,7 +31,7 @@ describe('recordFeedbackTool.handle', () => {
   });
 
   it('records like and returns updated counts', async () => {
-    const dir = tmpDir();
+    const dir = makeTmpDir('fw-record');
     fs.rmSync(dir, { recursive: true, force: true });
     const store = createFeedbackStore({ dir });
     const tool = createRecordFeedbackTool({ store });
@@ -55,7 +48,7 @@ describe('recordFeedbackTool.handle', () => {
   });
 
   it('accumulates feedback across multiple calls', async () => {
-    const dir = tmpDir();
+    const dir = makeTmpDir('fw-record');
     fs.rmSync(dir, { recursive: true, force: true });
     const store = createFeedbackStore({ dir });
     const tool = createRecordFeedbackTool({ store });
@@ -73,7 +66,7 @@ describe('recordFeedbackTool.handle', () => {
   });
 
   it('returns in-memory message when store returns null (disabled)', async () => {
-    const dir = tmpDir();
+    const dir = makeTmpDir('fw-record');
     fs.rmSync(dir, { recursive: true, force: true });
     const store = createFeedbackStore({ dir, enabled: false });
     const tool = createRecordFeedbackTool({ store });
@@ -84,7 +77,7 @@ describe('recordFeedbackTool.handle', () => {
   });
 
   it('persists feedback across tool instances (new process simulation)', async () => {
-    const dir = tmpDir();
+    const dir = makeTmpDir('fw-record');
     fs.rmSync(dir, { recursive: true, force: true });
     // 第一次: 记录反馈
     const store1 = createFeedbackStore({ dir });

@@ -1,7 +1,7 @@
 // src/enrich/readmeFetcher.ts
 import { httpGet, HttpError } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
-import { SourceError } from '../errors.js';
+import { toSourceError } from '../sources/sourceError.js';
 
 export interface FetchReadmeOpts {
   timeoutMs: number;
@@ -34,7 +34,6 @@ export async function fetchReadme(
   } catch (err) {
     // 404 = 仓库无 README,返回空(不报错)
     if (err instanceof HttpError && err.status === 404) return '';
-    if (err instanceof HttpError) throw new SourceError('github', `readme HTTP ${err.status}`);
-    throw new SourceError('github', (err as Error).message);
+    throw toSourceError('github', err);
   }
 }
