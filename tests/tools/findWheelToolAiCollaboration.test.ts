@@ -2,23 +2,7 @@
 // C 阶段:验证 AI 协作深化(exclude 参数 + recallReason 召回解释)
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createFindWheelTool } from '../../src/tools/findWheelTool.js';
-import type { SourceAdapter, SearchOpts } from '../../src/sources/sourceAdapter.js';
-import type { RawResult } from '../../src/normalize/types.js';
-
-function gh(name: string, desc: string, stars: number): RawResult {
-  return {
-    source: 'github', name, url: `https://github.com/${name}`,
-    description: desc, stars, language: null, license: 'MIT',
-    archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
-  } as RawResult;
-}
-
-function mockAdapter(results: RawResult[]): SourceAdapter {
-  return {
-    name: 'github',
-    async search(_q: string, _o: SearchOpts): Promise<RawResult[]> { return results; },
-  };
-}
+import { makeMockAdapter, makeGhResult } from './helpers.js';
 
 describe('findWheelTool AI 协作深化 (C 阶段)', () => {
   beforeEach(() => {
@@ -29,11 +13,11 @@ describe('findWheelTool AI 协作深化 (C 阶段)', () => {
   describe('exclude 参数', () => {
     it('exclude 指定的 wheel 不出现在结果中', async () => {
       const results = [
-        gh('a/lib1', 'markdown editor', 1000),
-        gh('b/lib2', 'markdown editor', 800),
-        gh('c/lib3', 'markdown editor', 500),
+        makeGhResult('a/lib1', { desc: 'markdown editor', stars: 1000 }),
+        makeGhResult('b/lib2', { desc: 'markdown editor', stars: 800 }),
+        makeGhResult('c/lib3', { desc: 'markdown editor', stars: 500 }),
       ];
-      const tool = createFindWheelTool({ adapters: [mockAdapter(results)] });
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results)] });
 
       // 第一次:全部返回
       const res1 = await tool.handle({ query: 'markdown editor' });
@@ -52,10 +36,10 @@ describe('findWheelTool AI 协作深化 (C 阶段)', () => {
 
     it('exclude 大小写不敏感', async () => {
       const results = [
-        gh('A/Lib1', 'markdown editor', 1000),
-        gh('b/lib2', 'markdown editor', 800),
+        makeGhResult('A/Lib1', { desc: 'markdown editor', stars: 1000 }),
+        makeGhResult('b/lib2', { desc: 'markdown editor', stars: 800 }),
       ];
-      const tool = createFindWheelTool({ adapters: [mockAdapter(results)] });
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results)] });
       const res = await tool.handle({
         query: 'markdown editor',
         exclude: ['a/lib1'], // 小写
@@ -66,8 +50,8 @@ describe('findWheelTool AI 协作深化 (C 阶段)', () => {
     });
 
     it('exclude 不存在的 name 时,结果不变', async () => {
-      const results = [gh('a/lib1', 'markdown editor', 1000)];
-      const tool = createFindWheelTool({ adapters: [mockAdapter(results)] });
+      const results = [makeGhResult('a/lib1', { desc: 'markdown editor', stars: 1000 })];
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results)] });
       const res = await tool.handle({
         query: 'markdown editor',
         exclude: ['nonexistent/repo'],
@@ -78,12 +62,12 @@ describe('findWheelTool AI 协作深化 (C 阶段)', () => {
 
     it('exclude 多个 wheel 同时过滤', async () => {
       const results = [
-        gh('a/lib1', 'markdown editor', 1000),
-        gh('b/lib2', 'markdown editor', 800),
-        gh('c/lib3', 'markdown editor', 500),
-        gh('d/lib4', 'markdown editor', 300),
+        makeGhResult('a/lib1', { desc: 'markdown editor', stars: 1000 }),
+        makeGhResult('b/lib2', { desc: 'markdown editor', stars: 800 }),
+        makeGhResult('c/lib3', { desc: 'markdown editor', stars: 500 }),
+        makeGhResult('d/lib4', { desc: 'markdown editor', stars: 300 }),
       ];
-      const tool = createFindWheelTool({ adapters: [mockAdapter(results)] });
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results)] });
       const res = await tool.handle({
         query: 'markdown editor',
         exclude: ['a/lib1', 'c/lib3'],
@@ -96,8 +80,8 @@ describe('findWheelTool AI 协作深化 (C 阶段)', () => {
 
   describe('recallReason 召回解释', () => {
     it('每个 wheel 的 match 字段含 recallReason', async () => {
-      const results = [gh('a/lib', 'markdown editor library', 1000)];
-      const tool = createFindWheelTool({ adapters: [mockAdapter(results)] });
+      const results = [makeGhResult('a/lib', { desc: 'markdown editor library', stars: 1000 })];
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results)] });
       const res = await tool.handle({ query: 'markdown editor' });
       const payload = JSON.parse(res.content[0].text);
       expect(payload.wheels[0].match.recallReason).toBeDefined();
@@ -105,8 +89,8 @@ describe('findWheelTool AI 协作深化 (C 阶段)', () => {
     });
 
     it('recallReason 含命中关键词信息', async () => {
-      const results = [gh('a/stepper-lib', 'stepper motor driver library', 3000)];
-      const tool = createFindWheelTool({ adapters: [mockAdapter(results)] });
+      const results = [makeGhResult('a/stepper-lib', { desc: 'stepper motor driver library', stars: 3000 })];
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results)] });
       const res = await tool.handle({ query: 'stepper motor' });
       const payload = JSON.parse(res.content[0].text);
       const recall = payload.wheels[0].match.recallReason;
@@ -115,8 +99,8 @@ describe('findWheelTool AI 协作深化 (C 阶段)', () => {
     });
 
     it('recallReason 含 stars 信息', async () => {
-      const results = [gh('a/popular-lib', 'markdown editor', 12000)];
-      const tool = createFindWheelTool({ adapters: [mockAdapter(results)] });
+      const results = [makeGhResult('a/popular-lib', { desc: 'markdown editor', stars: 12000 })];
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results)] });
       const res = await tool.handle({ query: 'markdown editor' });
       const payload = JSON.parse(res.content[0].text);
       const recall = payload.wheels[0].match.recallReason;
@@ -124,8 +108,8 @@ describe('findWheelTool AI 协作深化 (C 阶段)', () => {
     });
 
     it('零命中时 recallReason 提示可能不相关', async () => {
-      const results = [gh('a/unrelated', 'completely unrelated project', 50000)];
-      const tool = createFindWheelTool({ adapters: [mockAdapter(results)] });
+      const results = [makeGhResult('a/unrelated', { desc: 'completely unrelated project', stars: 50000 })];
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results)] });
       const res = await tool.handle({ query: 'markdown editor' });
       const payload = JSON.parse(res.content[0].text);
       const recall = payload.wheels[0].match.recallReason;
@@ -134,8 +118,8 @@ describe('findWheelTool AI 协作深化 (C 阶段)', () => {
     });
 
     it('recallReason 含活跃度信息', async () => {
-      const results = [gh('a/active-lib', 'markdown editor actively maintained', 2000)];
-      const tool = createFindWheelTool({ adapters: [mockAdapter(results)] });
+      const results = [makeGhResult('a/active-lib', { desc: 'markdown editor actively maintained', stars: 2000 })];
+      const tool = createFindWheelTool({ adapters: [makeMockAdapter(results)] });
       const res = await tool.handle({ query: 'markdown editor' });
       const payload = JSON.parse(res.content[0].text);
       const recall = payload.wheels[0].match.recallReason;

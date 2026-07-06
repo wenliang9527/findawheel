@@ -2,6 +2,7 @@
 // record_feedback 工具: AI 根据用户反应记录对 wheel 的反馈(like/hide/click)。
 // 反馈持久化到 ~/.findawheel/feedback/, 用于后续搜索排序加权。
 import type { FeedbackStore, FeedbackAction } from '../feedback/feedbackStore.js';
+import { FEEDBACK_ACTIONS } from '../feedback/feedbackStore.js';
 import type { McpToolResult } from './types.js';
 import { isValidOwnerRepo } from '../util/nameValidator.js';
 
@@ -35,11 +36,10 @@ export function createRecordFeedbackTool(opts: CreateRecordFeedbackToolOpts) {
         isError: true,
       };
     }
-    // 校验 action: 必须是合法值
-    const validActions: FeedbackAction[] = ['like', 'hide', 'click'];
-    if (!validActions.includes(input.action)) {
+    // 校验 action: 必须是合法值(P1-11:复用 feedbackStore 导出的 FEEDBACK_ACTIONS)
+    if (!FEEDBACK_ACTIONS.includes(input.action)) {
       return {
-        content: [{ type: 'text', text: `invalid action: expected one of ${validActions.join('/')}, got '${input.action}'` }],
+        content: [{ type: 'text', text: `invalid action: expected one of ${FEEDBACK_ACTIONS.join('/')}, got '${input.action}'` }],
         isError: true,
       };
     }

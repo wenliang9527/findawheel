@@ -5,10 +5,23 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import { logError } from '../util/logger.js';
+import { z } from 'zod';
+import { logError, logInfo } from '../util/logger.js';
 
 /** 反馈动作类型 */
 export type FeedbackAction = 'like' | 'hide' | 'click';
+
+/**
+ * 反馈动作常量列表(P1-11:供 recordFeedbackTool 复用,避免双重维护)。
+ */
+export const FEEDBACK_ACTIONS: readonly FeedbackAction[] = ['like', 'hide', 'click'];
+
+/**
+ * getAllFeedback 批量读取反馈文件的并发上限(P1-16)。
+ * 设为 16:平衡吞吐和 fd 占用,5000 个反馈文件 ~6 秒读完(假设每文件 1ms),
+ * 远小于单进程默认 fd 上限(1024 on Linux)。Windows 上限更高,无需调整。
+ */
+const FEEDBACK_CONCURRENCY = 16;
 
 /** 单个 wheel 的累计反馈记录 */
 export interface FeedbackRecord {
@@ -26,6 +39,38 @@ export interface FeedbackRecord {
   lastUpdated: number;
   /** 最后一次动作类型 */
   lastAction: FeedbackAction;
+}
+
+/**
+ * 反馈记录 schema(P0-1:反序列化校验)。
+ * 反馈是跨会话持久化数据,磁盘文件可能因手动编辑/版本升级/磁盘损坏等原因含异常字段。
+ * safeParse 失败 → 返回 null(视为该 wheel 无反馈记录),并 logError 记录原因。
+ * 不删除损坏的反馈文件(用户持久数据,需保留以便人工恢复)。
+ */
+const FeedbackRecordSchema = z.object({
+  name: z.string(),
+  source: z.string(),
+  likes: z.number(),
+  hides: z.number(),
+  clicks: z.number(),
+  lastUpdated: z.number(),
+  lastAction: z.enum(['like', 'hide', 'click']),
+});
+
+/** 安全解析反馈记录:JSON 解析 + zod 校验,失败返回 null */
+function safeParseFeedback(raw: string): FeedbackRecord | null {
+  try {
+    const obj = JSON.parse(raw);
+    const parsed = FeedbackRecordSchema.safeParse(obj);
+    if (!parsed.success) {
+      logError('feedback parse failed', parsed.error);
+      return null;
+    }
+    return parsed.data;
+  } catch (err) {
+    logError('feedback parse failed', err);
+    return null;
+  }
 }
 
 export interface FeedbackStoreOpts {
@@ -65,12 +110,8 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
       logError('feedback read failed', err);
       return null;
     }
-    try {
-      return JSON.parse(raw) as FeedbackRecord;
-    } catch (err) {
-      logError('feedback parse failed', err);
-      return null;
-    }
+    // P0-1:用 zod schema 校验,损坏文件返回 null
+    return safeParseFeedback(raw);
   }
 
   /**
@@ -108,6 +149,7 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
     try {
       await fs.promises.mkdir(opts.dir, { recursive: true });
       await fs.promises.writeFile(filePath(name), JSON.stringify(record), 'utf8');
+      logInfo(`feedback recorded: ${name} ${action} (likes=${record.likes} hides=${record.hides} clicks=${record.clicks})`);
     } catch (err) {
       logError('feedback write failed', err);
       // 写入失败不阻断, 返回 null 提示调用方
@@ -119,6 +161,9 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
   /**
    * 列出所有已记录反馈的 wheel。
    * 用于批量加载到排序加权。读取失败返回空数组。
+   *
+   * P1-16:加并发上限,避免反馈文件特别多时同时打开过多 fd 触发 EMFILE。
+   * 用 batch 模式分批读取,每批 FEEDBACK_CONCURRENCY 个文件并行。
    */
   async function getAllFeedback(): Promise<FeedbackRecord[]> {
     if (!enabled) return [];
@@ -129,20 +174,25 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
       logError('feedback list failed', err);
       return [];
     }
+    const feedbackFiles = files.filter(f => f.startsWith('feedback-') && f.endsWith('.json'));
     const records: FeedbackRecord[] = [];
-    await Promise.all(
-      files
-        .filter(f => f.startsWith('feedback-') && f.endsWith('.json'))
-        .map(async (f) => {
-          try {
-            const raw = await fs.promises.readFile(path.join(opts.dir, f), 'utf8');
-            records.push(JSON.parse(raw) as FeedbackRecord);
-          } catch (err) {
-            logError('feedback file parse failed', err);
-            // 单个文件损坏跳过
-          }
+    // 分批读取,避免高 fd 占用
+    for (let i = 0; i < feedbackFiles.length; i += FEEDBACK_CONCURRENCY) {
+      const batch = feedbackFiles.slice(i, i + FEEDBACK_CONCURRENCY);
+      const settled = await Promise.allSettled(
+        batch.map(async (f) => {
+          const raw = await fs.promises.readFile(path.join(opts.dir, f), 'utf8');
+          return safeParseFeedback(raw);
         }),
-    );
+      );
+      for (const r of settled) {
+        if (r.status === 'fulfilled' && r.value) {
+          records.push(r.value);
+        } else if (r.status === 'rejected') {
+          logError('feedback file read failed', r.reason);
+        }
+      }
+    }
     return records;
   }
 

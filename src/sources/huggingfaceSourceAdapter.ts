@@ -14,9 +14,9 @@
 
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { RawResult, HuggingfaceRawResult } from '../normalize/types.js';
-import { httpGet, HttpError } from '../util/http.js';
+import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
-import { SourceError } from '../errors.js';
+import { toSourceError } from './sourceError.js';
 
 const API_BASE = 'https://huggingface.co/api';
 const DEFAULT_LIMIT = 20;
@@ -81,8 +81,7 @@ export class HuggingfaceSourceAdapter implements SourceAdapter {
         libraryName: m.library_name,
       }));
     } catch (err) {
-      if (err instanceof HttpError) throw new SourceError('huggingface', `HTTP ${err.status}`);
-      throw new SourceError('huggingface', (err as Error).message);
+      throw toSourceError('huggingface', err);
     }
   }
 }

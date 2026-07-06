@@ -796,7 +796,7 @@ npm run test:watch # 测试监听模式
 <details>
 <summary><b>🇨🇳 中文搜索结果全是英文项目</b></summary>
 
-**说明**：这是预期行为。findawheel 内置 50+ 词的中英翻译表，会把中文 query 翻译成英文再去 GitHub/npm/crates/Web 搜索，因为绝大多数开源项目用英文命名和描述。
+**说明**：这是预期行为。findawheel 内置 200+ 词的中英翻译表，会把中文 query 翻译成英文后再去 GitHub/npm/crates/Web 搜索，因为绝大多数开源项目用英文命名和描述。
 
 **如果想要国内项目**：Gitee 源会用中文+英文联合搜索，国内项目会优先出现在 Gitee 结果中。
 

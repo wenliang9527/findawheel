@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-1.29-orange.svg?style=flat-square)](https://modelcontextprotocol.io/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](./)
-[![Tests](https://img.shields.io/badge/tests-506%2F506-brightgreen.svg?style=flat-square)](./)
+[![Tests](https://img.shields.io/badge/tests-516%2F516-brightgreen.svg?style=flat-square)](./)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](./LICENSE)
 
 </div>
@@ -75,7 +75,7 @@ AI 编程时代，每个人都可以快速产生想法并动手实现。但问�
 | 🏆 | **软排序信号** | 相关度 + stars + 活跃度 + 下载量 + license + 描述匹配度；**不做硬过滤**，相关性判断交给 AI |
 | 🛡️ | **基础过滤** | 仅剔除归档/废弃/聚合仓库（awesome-lists）；反向意图/核心词缺失等由 AI 自行识别 |
 | ⚡ | **失败降级** | 单源失败不影响其他源；Web 源 Exa 失败自动 fallback Tavily |
-| 🌏 | **中文友好** | 50+ 词的中英翻译表，中文 query 自动转英文搜索 |
+| 🌏 | **中文友好** | 200+ 词的中英翻译表，中文 query 自动转英文搜索 |
 | 📝 | **RAG 工作流** | 工具描述明确"WHEN TO CALL / WHY SEARCH FIRST"，AI 必须先搜索再编码 |
 
 ---

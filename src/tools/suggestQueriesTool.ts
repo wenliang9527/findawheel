@@ -8,6 +8,7 @@
 import { parseQuery } from '../classifier/queryParser.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 import { classify } from '../classifier/queryClassifier.js';
+import { HARDWARE_WORDS_RE, EMBEDDED_PLATFORM_RE, ARDUINO_RE } from '../classifier/hardwareKeywords.js';
 import type { Intent } from '../normalize/types.js';
 import type { McpToolResult } from './types.js';
 
@@ -51,11 +52,8 @@ export interface SuggestQueriesOutput {
   recommendedEcosystem?: string;
 }
 
-// 硬件类关键词正则(模块级预编译,避免每次调用重新编译)
-// 注:用 \b 词边界,避免 'motor' 误匹配 'motivation'
-const ARDUINO_RE = /\barduino\b/;
-const EMBEDDED_PLATFORM_RE = /\b(esp32|stm32|raspberry|rpi|microcontroller|mcu|embedded|hal|gpio)\b/;
-const HARDWARE_WORDS_RE = /\b(stepper|motor|servo|encoder|pwm|pulse|driver|actuator|sensor|bldc)\b/;
+// 硬件类关键词正则(P1-7:从 hardwareKeywords.ts 共享导入,避免与 sourceRouter 重复维护)
+// 直接使用 import 的 ARDUINO_RE / EMBEDDED_PLATFORM_RE / HARDWARE_WORDS_RE
 
 /**
  * 从翻译后的 query 检测硬件类 ecosystem 推荐。

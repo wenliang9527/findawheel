@@ -127,24 +127,28 @@ describe('K 阶段:边界场景覆盖', () => {
       expect(m.recallReason).toContain('命中');
     });
 
-    it('wheel 无 activity 时 recallReason 不含活跃度信息', () => {
+    it('wheel 无 activity 字段时 recallReason 推断为 low (P1-9: ?? low 兜底)', () => {
       const w = makeWheel({
         description: 'markdown editor',
+        // 不提供 activity 字段,验证 P1-9 的 ?? 'low' 兜底逻辑
         metrics: { stars: 100, lastUpdated: '2025-01-01T00:00:00Z', archived: false },
       });
       const m = computeMatch(w, ['markdown']);
       expect(m.recallReason).toBeDefined();
-      expect(m.recallReason).not.toMatch(/活跃维护|近期有更新|更新缓慢/);
+      // activity 推断为 'low' → recallReason 含 "更新缓慢"
+      expect(m.recallReason).toContain('更新缓慢');
     });
 
-    it('零命中且无 stars 无 activity 时 recallReason 只含"零关键词命中"', () => {
+    it('零命中且无 stars 且 activity 兜底为 low 时 recallReason 含"零关键词命中"+"更新缓慢"', () => {
       const w = makeWheel({
         name: 'empty-lib',
         description: 'completely unrelated',
         metrics: { stars: 0, lastUpdated: '2025-01-01T00:00:00Z', archived: false },
       });
       const m = computeMatch(w, ['markdown', 'editor']);
-      expect(m.recallReason).toBe('零关键词命中(可能不相关)');
+      // P1-9:activity undefined → 'low' → recallReason 含"更新缓慢"
+      expect(m.recallReason).toContain('零关键词命中');
+      expect(m.recallReason).toContain('更新缓慢');
     });
 
     it('命中 5 个关键词时 recallReason 只显示前 3 个', () => {

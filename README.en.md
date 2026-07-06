@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-1.29-orange.svg?style=flat-square)](https://modelcontextprotocol.io/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](./)
-[![Tests](https://img.shields.io/badge/tests-506%2F506-brightgreen.svg?style=flat-square)](./)
+[![Tests](https://img.shields.io/badge/tests-516%2F516-brightgreen.svg?style=flat-square)](./)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](./LICENSE)
 
 </div>
@@ -77,7 +77,7 @@ In the AI-coding era, everyone can quickly turn ideas into code. But many "new i
 | 🏆 | **Soft ranking signals** | Relevance + stars + activity + downloads + license + description match; **NO hard filtering** — relevance judgment left to the AI |
 | 🛡️ | **Basic filtering** | Only drops archived / stale / awesome-lists; reverse-intent / core-word-missing cases are identified by the AI itself |
 | ⚡ | **Graceful degradation** | Source failure doesn't block others; Web source falls back from Exa to Tavily |
-| 🌏 | **CJK friendly** | 50+ word Chinese↔English translation table; Chinese queries are auto-translated |
+| 🌏 | **CJK friendly** | 200+ word Chinese↔English translation table; Chinese queries are auto-translated |
 | 📝 | **RAG workflow** | Tool descriptions specify "WHEN TO CALL / WHY SEARCH FIRST" — the AI must search before coding |
 
 ---

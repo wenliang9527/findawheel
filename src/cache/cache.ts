@@ -5,6 +5,7 @@ import type { Wheel } from '../normalize/types.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import { z } from 'zod';
 import { logError } from '../util/logger.js';
 
 export interface CacheOpts {
@@ -22,6 +23,17 @@ export interface CacheEntry<T = Wheel[]> {
   /** 缓存值(字段名保留 wheels 以向后兼容,实际可为任意类型) */
   wheels: T;
 }
+
+/**
+ * 缓存条目外层 schema(P0-1:反序列化校验)。
+ * 仅校验外层结构(writtenAt 必须是 number,wheels 字段必须存在),
+ * T 内部结构由调用方保证(泛型无法在 schema 里校验)。
+ * 损坏文件 safeParse 失败 → 删除文件 + 返回 undefined(视为缓存未命中)。
+ */
+const CacheEntrySchema = z.object({
+  writtenAt: z.number(),
+  wheels: z.unknown(),
+});
 
 /** 计算 cache key:sha1(query + intent + ecosystem + limit) */
 export function cacheKey(
@@ -51,13 +63,22 @@ export function createCache<T = Wheel[]>(opts: CacheOpts): Cache<T> {
       logError('cache read failed', err);
       return undefined;
     }
-    let entry: CacheEntry<T>;
+    // P0-1:用 zod schema 校验外层结构,损坏文件视为未命中
+    let parsed: ReturnType<typeof CacheEntrySchema.safeParse>;
     try {
-      entry = JSON.parse(raw) as CacheEntry<T>;
+      parsed = CacheEntrySchema.safeParse(JSON.parse(raw));
     } catch (err) {
       logError('cache parse failed', err);
+      try { await fs.promises.unlink(file); } catch { /* ignore */ }
       return undefined;
     }
+    if (!parsed.success) {
+      logError('cache parse failed', parsed.error);
+      // 异常 JSON 或字段缺失,删除损坏文件避免下次再读
+      try { await fs.promises.unlink(file); } catch { /* ignore */ }
+      return undefined;
+    }
+    const entry = parsed.data as CacheEntry<T>;
     // TTL 过期检查
     if (Date.now() - entry.writtenAt > opts.ttlMs) return undefined;
     return entry.wheels;

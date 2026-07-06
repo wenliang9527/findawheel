@@ -1,10 +1,10 @@
 // src/sources/pypiSourceAdapter.ts
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { PypiRawResult, RawResult } from '../normalize/types.js';
-import { httpGet, HttpError } from '../util/http.js';
+import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
-import { SourceError } from '../errors.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
+import { toSourceError } from './sourceError.js';
 
 /** 解码常见 HTML 实体(避免引入完整 HTML 解析依赖) */
 export function decodeHtml(s: string): string {
@@ -80,8 +80,7 @@ export class PypiSourceAdapter implements SourceAdapter {
       return parsePypiHtml(html);
     } catch (err) {
       // 网络错误/HTTP 错误仍需上报(但 HTML 解析失败已在 parsePypiHtml 内容错返回空)
-      if (err instanceof HttpError) throw new SourceError('pypi', `HTTP ${err.status}`);
-      throw new SourceError('pypi', (err as Error).message);
+      throw toSourceError('pypi', err);
     }
   }
 }

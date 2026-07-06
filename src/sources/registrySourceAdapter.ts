@@ -1,11 +1,12 @@
 // src/sources/registrySourceAdapter.ts
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { NpmRawResult, CratesRawResult, RawResult } from '../normalize/types.js';
-import { httpGet, HttpError } from '../util/http.js';
+import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
 import { SourceError } from '../errors.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 import { logError } from '../util/logger.js';
+import { toSourceError } from './sourceError.js';
 
 interface NpmSearchResponse {
   objects: Array<{
@@ -70,8 +71,7 @@ async function searchNpm(query: string, timeoutMs: number): Promise<NpmRawResult
       };
     });
   } catch (err) {
-    if (err instanceof HttpError) throw new SourceError('npm', `HTTP ${err.status}`);
-    throw new SourceError('npm', (err as Error).message);
+    throw toSourceError('npm', err);
   }
 }
 
@@ -114,6 +114,13 @@ async function enrichSingleNpm(
         { timeoutMs, token: githubToken, extraHeaders: { accept: 'application/vnd.github+json' }, retry: DEFAULT_RETRY },
       ),
     ]);
+    // P0-2:rejected 分支记日志,避免 npm 包 stars 缺失时无法定位原因
+    if (dlRes.status === 'rejected') {
+      logError(`npm downloads enrich failed for ${result.name}`, dlRes.reason);
+    }
+    if (ghRes.status === 'rejected') {
+      logError(`npm github stars enrich failed for ${result.name} (${ownerRepo})`, ghRes.reason);
+    }
     return {
       ...result,
       downloads: dlRes.status === 'fulfilled' ? dlRes.value.downloads : undefined,
@@ -155,8 +162,7 @@ async function searchCrates(query: string, timeoutMs: number): Promise<CratesRaw
       license: null, // crates search endpoint doesn't return license
     }));
   } catch (err) {
-    if (err instanceof HttpError) throw new SourceError('crates', `HTTP ${err.status}`);
-    throw new SourceError('crates', (err as Error).message);
+    throw toSourceError('crates', err);
   }
 }
 

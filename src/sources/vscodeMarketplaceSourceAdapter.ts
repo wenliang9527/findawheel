@@ -12,9 +12,9 @@
 
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { VscodeExtensionRawResult, RawResult } from '../normalize/types.js';
-import { SourceError } from '../errors.js';
-import { httpPost, HttpError } from '../util/http.js';
+import { httpPost } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
+import { toSourceError } from './sourceError.js';
 
 const MARKETPLACE_URL = 'https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery';
 
@@ -121,9 +121,8 @@ export class VscodeMarketplaceSourceAdapter implements SourceAdapter {
       });
     } catch (err) {
       // HttpError(4xx 等):转 SourceError,保留状态码
-      if (err instanceof HttpError) throw new SourceError('vscode-marketplace', `HTTP ${err.status}`);
       // 其余(5xx 包装出的 RetryableError / 网络错误 / abort)统一转 SourceError
-      throw new SourceError('vscode-marketplace', (err as Error).message);
+      throw toSourceError('vscode-marketplace', err);
     }
   }
 }

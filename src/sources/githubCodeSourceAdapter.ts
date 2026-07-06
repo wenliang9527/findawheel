@@ -10,10 +10,10 @@
 
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { GitHubCodeRawResult, RawResult } from '../normalize/types.js';
-import { httpGet, HttpError } from '../util/http.js';
+import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
-import { RateLimitError, SourceError } from '../errors.js';
 import { ECOSYSTEM_LANG } from './ecosystemMapping.js';
+import { toSourceError } from './sourceError.js';
 
 /**
  * 构造 GitHub Code Search 查询表达式。
@@ -104,9 +104,7 @@ export class GitHubCodeSourceAdapter implements SourceAdapter {
         pushedAt: item.repository.pushed_at,
       }));
     } catch (err) {
-      if (err instanceof HttpError && err.status === 403) throw new RateLimitError('github-code', new Date());
-      if (err instanceof HttpError) throw new SourceError('github-code', `HTTP ${err.status}`);
-      throw new SourceError('github-code', (err as Error).message);
+      throw toSourceError('github-code', err);
     }
   }
 }

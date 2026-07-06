@@ -5,6 +5,8 @@
 // 2. 翻译后中英合并搜索,扩大覆盖
 // 3. 一个中文词可能对应多个英文词,全部加入
 
+import { BASE_STOPWORDS } from '../util/stopwords.js';
+
 const ZH_TO_EN: Record<string, string[]> = {
   // 动作类
   '解析': ['parse', 'parser'],
@@ -306,12 +308,11 @@ export function translateQuery(query: string): string {
  * 用于在 Ranker 里给"描述命中 query 核心词"的项目加分。
  */
 export function extractKeywords(query: string): string[] {
-  // 去掉常见停用词,保留实质词
-  const stopwords = new Set(['a', 'an', 'the', 'for', 'with', 'and', 'or', 'to', 'of', 'in', 'on', 'my', 'i', 'want']);
+  // P1-6:复用 BASE_STOPWORDS(避免与 queryParser/stopwords.ts 三处重复维护)
   const words = query
     .toLowerCase()
     .split(/[\s,，。、;；!！?？]+/)
-    .filter(w => w.length > 1 && !stopwords.has(w));
+    .filter(w => w.length > 1 && !BASE_STOPWORDS.has(w));
 
   // 把中文翻译后也加入关键词集
   const enWords = new Set<string>(words);

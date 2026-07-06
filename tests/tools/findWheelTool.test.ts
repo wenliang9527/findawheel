@@ -1,44 +1,13 @@
 // tests/tools/findWheelTool.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createFindWheelTool } from '../../src/tools/findWheelTool.js';
-import { createCache, type Cache } from '../../src/cache/cache.js';
-import type { SourceAdapter, SearchOpts } from '../../src/sources/sourceAdapter.js';
+import { createCache } from '../../src/cache/cache.js';
+import type { SourceAdapter } from '../../src/sources/sourceAdapter.js';
 import type { RawResult } from '../../src/normalize/types.js';
-import { SourceError } from '../../src/errors.js';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
-
-function mockAdapter(name: string, results: RawResult[]): SourceAdapter {
-  return {
-    name,
-    async search(_q: string, _o: SearchOpts): Promise<RawResult[]> { return results; },
-  };
-}
-
-function failingAdapter(name: string): SourceAdapter {
-  return {
-    name,
-    async search(): Promise<RawResult[]> { throw new SourceError(name, 'down'); },
-  };
-}
-
-let dirCounter = 0;
-function tmpCacheDir(): string {
-  dirCounter += 1;
-  return path.join(os.tmpdir(), `fw-test-${process.pid}-${dirCounter}`);
-}
-
-// description 含 query 核心词的通用 github 结果
-// Phase 6 简化:不再需要"避免被 isMissingCoreConcept 过滤"(该过滤已删),
-// 但保留 description 含 query 词的习惯,让测试更真实。
-function ghResult(name: string, desc: string): RawResult {
-  return {
-    source: 'github', name, url: `https://github.com/${name}`,
-    description: desc, stars: 100, language: null, license: 'MIT',
-    archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
-  };
-}
+import {
+  makeMockAdapter, makeFailingAdapter, makeTmpDir, makeGhResult,
+} from './helpers.js';
 
 describe('findWheelTool.handle', () => {
   beforeEach(() => {
@@ -64,7 +33,7 @@ describe('findWheelTool.handle', () => {
       description: 'markdown editor library', version: '1.0', keywords: [], date: '2025-06-01T00:00:00Z',
     };
     const tool = createFindWheelTool({
-      adapters: [mockAdapter('github', [gh]), mockAdapter('registry', [npm])],
+      adapters: [makeMockAdapter([gh], 'github'), makeMockAdapter([npm], 'registry')],
     });
     const res = await tool.handle({ query: 'markdown editor' });
     expect(res.isError).toBeFalsy();
@@ -80,7 +49,7 @@ describe('findWheelTool.handle', () => {
       pushedAt: '2025-06-01T00:00:00Z', topics: [],
     };
     const tool = createFindWheelTool({
-      adapters: [mockAdapter('github', [gh]), failingAdapter('registry')],
+      adapters: [makeMockAdapter([gh], 'github'), makeFailingAdapter('registry')],
     });
     const res = await tool.handle({ query: 'x' });
     expect(res.isError).toBeFalsy();
@@ -91,7 +60,7 @@ describe('findWheelTool.handle', () => {
 
   it('returns isError when all adapters fail', async () => {
     const tool = createFindWheelTool({
-      adapters: [failingAdapter('github'), failingAdapter('registry')],
+      adapters: [makeFailingAdapter('github'), makeFailingAdapter('registry')],
     });
     const res = await tool.handle({ query: 'x' });
     expect(res.isError).toBe(true);
@@ -99,7 +68,7 @@ describe('findWheelTool.handle', () => {
 
   it('returns empty wheels when all sources return 0', async () => {
     const tool = createFindWheelTool({
-      adapters: [mockAdapter('github', [])],
+      adapters: [makeMockAdapter([], 'github')],
     });
     const res = await tool.handle({ query: 'x' });
     expect(res.isError).toBeFalsy();
@@ -110,9 +79,9 @@ describe('findWheelTool.handle', () => {
   // ===== 缓存集成测试 =====
 
   it('缓存命中时不调用 adapter', async () => {
-    const dir = tmpCacheDir();
+    const dir = makeTmpDir();
     const cache = createCache({ dir, ttlMs: 3600000, enabled: true });
-    const gh = ghResult('a/b', 'A markdown editor');
+    const gh = makeGhResult('a/b', { desc: 'A markdown editor' });
     const searchSpy = vi.fn().mockResolvedValue([gh]);
     const adapter: SourceAdapter = { name: 'github', search: searchSpy };
     const tool = createFindWheelTool({ adapters: [adapter], cache });
@@ -130,10 +99,10 @@ describe('findWheelTool.handle', () => {
   });
 
   it('未命中时调用 adapter 并写缓存', async () => {
-    const dir = tmpCacheDir();
+    const dir = makeTmpDir();
     const cache = createCache({ dir, ttlMs: 3600000, enabled: true });
-    const gh = ghResult('a/b', 'A markdown editor');
-    const adapter = mockAdapter('github', [gh]);
+    const gh = makeGhResult('a/b', { desc: 'A markdown editor' });
+    const adapter = makeMockAdapter([gh], 'github');
     const tool = createFindWheelTool({ adapters: [adapter], cache });
     await tool.handle({ query: 'markdown editor' });
     // 缓存文件应该存在
@@ -144,9 +113,9 @@ describe('findWheelTool.handle', () => {
   });
 
   it('disabled 时不缓存,每次都调 adapter', async () => {
-    const dir = tmpCacheDir();
+    const dir = makeTmpDir();
     const cache = createCache({ dir, ttlMs: 3600000, enabled: false });
-    const gh = ghResult('a/b', 'A markdown editor');
+    const gh = makeGhResult('a/b', { desc: 'A markdown editor' });
     const searchSpy = vi.fn().mockResolvedValue([gh]);
     const adapter: SourceAdapter = { name: 'github', search: searchSpy };
     const tool = createFindWheelTool({ adapters: [adapter], cache });
@@ -161,9 +130,9 @@ describe('findWheelTool.handle', () => {
   });
 
   it('同 key 并发只执行一次搜索 (dedupe)', async () => {
-    const dir = tmpCacheDir();
+    const dir = makeTmpDir();
     const cache = createCache({ dir, ttlMs: 3600000, enabled: true });
-    const gh = ghResult('a/b', 'A markdown editor');
+    const gh = makeGhResult('a/b', { desc: 'A markdown editor' });
     // 加延迟模拟真实网络 I/O(远慢于磁盘 readFile),
     // 确保 A 的搜索在 B 的 cache.get 完成时仍在进行,dedupe 才能生效
     const searchSpy = vi.fn().mockImplementation(async () => {
@@ -187,7 +156,7 @@ describe('findWheelTool.handle', () => {
 
   it('summary 不含 warning 当 top 1 stars >= 10', async () => {
     // stars=100 的结果不应触发警告
-    const gh = ghResult('a/popular-lib', 'A markdown editor');
+    const gh = makeGhResult('a/popular-lib', { desc: 'A markdown editor' });
     const adapter: SourceAdapter = { name: 'github', async search() { return [gh]; } };
     const tool = createFindWheelTool({ adapters: [adapter] });
     const res = await tool.handle({ query: 'markdown editor' });
@@ -225,8 +194,8 @@ describe('findWheelTool.handle', () => {
   // H3 修复:主搜索失败时无条件标记 degraded,无论副搜索是否成功
 
   it('T2: marks source degraded when it fails (other sources succeed)', async () => {
-    const good = mockAdapter('github', [ghResult('a/b', 'markdown editor')]);
-    const bad = failingAdapter('gitee');
+    const good = makeMockAdapter([makeGhResult('a/b', { desc: 'markdown editor' })], 'github');
+    const bad = makeFailingAdapter('gitee');
     const tool = createFindWheelTool({ adapters: [good, bad] });
     const res = await tool.handle({ query: 'markdown editor' });
     expect(res.isError).toBeFalsy();
@@ -236,19 +205,19 @@ describe('findWheelTool.handle', () => {
   });
 
   it('T2: returns isError when all sources fail', async () => {
-    const bad1 = failingAdapter('github');
-    const bad2 = failingAdapter('gitee');
+    const bad1 = makeFailingAdapter('github');
+    const bad2 = makeFailingAdapter('gitee');
     const tool = createFindWheelTool({ adapters: [bad1, bad2] });
     const res = await tool.handle({ query: 'markdown editor' });
     expect(res.isError).toBe(true);
   });
 
   it('T2: no degradedSources when all sources succeed', async () => {
-    const good1 = mockAdapter('github', [ghResult('a/b', 'markdown editor')]);
-    const good2 = mockAdapter('registry', [{
+    const good1 = makeMockAdapter([makeGhResult('a/b', { desc: 'markdown editor' })], 'github');
+    const good2 = makeMockAdapter([{
       source: 'npm', name: 'pkg', url: 'https://www.npmjs.com/package/pkg',
       description: 'markdown editor lib', version: '1.0', keywords: [], date: '2025-06-01T00:00:00Z',
-    }]);
+    }], 'registry');
     const tool = createFindWheelTool({ adapters: [good1, good2] });
     const res = await tool.handle({ query: 'markdown editor' });
     const output = JSON.parse(res.content[0].text);
@@ -266,9 +235,9 @@ describe('findWheelTool.handle', () => {
       description: 'stepper motor control library', stars: 100, language: null, license: 'MIT',
       archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
     }));
-    const good = mockAdapter('github', ghResults);
-    const npmAdapter = mockAdapter('registry', []);
-    const pypiAdapter = mockAdapter('pypi', []);
+    const good = makeMockAdapter(ghResults, 'github');
+    const npmAdapter = makeMockAdapter([], 'registry');
+    const pypiAdapter = makeMockAdapter([], 'pypi');
     const tool = createFindWheelTool({ adapters: [good, npmAdapter, pypiAdapter] });
     const res = await tool.handle({ query: 'stepper motor control' });
     expect(res.isError).toBeFalsy();
@@ -281,7 +250,7 @@ describe('findWheelTool.handle', () => {
 
   it('R1: generic query does not return skippedSources (fallback all)', async () => {
     // markdown editor 不匹配任何路由规则,走兜底全搜
-    const good = mockAdapter('github', [ghResult('a/b', 'markdown editor')]);
+    const good = makeMockAdapter([makeGhResult('a/b', { desc: 'markdown editor' })], 'github');
     const tool = createFindWheelTool({ adapters: [good] });
     const res = await tool.handle({ query: 'markdown editor' });
     const output = JSON.parse(res.content[0].text);
@@ -298,8 +267,8 @@ describe('findWheelTool.handle', () => {
       description: 'python web framework', stars: 100, language: 'Python', license: 'MIT',
       archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
     }));
-    const ghAdapter = mockAdapter('github', ghResults);
-    const npmAdapter = mockAdapter('registry', []);
+    const ghAdapter = makeMockAdapter(ghResults, 'github');
+    const npmAdapter = makeMockAdapter([], 'registry');
     const tool = createFindWheelTool({ adapters: [ghAdapter, npmAdapter] });
     const res = await tool.handle({ query: 'python web framework', ecosystem: 'python' });
     const output = JSON.parse(res.content[0].text);
@@ -317,12 +286,12 @@ describe('findWheelTool.handle', () => {
       description: 'stepper motor lib', stars: 3, language: null, license: 'MIT',
       archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
     };
-    const ghAdapter = mockAdapter('github', [lowStarGh]);
+    const ghAdapter = makeMockAdapter([lowStarGh], 'github');
     // 被跳过的 npm 应在扩展阶段被搜索
-    const npmAdapter = mockAdapter('registry', [{
+    const npmAdapter = makeMockAdapter([{
       source: 'npm', name: 'stepper-pkg', url: 'https://www.npmjs.com/package/stepper-pkg',
       description: 'stepper motor lib', version: '1.0', keywords: [], date: '2025-06-01T00:00:00Z',
-    }]);
+    }], 'registry');
     const tool = createFindWheelTool({ adapters: [ghAdapter, npmAdapter] });
     const res = await tool.handle({ query: 'stepper motor control' });
     const output = JSON.parse(res.content[0].text);
@@ -339,11 +308,11 @@ describe('findWheelTool.handle', () => {
       description: 'stepper motor library', stars: 100, language: null, license: 'MIT',
       archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
     }));
-    const ghAdapter = mockAdapter('github', ghResults);
-    const npmAdapter = mockAdapter('registry', [{
+    const ghAdapter = makeMockAdapter(ghResults, 'github');
+    const npmAdapter = makeMockAdapter([{
       source: 'npm', name: 'should-not-appear', url: 'https://www.npmjs.com/package/x',
       description: 'should not be searched', version: '1.0', keywords: [], date: '2025-06-01T00:00:00Z',
-    }]);
+    }], 'registry');
     const tool = createFindWheelTool({ adapters: [ghAdapter, npmAdapter] });
     const res = await tool.handle({ query: 'stepper motor control' });
     const output = JSON.parse(res.content[0].text);
@@ -355,13 +324,13 @@ describe('findWheelTool.handle', () => {
 
   it('R2: triggers fallback expansion when results count < 5', async () => {
     // 主搜只返回 1 条结果(< 5),应触发扩展
-    const ghAdapter = mockAdapter('github', [ghResult('a/lib', 'stepper motor lib')]);
-    const giteeAdapter = mockAdapter('gitee', [{
+    const ghAdapter = makeMockAdapter([makeGhResult('a/lib', { desc: 'stepper motor lib' })], 'github');
+    const giteeAdapter = makeMockAdapter([{
       source: 'gitee', name: 'b/lib2', url: 'https://gitee.com/b/lib2',
       description: 'stepper motor driver', stars: 50, language: 'C++', license: 'MIT',
       archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
-    }]);
-    const npmAdapter = mockAdapter('registry', []);
+    }], 'gitee');
+    const npmAdapter = makeMockAdapter([], 'registry');
     const tool = createFindWheelTool({ adapters: [ghAdapter, giteeAdapter, npmAdapter] });
     const res = await tool.handle({ query: 'stepper motor control' });
     const output = JSON.parse(res.content[0].text);

@@ -23,7 +23,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { logError } from '../util/logger.js';
+import { logError, logWarn } from '../util/logger.js';
 
 /**
  * 正则预编译(模块级常量,避免每个文件解析时重新编译)。
@@ -220,8 +220,15 @@ function parseMarkdown(content: string, fileName: string): ParsedMarkdown {
   };
 }
 
+/** 知识库递归深度上限(P0-3:防止符号链接循环或异常深层目录致栈溢出) */
+const MAX_KB_DEPTH = 8;
+
 /** 递归扫描目录下所有 .md 文件 */
-async function scanMarkdownFiles(rootDir: string): Promise<string[]> {
+async function scanMarkdownFiles(rootDir: string, depth = 0): Promise<string[]> {
+  if (depth >= MAX_KB_DEPTH) {
+    logWarn(`KB scan exceeded max depth ${MAX_KB_DEPTH} at ${rootDir}, skipping`);
+    return [];
+  }
   const result: string[] = [];
   try {
     const entries = await fs.readdir(rootDir, { withFileTypes: true });
@@ -229,8 +236,21 @@ async function scanMarkdownFiles(rootDir: string): Promise<string[]> {
       // 跳过隐藏目录(.git, .obsidian, .trash, .vscode 等)
       if (entry.name.startsWith('.')) continue;
       const fullPath = path.join(rootDir, entry.name);
+      // P0-3:用 lstat 检测符号链接,避免循环引用导致无限递归
+      // withFileTypes 已给出 entry,但符号链接需要单独 lstat 才能识别
+      let isSymlink = false;
+      try {
+        const stat = await fs.lstat(fullPath);
+        isSymlink = stat.isSymbolicLink();
+      } catch {
+        // lstat 失败(权限/不存在)按非符号链接处理,后续 readdir/readFile 会再报错
+      }
+      if (isSymlink) {
+        logWarn(`KB scan skipping symlink ${fullPath}`);
+        continue;
+      }
       if (entry.isDirectory()) {
-        const sub = await scanMarkdownFiles(fullPath);
+        const sub = await scanMarkdownFiles(fullPath, depth + 1);
         result.push(...sub);
       } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
         result.push(fullPath);

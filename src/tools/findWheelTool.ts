@@ -13,7 +13,7 @@ import { enrich } from '../enrich/metricsEnricher.js';
 import { rank } from '../rank/ranker.js';
 import { enrichWithMatch, REC_LABELS, REC_ORDER } from '../rank/recommender.js';
 import { readEnv } from '../util/env.js';
-import { logError } from '../util/logger.js';
+import { logError, logInfo } from '../util/logger.js';
 import { createCache, cacheKey, type Cache } from '../cache/cache.js';
 import {
   enrichDetails,
@@ -84,6 +84,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     const key = cacheKey(input.query, intent, input.ecosystem, limit);
     const cached = await cache.get(key);
     if (cached) {
+      logInfo(`cache hit: query="${input.query}" intent=${intent} ${cached.length} wheels`);
       // 缓存命中后也应用 exclude 过滤(让 AI 能用 exclude 二次筛选缓存结果)
       const filtered = excludeSet.size > 0
         ? cached.filter(w => !excludeSet.has(w.name.toLowerCase()))
@@ -243,10 +244,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     // Phase 6 简化:删除领域泛词过滤和 coreWords 过滤。
     // 相关性判断交给 AI 调用方 —— AI 看到 top N 结果后自己挑最适合的。
     // 硬规则过滤(isMissingCoreConcept)容易误杀主流库,得不偿失。
-    let ranked = rank(wheels, intent, limit, queryKeywords);
-    // 给每个结果填充推荐信息(matchScore + recommendation 等级 + reason 理由)
-    // 让调用方 AI 看到结构化的推荐等级,倾向于列出多个结果让用户选择
-    let rankedWithMatch = enrichWithMatch(ranked, queryKeywords);
+    let rankedWithMatch = collectAndRank(wheels, intent, limit, queryKeywords);
 
     // ===== 兜底扩展:召回不足时搜索被跳过的源 =====
     // 严格阈值:top 1 stars < 10 或总结果 < 5 条 → 扩展到全源重搜
@@ -257,6 +255,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       const totalResults = rankedWithMatch.length;
       const needsExpansion = totalResults < FALLBACK_MIN_RESULTS || topStars < FALLBACK_TOP_STARS_THRESHOLD;
       if (needsExpansion) {
+        logInfo(`fallback expansion triggered: topStars=${topStars} results=${totalResults} → search ${skippedAdapters.length} skipped sources`);
         // 搜索被跳过的源,合并结果后重新 rank
         const [extMain, extFuzzy] = await Promise.all([
           Promise.allSettled(skippedAdapters.map(a => a.search(input.query, searchOpts))),
@@ -280,8 +279,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
         if (extRaw.length > 0) {
           // 合并扩展结果到主结果,重新 rank
           wheels = [...wheels, ...extRaw.map(w => enrich(normalize(w)))];
-          ranked = rank(wheels, intent, limit, queryKeywords);
-          rankedWithMatch = enrichWithMatch(ranked, queryKeywords);
+          rankedWithMatch = collectAndRank(wheels, intent, limit, queryKeywords);
         }
         // 无论扩展是否带来新结果,都标记为已扩展(避免下次重复扩展,也避免误报 skippedSources)
         expandedFallback = true;
@@ -293,6 +291,22 @@ export function createFindWheelTool(opts: CreateToolOpts) {
   }
 
   return { handle };
+}
+
+/**
+ * 归一化 + 排序 + 填充推荐信息(P1-5:抽离避免主搜与兜底扩展重复)。
+ *
+ * @param wheels 已 normalize+enrich 的 wheels(主搜)或合并后的 wheels(兜底扩展)
+ * @returns 排好序且带 matchScore/recommendation 的 wheels
+ */
+function collectAndRank(
+  wheels: Wheel[],
+  intent: Intent,
+  limit: number,
+  queryKeywords: string[],
+): Wheel[] {
+  const ranked = rank(wheels, intent, limit, queryKeywords);
+  return enrichWithMatch(ranked, queryKeywords);
 }
 
 /** 混合呈现:对 top 10 预抓取详情,top 3 内联 details,4-10 加 hasDetails 标记 */
@@ -361,21 +375,26 @@ async function enrichTopWheels(
  * 与其让用户误以为"这就是最好的",不如明确提示召回质量不高。
  */
 function buildSummary(wheels: Wheel[]): FindWheelOutput['summary'] {
-  // 按推荐等级分组
+  // 按推荐等级分组(P1-13:用 ?? [] 替代非空断言 !)
   const byLevel = new Map<string, string[]>();
   for (const w of wheels) {
     const level = w.match?.recommendation ?? 'optional';
-    if (!byLevel.has(level)) byLevel.set(level, []);
-    byLevel.get(level)!.push(w.name);
+    const arr = byLevel.get(level) ?? [];
+    arr.push(w.name);
+    byLevel.set(level, arr);
   }
   // 按固定顺序输出(强烈推荐 → 推荐 → 可选 → 不推荐)
   const groups = REC_ORDER
-    .filter(level => byLevel.has(level) && byLevel.get(level)!.length > 0)
-    .map(level => ({
-      level: level as FindWheelOutput['summary']['groups'][0]['level'],
-      label: REC_LABELS[level],
-      items: byLevel.get(level)!,
-    }));
+    .filter(level => (byLevel.get(level)?.length ?? 0) > 0)
+    .map(level => {
+      const items = byLevel.get(level) ?? [];
+      return {
+        // P1-13:level 已是 Recommendation 类型(来自 REC_ORDER),无需类型断言
+        level,
+        label: REC_LABELS[level],
+        items,
+      };
+    });
   const totalCount = wheels.length;
 
   // 低质量结果检测:top 1 结果 stars < LOW_STARS_THRESHOLD 时加警告

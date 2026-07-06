@@ -11,8 +11,7 @@
 // - coreWords/formatWords/antonymExcludes 参数 → 不再需要
 
 import type { Wheel, Intent } from '../normalize/types.js';
-
-const THREE_YEARS_MS = 3 * 365 * 24 * 3600 * 1000;
+import { THREE_YEARS_MS, ONE_YEAR_MS } from '../util/time.js';
 
 // ===== 聚合类仓库模式表(集中管理) =====
 // 这些是"资源列表",不是具体可用的轮子,在 filterOut 阶段统一剔除。
@@ -163,13 +162,12 @@ function recencyScore(lastUpdated?: string): number {
   const t = Date.parse(lastUpdated);
   if (Number.isNaN(t)) return 0;
   const ageMs = Date.now() - t;
-  const oneYear = 365 * 24 * 3600 * 1000;
   // R5:连续衰减函数(替代阶梯式),避免边界跳跃
   // 公式:1 年内 = 1.0,1-3 年线性衰减到 0.1,3 年以上 = 0
-  if (ageMs <= oneYear) return 1.0;
-  if (ageMs <= 3 * oneYear) {
+  if (ageMs <= ONE_YEAR_MS) return 1.0;
+  if (ageMs <= 3 * ONE_YEAR_MS) {
     // 1-3 年线性衰减:1.0 → 0.1
-    const progress = (ageMs - oneYear) / (2 * oneYear); // 0~1
+    const progress = (ageMs - ONE_YEAR_MS) / (2 * ONE_YEAR_MS); // 0~1
     return 1.0 - progress * 0.9; // 1.0 → 0.1
   }
   return 0;

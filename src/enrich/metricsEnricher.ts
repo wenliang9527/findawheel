@@ -1,8 +1,6 @@
 // src/enrich/metricsEnricher.ts
 import type { Wheel, Activity } from '../normalize/types.js';
-
-const SIX_MONTHS_MS = 180 * 24 * 3600 * 1000;
-const TWO_YEARS_MS = 730 * 24 * 3600 * 1000;
+import { SIX_MONTHS_MS, TWO_YEARS_MS } from '../util/time.js';
 
 export function inferActivity(lastUpdated?: string): Activity {
   if (!lastUpdated) return 'low';

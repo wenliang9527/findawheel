@@ -7,11 +7,11 @@
 
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { GiteeRawResult, RawResult } from '../normalize/types.js';
-import { httpGet, HttpError } from '../util/http.js';
+import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
-import { SourceError, RateLimitError } from '../errors.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 import { ECOSYSTEM_LANG } from './ecosystemMapping.js';
+import { toSourceError } from './sourceError.js';
 
 interface GiteeSearchResponse {
   total_count?: number;
@@ -68,11 +68,7 @@ export class GiteeSourceAdapter implements SourceAdapter {
         humanName: item.human_name,
       }));
     } catch (err) {
-      if (err instanceof HttpError && err.status === 403) {
-        throw new RateLimitError('gitee', new Date());
-      }
-      if (err instanceof HttpError) throw new SourceError('gitee', `HTTP ${err.status}`);
-      throw new SourceError('gitee', (err as Error).message);
+      throw toSourceError('gitee', err);
     }
   }
 }

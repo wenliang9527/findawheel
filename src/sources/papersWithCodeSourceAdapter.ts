@@ -12,9 +12,9 @@
 
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { PaperRawResult, RawResult } from '../normalize/types.js';
-import { httpGet, HttpError } from '../util/http.js';
+import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
-import { SourceError } from '../errors.js';
+import { toSourceError } from './sourceError.js';
 
 const API_BASE = 'https://paperswithcode.com/api/v1';
 const DEFAULT_PAGE_SIZE = 20;
@@ -71,8 +71,7 @@ export class PapersWithCodeSourceAdapter implements SourceAdapter {
         repoUrl: p.url_abs,
       }));
     } catch (err) {
-      if (err instanceof HttpError) throw new SourceError('paperswithcode', `HTTP ${err.status}`);
-      throw new SourceError('paperswithcode', (err as Error).message);
+      throw toSourceError('paperswithcode', err);
     }
   }
 }

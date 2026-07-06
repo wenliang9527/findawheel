@@ -15,6 +15,7 @@
 
 import type { Intent } from '../normalize/types.js';
 import type { ParsedQuery } from './queryParser.js';
+import { isHardwareQuery as isHardwareQueryShared } from './hardwareKeywords.js';
 
 /** 所有可用的数据源名(与 server.ts 中注册的 adapter.name 一一对应) */
 export const ALL_SOURCES = [
@@ -182,14 +183,11 @@ export function routeSources(ctx: RoutingContext): RoutingResult {
 // ===== 关键词识别辅助函数 =====
 
 /**
- * 硬件类 query 检测:stepper/motor/servo/encoder/pwm/esp32/stm32/arduino 等。
+ * 硬件类 query 检测(P1-7:复用 hardwareKeywords.ts 共享正则)。
  * 输入用翻译后的英文 query,这样中文"步进电机"翻译为 stepper-motor 也能识别。
- *
- * 注意:用 \b 词边界,避免 'motor' 误匹配 'motivation'。
  */
 function isHardwareQuery(translated: string): boolean {
-  const lower = translated.toLowerCase();
-  return /\b(stepper|motor|servo|encoder|pwm|pulse|driver|actuator|sensor|bldc|arduino|esp32|stm32|raspberry|rpi|microcontroller|mcu|embedded|hal|gpio)\b/.test(lower);
+  return isHardwareQueryShared(translated);
 }
 
 /**

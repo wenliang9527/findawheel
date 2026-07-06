@@ -2,8 +2,6 @@
 // Task 7: 验证 findWheelTool 的混合呈现(top3 内联 details + top4-10 hasDetails 标记 + top10 预抓取写缓存)
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
 
 // mock enrichDetails: 用 vi.hoisted 拿到可在工厂里引用的引用
 const { enrichDetailsMock } = vi.hoisted(() => ({
@@ -16,37 +14,15 @@ vi.mock('../../src/enrich/wheelDetailsEnricher.js', () => ({
 
 import { createFindWheelTool } from '../../src/tools/findWheelTool.js';
 import { createCache, type Cache } from '../../src/cache/cache.js';
-import type { SourceAdapter, SearchOpts } from '../../src/sources/sourceAdapter.js';
 import type { RawResult, Wheel } from '../../src/normalize/types.js';
 import type { WheelDetails } from '../../src/enrich/wheelDetailsEnricher.js';
 import { detailsCacheKey } from '../../src/tools/getWheelDetailsTool.js';
+import { makeMockAdapter, makeTmpDir, makeGhResult } from './helpers.js';
 
-let dirCounter = 0;
-function tmpCacheDir(): string {
-  dirCounter += 1;
-  return path.join(os.tmpdir(), `fw-hybrid-${process.pid}-${dirCounter}`);
-}
-
-// 构造 github 结果(owner/repo 格式,description 含 query 核心词避免被过滤)
-function ghResult(name: string): RawResult {
-  return {
-    source: 'github', name, url: `https://github.com/${name}`,
-    description: 'markdown editor library', stars: 100, language: null,
-    license: 'MIT', archived: false, pushedAt: '2025-06-01T00:00:00Z', topics: [],
-  };
-}
-
-// 构造 12 个 github 结果
+// 构造 12 个 github 结果(makeGhResult 用默认 desc/stars/pushedAt)
 function ghResults(count: number): RawResult[] {
   const names = ['a/b', 'c/d', 'e/f', 'g/h', 'i/j', 'k/l', 'm/n', 'o/p', 'q/r', 's/t', 'u/v', 'w/x'];
-  return names.slice(0, count).map(ghResult);
-}
-
-function mockAdapter(results: RawResult[]): SourceAdapter {
-  return {
-    name: 'github',
-    async search(_q: string, _o: SearchOpts): Promise<RawResult[]> { return results; },
-  };
+  return names.slice(0, count).map(name => makeGhResult(name));
 }
 
 // 构造一个简单的 WheelDetails(标记 name 用于区分)
@@ -68,7 +44,7 @@ describe('findWheelTool 混合呈现 (Task 7)', () => {
 
   it('enrichOpts 未配置时不预抓取,所有 wheels 无 details/hasDetails (向后兼容)', async () => {
     const tool = createFindWheelTool({
-      adapters: [mockAdapter(ghResults(5))],
+      adapters: [makeMockAdapter(ghResults(5))],
       // 不传 enrichOpts
     });
     const res = await tool.handle({ query: 'markdown editor' });
@@ -90,7 +66,7 @@ describe('findWheelTool 混合呈现 (Task 7)', () => {
     enrichDetailsMock.mockImplementation(async (wheel: Wheel) => fakeDetails(wheel.name));
 
     const tool = createFindWheelTool({
-      adapters: [mockAdapter(results)],
+      adapters: [makeMockAdapter(results)],
       enrichOpts: { timeoutMs: 5000 },
     });
     const res = await tool.handle({ query: 'markdown editor' });
@@ -123,7 +99,7 @@ describe('findWheelTool 混合呈现 (Task 7)', () => {
     enrichDetailsMock.mockImplementation(async (wheel: Wheel) => fakeDetails(wheel.name));
 
     const tool = createFindWheelTool({
-      adapters: [mockAdapter(results)],
+      adapters: [makeMockAdapter(results)],
       enrichOpts: { timeoutMs: 5000 },
     });
     const res = await tool.handle({ query: 'markdown editor' });
@@ -140,13 +116,13 @@ describe('findWheelTool 混合呈现 (Task 7)', () => {
   });
 
   it('detailsCache 提供时, top 10 成功抓取的 details 写入缓存', async () => {
-    const dir = tmpCacheDir();
+    const dir = makeTmpDir('fw-hybrid');
     const detailsCache: Cache<WheelDetails> = createCache({ dir, ttlMs: 3600000, enabled: true });
     const results = ghResults(12);
     enrichDetailsMock.mockImplementation(async (wheel: Wheel) => fakeDetails(wheel.name));
 
     const tool = createFindWheelTool({
-      adapters: [mockAdapter(results)],
+      adapters: [makeMockAdapter(results)],
       enrichOpts: { timeoutMs: 5000 },
       detailsCache,
     });
@@ -182,7 +158,7 @@ describe('findWheelTool 混合呈现 (Task 7)', () => {
     enrichDetailsMock.mockResolvedValue(null);
 
     const tool = createFindWheelTool({
-      adapters: [mockAdapter(npmResults)],
+      adapters: [makeMockAdapter(npmResults)],
       enrichOpts: { timeoutMs: 5000 },
     });
     const res = await tool.handle({ query: 'markdown editor' });
@@ -203,7 +179,7 @@ describe('findWheelTool 混合呈现 (Task 7)', () => {
     });
 
     const tool = createFindWheelTool({
-      adapters: [mockAdapter(results)],
+      adapters: [makeMockAdapter(results)],
       enrichOpts: { timeoutMs: 5000 },
     });
     const res = await tool.handle({ query: 'markdown editor' });
@@ -223,14 +199,14 @@ describe('findWheelTool 混合呈现 (Task 7)', () => {
   });
 
   it('缓存命中时返回带 details 的 wheels, 不重新抓取', async () => {
-    const dir = tmpCacheDir();
+    const dir = makeTmpDir('fw-hybrid');
     const searchCache = createCache({ dir, ttlMs: 3600000, enabled: true });
     const results = ghResults(5);
 
     // 第一次调用:预抓取并写搜索缓存
     enrichDetailsMock.mockImplementation(async (wheel: Wheel) => fakeDetails(wheel.name));
     const tool = createFindWheelTool({
-      adapters: [mockAdapter(results)],
+      adapters: [makeMockAdapter(results)],
       cache: searchCache,
       enrichOpts: { timeoutMs: 5000 },
     });

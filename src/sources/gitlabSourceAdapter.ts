@@ -1,10 +1,10 @@
 // src/sources/gitlabSourceAdapter.ts
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { GitlabRawResult, RawResult } from '../normalize/types.js';
-import { httpGet, HttpError } from '../util/http.js';
+import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
-import { RateLimitError, SourceError } from '../errors.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
+import { toSourceError } from './sourceError.js';
 
 /** GitLab /api/v4/projects 返回的项目对象 */
 interface GitlabProject {
@@ -61,11 +61,7 @@ export class GitlabSourceAdapter implements SourceAdapter {
         archived: item.archived,
       }));
     } catch (err) {
-      if (err instanceof HttpError && err.status === 429) {
-        throw new RateLimitError('gitlab', new Date());
-      }
-      if (err instanceof HttpError) throw new SourceError('gitlab', `HTTP ${err.status}`);
-      throw new SourceError('gitlab', (err as Error).message);
+      throw toSourceError('gitlab', err);
     }
   }
 }

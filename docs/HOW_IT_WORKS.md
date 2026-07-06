@@ -148,7 +148,7 @@ AI 客户端通过 MCP 协议发送 `tools/call` 请求：
 
 信号词多的一方胜出；打平或都没命中时默认 `project`（更安全的回退）。
 
-> 💡 **中文翻译**：QueryParser 内部调用 `queryTranslator`，内置 50+ 词的中英技术术语映射表（如"图片"→"image"、"水印"→"watermark"），中文 query 会被翻译成英文后再拆解。
+> 💡 **中文翻译**：QueryParser 内部调用 `queryTranslator`，内置 200+ 词的中英技术术语映射表（如"图片"→"image"、"水印"→"watermark"），中文 query 会被翻译成英文后再拆解。
 
 ### 步骤 2.5️⃣ 智能数据源路由（Source Router）
 
@@ -455,7 +455,7 @@ function classify(query, hint?): 'feature' | 'project'
 
 **同义词表**：内置 monitor→observer/watcher、compress→shrink/optimize、motor→actuator 等映射，用于副搜索扩大召回。
 
-> 💡 **中文翻译**：`queryTranslator` 内置 50+ 词中英技术术语映射（如"图片"→"image"、"水印"→"watermark"、"解析"→"parse"），中文 query 会被翻译成英文后再拆解。
+> 💡 **中文翻译**：`queryTranslator` 内置 200+ 词中英技术术语映射（如"图片"→"image"、"水印"→"watermark"、"解析"→"parse"），中文 query 会被翻译成英文后再拆解。
 
 ---
 
@@ -474,6 +474,25 @@ interface SourceAdapter {
 
 > 💡 这是**适配器模式**的抽象——所有数据源实现同一接口，主流程不关心具体源的差异。
 > 二期加 Web 搜索源只需新增一个 adapter，不动其他代码。
+
+> ℹ️ **`per_page` / `page_size` 各 adapter 取值不一致（P2-18 文档化）**
+>
+> 各数据源 API 限流策略不同，故 per_page 取值有意不统一：
+>
+> | Adapter | 参数 | 值 | 原因 |
+> |:--------|:-----|:---|:-----|
+> | GitHub | `per_page` | 50 | REST API 上限 100，取 50 平衡召回与限流（5000 req/h）|
+> | GitLab | `per_page` | 50 | 上限 100，取 50 平衡召回与限流 |
+> | Gitee | `per_page` | 20 | 匿名 60 req/h 限流严，保守用 20 |
+> | GitHub Code Search | `per_page` | 20 | 限流 10 req/min 极严，保守用 20 控制流量 |
+> | npm (`registry.npmjs.org`) | `size` | 20 | 默认上限 20 |
+> | crates.io | `per_page` | 20 | API 上限 100，取 20 平衡召回与限流 |
+> | Papers with Code | `items_per_page` | 20 | API 上限 100，取 20 平衡召回与限流 |
+> | HuggingFace | N/A | - | 用 `/api/models?search=...` 不分页 |
+> | VS Code Marketplace | N/A | - | 用 POST body 不带 per_page |
+>
+> 取值原则：**限流严的源用小 per_page**（防止触发限流），**限流宽的源用大 per_page**（提高召回）。
+> 统一一个值会导致限流严的源频繁触发 429，或限流宽的源召回不足。
 
 #### 4.1 GitHubSourceAdapter
 

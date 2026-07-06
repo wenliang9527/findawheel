@@ -9,6 +9,7 @@
 // AI 调用方拿到 stars 原值 + matchScore 后自己判断领域相对热度。
 
 import type { Wheel, Recommendation, WheelMatch } from '../normalize/types.js';
+// P1-9:不再需要 ONE_YEAR_MS —— activity 字段统一由 metricsEnricher.inferActivity 计算
 
 /**
  * stars 归一化分母(统一值)。
@@ -78,22 +79,13 @@ export function computeMatch(
   const stars = wheel.metrics.stars ?? 0;
   const popularityScore = Math.min(stars / STARS_DENOMINATOR, 1) * 0.3;
 
-  // 3. 活跃度(0~0.2):最近更新 + activity
-  const activity = wheel.metrics.activity;
+  // 3. 活跃度(0~0.2):基于 metrics.activity(P1-9:统一由 metricsEnricher.inferActivity 计算)
+  // 注:enrich 阶段保证 activity 字段已填充(默认 'low'),不再二次估算
+  const activity = wheel.metrics.activity ?? 'low';
   let activityScore = 0;
   if (activity === 'high') activityScore = 0.2;
   else if (activity === 'medium') activityScore = 0.1;
   else if (activity === 'low') activityScore = 0.05;
-  // 兜底:用 lastUpdated 估
-  if (activityScore === 0 && wheel.metrics.lastUpdated) {
-    const t = Date.parse(wheel.metrics.lastUpdated);
-    if (!Number.isNaN(t)) {
-      const ageMs = Date.now() - t;
-      const oneYear = 365 * 24 * 3600 * 1000;
-      if (ageMs <= oneYear) activityScore = 0.2;
-      else if (ageMs <= 2 * oneYear) activityScore = 0.1;
-    }
-  }
 
   const score = relevanceScore + popularityScore + activityScore;
   const recommendation = gradeRecommendation(score, stars);

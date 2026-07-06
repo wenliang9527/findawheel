@@ -1,12 +1,12 @@
 // src/sources/githubSourceAdapter.ts
 import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { GitHubRawResult, RawResult } from '../normalize/types.js';
-import { httpGet, HttpError } from '../util/http.js';
+import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
-import { RateLimitError, SourceError } from '../errors.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 import type { ParsedQuery } from '../classifier/queryParser.js';
 import { ECOSYSTEM_LANG } from './ecosystemMapping.js';
+import { toSourceError } from './sourceError.js';
 
 /**
  * 构造 GitHub 搜索表达式。
@@ -110,9 +110,7 @@ export class GitHubSourceAdapter implements SourceAdapter {
         topics: item.topics ?? [],
       }));
     } catch (err) {
-      if (err instanceof HttpError && err.status === 403) throw new RateLimitError('github', new Date());
-      if (err instanceof HttpError) throw new SourceError('github', `HTTP ${err.status}`);
-      throw new SourceError('github', (err as Error).message);
+      throw toSourceError('github', err);
     }
   }
 }

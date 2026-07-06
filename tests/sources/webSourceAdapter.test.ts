@@ -29,7 +29,7 @@ describe('WebSourceAdapter', () => {
   });
 
   it('returns Exa results when Exa succeeds', async () => {
-    (httpPost as any).mockResolvedValue({
+    vi.mocked(httpPost).mockResolvedValue({
       results: [
         { title: 'Exa Result', url: 'https://example.com/1', text: 'content', score: 0.9 },
       ],
@@ -52,7 +52,7 @@ describe('WebSourceAdapter', () => {
   });
 
   it('falls back to Tavily when Exa throws (402 quota exhausted)', async () => {
-    (httpPost as any)
+    vi.mocked(httpPost)
       .mockRejectedValueOnce(new Error('402 Payment Required'))
       .mockResolvedValueOnce({
         results: [
@@ -77,7 +77,7 @@ describe('WebSourceAdapter', () => {
   });
 
   it('returns empty array when both Exa and Tavily fail', async () => {
-    (httpPost as any).mockRejectedValue(new Error('network error'));
+    vi.mocked(httpPost).mockRejectedValue(new Error('network error'));
 
     const adapter = new WebSourceAdapter();
     const results = await adapter.search('test query', {
@@ -97,7 +97,7 @@ describe('WebSourceAdapter', () => {
   });
 
   it('uses Tavily directly when no Exa key', async () => {
-    (httpPost as any).mockResolvedValue({
+    vi.mocked(httpPost).mockResolvedValue({
       results: [
         { title: 'Tavily Only', url: 'https://example.com/3', content: 'content', score: 0.7 },
       ],
@@ -115,7 +115,7 @@ describe('WebSourceAdapter', () => {
   });
 
   it('uses expandedQuery from parsedQuery when available', async () => {
-    (httpPost as any).mockResolvedValue({ results: [] });
+    vi.mocked(httpPost).mockResolvedValue({ results: [] });
 
     const adapter = new WebSourceAdapter();
     await adapter.search('中文查询', {
@@ -125,7 +125,7 @@ describe('WebSourceAdapter', () => {
     });
 
     // httpPost 的第一个参数是 URL,第二个是 options。body 在 options.body 里
-    const callArgs = (httpPost as any).mock.calls[0];
+    const callArgs = vi.mocked(httpPost).mock.calls[0];
     const body = JSON.parse(callArgs[1].body);
     expect(body.query).toBe('chinese query');
   });
