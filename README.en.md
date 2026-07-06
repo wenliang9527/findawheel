@@ -26,6 +26,7 @@
 | 🤔 | [Why](#-why) | The problem it solves |
 | ✨ | [Core Features](#-core-features) | Seven capabilities |
 | 🚀 | [Quick Start](#-quick-start) | Three steps |
+| ⚡ | [Quick Trigger](#-quick-trigger-user-spells) | Force-trigger when AI doesn't auto-call |
 | 🤖 | [Connect to AI Client](#-connect-to-ai-client) | Trae / Cursor / Claude |
 | 🔧 | [Environment Variables](#-environment-variables) | Configuration |
 | 🏗️ | [Architecture](#-architecture) | Data flow diagram |
@@ -97,6 +98,26 @@ npm run build
 ```
 
 > 📖 Full installation guide: [USAGE.md](./docs/USAGE.md)
+
+---
+
+## ⚡ Quick Trigger (User Spells)
+
+When the AI should call findawheel but doesn't, users can force-trigger it with these phrases:
+
+**Default spells** (short, contain tool name — most reliable):
+- `findawheel XX`
+- `search findawheel for XX`
+
+**Alternative spells** ("wheel" metaphor — easy to remember):
+- `find me a wheel for XX`
+- `any wheel for XX`
+
+**Force spells** (when AI skips search and goes straight to coding):
+- `findawheel first, then code`
+- `don't code yet, findawheel first`
+
+> 📖 Advanced usage (rephrase search, exclude search) in [USAGE.md FAQ](./docs/USAGE.md#faq)
 
 ---
 
