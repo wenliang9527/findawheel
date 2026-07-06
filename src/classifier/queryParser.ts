@@ -323,12 +323,14 @@ export function parseQuery(query: string): ParsedQuery {
   const formatWords = allWords.filter(w => FORMAT_WORDS.has(w));
 
   // 5. 生成 fuzzyQuery:用同义词/上位词泛化,用于副搜索扩大召回
-  const fuzzyWords = allWords.map(w => {
+  // N1:原逻辑用 syns[0] 替换原词,丢失精确召回锚点(如 motor → actuator 后,搜不到 motor)
+  // 改为:原词 + 同义词,既保留精确召回又扩大同义词覆盖
+  const fuzzyWords = allWords.flatMap(w => {
     const syns = SYNONYMS[w];
-    // 优先取第一个同义词(通常是最佳泛化词);无同义词时保留原词
-    return syns && syns.length > 0 ? syns[0] : w;
+    return syns && syns.length > 0 ? [w, syns[0]] : [w];
   });
-  const fuzzyQuery = fuzzyWords.join(' ');
+  // 去重(同义词可能和原词重复,如 syns 含原词时)
+  const fuzzyQuery = [...new Set(fuzzyWords)].join(' ');
 
   return {
     corePhrase, coreWords, modifiers: modifierWords,

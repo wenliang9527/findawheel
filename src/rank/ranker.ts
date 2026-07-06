@@ -43,11 +43,15 @@ function isAggregateRepo(name: string, description: string): boolean {
  * 基础过滤:剔除明显不可用的结果。
  * - archived 仓库
  * - 超过 3 年未更新
- * - 无描述且 stars < 10
+ * - 无描述且无任何热度信号(stars/downloads/lastUpdated 都缺)
  * - 聚合类仓库(awesome-xxx、public-apis 等)
  *
  * 注:时间取值用 Date.now() 调用时取值,不用模块级常量 ——
  * MCP server 是长期运行的 stdio 进程,模块加载时固定的 NOW 会随运行时间漂移。
+ *
+ * N7 修复:原规则 `(!description && stars < 10)` 会误杀 Maven/Gopkg 等无 stars 数据的源
+ * (Maven description 常为空,stars undefined → 0 < 10 → 被过滤)。
+ * 改为:无描述时,只有当 stars/downloads/lastUpdated 三个热度信号都缺失才过滤。
  */
 export function filterOut(wheel: Wheel): boolean {
   const m = wheel.metrics;
@@ -56,7 +60,13 @@ export function filterOut(wheel: Wheel): boolean {
     const t = Date.parse(m.lastUpdated);
     if (!Number.isNaN(t) && Date.now() - t > THREE_YEARS_MS) return true;
   }
-  if ((!wheel.description || wheel.description.trim() === '') && (m.stars ?? 0) < 10) return true;
+  // N7:无描述时,只有当所有热度信号都缺失才过滤(避免误杀 Maven/Gopkg 等无 stars 的源)
+  if (!wheel.description || wheel.description.trim() === '') {
+    const hasStars = (m.stars ?? 0) >= 10;
+    const hasDownloads = (m.downloads ?? 0) >= 100;
+    const hasLastUpdated = Boolean(m.lastUpdated);
+    if (!hasStars && !hasDownloads && !hasLastUpdated) return true;
+  }
 
   // 过滤聚合类仓库(awesome-xxx、public-apis 等)
   if (isAggregateRepo(wheel.name, wheel.description)) return true;
@@ -112,6 +122,8 @@ function phraseMatchBonus(wheel: Wheel, queryKeywords: string[]): number {
  * R1:topics 命中加分。
  * 场景:GitHub topics 是仓库作者主动打的标签,命中 query 词说明项目核心主题匹配。
  * 例:搜 "stepper motor" 时,topics 含 "stepper-motor" 的项目加 0.1 分。
+ *
+ * N8:短关键词(≤3 字符)用子串匹配会误匹配,改用 topicMatches helper。
  */
 function topicsMatchBonus(wheel: Wheel, queryKeywords: string[]): number {
   if (!wheel.topics || wheel.topics.length === 0 || queryKeywords.length === 0) return 0;
@@ -119,15 +131,30 @@ function topicsMatchBonus(wheel: Wheel, queryKeywords: string[]): number {
   let hitCount = 0;
   for (const kw of queryKeywords) {
     const kwLower = kw.toLowerCase();
-    // topics 可能用 - 或 _ 连接(如 stepper-motor),query 关键词可能是 stepper 和 motor 分开的
-    // 检查:topic 含关键词,或关键词含 topic
-    if (topicsLower.some(t => t.includes(kwLower) || kwLower.includes(t))) {
+    // N8:短关键词用精确/边界匹配,长关键词用子串匹配
+    if (topicsLower.some(t => topicMatches(t, kwLower))) {
       hitCount++;
     }
   }
   if (hitCount === 0) return 0;
   // topics 命中加 0.05~0.1(至少 1 个加 0.05,全部命中加 0.1)
   return Math.min(0.05 + (hitCount / queryKeywords.length) * 0.05, 0.1);
+}
+
+/**
+ * N8:topic 与关键词匹配判断(与 recommender.ts 的 topicMatches 保持一致)。
+ * - 短关键词(≤3 字符,如 js/ts/ai/c/go)用子串匹配会误匹配
+ *   改为:精确匹配或 kebab-case 边界匹配
+ * - 长关键词(>3 字符)保留双向子串匹配(原逻辑)
+ */
+function topicMatches(topic: string, keyword: string): boolean {
+  if (keyword.length <= 3) {
+    return topic === keyword
+      || topic.startsWith(keyword + '-')
+      || topic.endsWith('-' + keyword)
+      || topic.includes('-' + keyword + '-');
+  }
+  return topic.includes(keyword) || keyword.includes(topic);
 }
 
 /**
@@ -220,9 +247,29 @@ export function score(wheel: Wheel, intent: Intent, queryKeywords: string[] = []
 }
 
 export function dedupe(wheels: Wheel[]): Wheel[] {
+  // N3:github-code 的 name 是 "owner/repo#path",与 github 的 "owner/repo" 不同,
+  // 但实际指向同一仓库。如果同仓库已有 github 仓库级结果,丢弃 github-code 文件级结果
+  // (仓库级结果 description/topics 更完整,对 AI 更有价值)。
+  // github-code 之间也会去重(同仓库多个文件只保留第一个,通常是 stars 最高/最近更新的)。
+  const githubRepos = new Set<string>();
+  // 先扫一遍:收集 github 仓库级结果占据的 owner/repo
+  for (const w of wheels) {
+    if (w.source === 'github') {
+      githubRepos.add(w.name.toLowerCase());
+    }
+  }
   const map = new Map<string, Wheel>();
   for (const w of wheels) {
-    const key = w.name.toLowerCase();
+    let key: string;
+    if (w.source === 'github-code') {
+      // github-code name = "owner/repo#path",取 owner/repo 部分作为 dedupe key
+      const repo = w.name.split('#')[0].toLowerCase();
+      key = `gh-code:${repo}`;  // 用前缀避免与 github 仓库级结果冲突
+      // N3:同仓库已有 github 仓库级结果 → 丢弃 github-code 文件级结果
+      if (githubRepos.has(repo)) continue;
+    } else {
+      key = w.name.toLowerCase();
+    }
     const existing = map.get(key);
     if (!existing) {
       map.set(key, w);

@@ -46,6 +46,8 @@ interface SearchResult {
   routing?: RoutingResult;
   /** 是否触发了兜底扩展(true=原本跳过的源因召回不足被重新搜索) */
   expandedFallback?: boolean;
+  /** N12:翻译后的 query(中英合并),供 output.translatedQuery 字段使用 */
+  translatedQuery?: string;
 }
 
 /** 兜底扩展阈值:top 1 stars < LOW_STARS_THRESHOLD 或总结果 < FALLBACK_MIN_RESULTS 条时触发 */
@@ -153,6 +155,8 @@ export function createFindWheelTool(opts: CreateToolOpts) {
 
     const output: FindWheelOutput = {
       query: input.query,
+      // N12:暴露翻译后的 query,让 AI 知道实际搜了什么英文词(中文 query 翻译后可能不同)
+      ...(result.translatedQuery ? { translatedQuery: result.translatedQuery } : {}),
       intent,
       total: finalWheels.length,
       wheels: finalWheels,
@@ -254,7 +258,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     }
 
     if (allFailed) {
-      return { wheels: [], degraded, allFailed: true, routing };
+      return { wheels: [], degraded, allFailed: true, routing, translatedQuery: translated };
     }
 
     let wheels: Wheel[] = allRaw.map(w => enrich(normalize(w)));
@@ -310,7 +314,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       }
     }
 
-    return { wheels: rankedWithMatch, degraded, allFailed: false, routing, expandedFallback };
+    return { wheels: rankedWithMatch, degraded, allFailed: false, routing, expandedFallback, translatedQuery: translated };
   }
 
   return { handle };
@@ -354,9 +358,10 @@ async function enrichTopWheels(
   const prefetchCount = Math.min(TOP_PREFETCH, wheels.length);
   const top = wheels.slice(0, prefetchCount);
 
-  // 并行抓取 top 10 详情,任一失败容错(不阻断其他)
+  // N16:top 3 抓 README + release(信息完整),top 4-10 只抓 README(减少 7 个 API 请求)
+  // 减少约 35% 的 GitHub API 调用(从 20 降到 13),对高频搜索场景有明显改善
   const results = await Promise.allSettled(
-    top.map(w => enrichDetails(w, enrichOpts)),
+    top.map((w, i) => enrichDetails(w, enrichOpts, i < TOP_INLINE)),
   );
 
   for (let i = 0; i < results.length; i++) {

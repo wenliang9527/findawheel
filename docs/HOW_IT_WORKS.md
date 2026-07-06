@@ -1315,6 +1315,8 @@ findawheel 注册了五个工具：
 | 领域特化配置表 | Phase 6 已删除 DOMAINS/GENERIC_WORDS/STARS_DENOMINATOR——统一处理 |
 
 > ✅ **Phase 6 简化（RAG 范式）**：findawheel 重新定位为"AI 编程的上下文增强器"。检索器只负责召回，相关性判断交给 AI。删除了 isMissingCoreConcept / isReverseIntent 等硬过滤函数、6 领域配置表、embedded 4 处特殊逻辑。保留翻译表/同义词表/ACTION_VERBS/feedback 加权/详情预抓取/硬件 ecosystem 推荐等纯增益机制。619 测试全通过。
+>
+> 🔧 **第二轮搜索/判断优化（N1-N17，commit xxx）**：聚焦"搜索召回质量、判断准确性、AI 协作体验"三个维度。修复 3 个 P0 bug:N7(filterOut 误杀 Maven 包 — 空描述+无 stars 被过滤)、N3(github-code 文件级结果与 github 仓库级结果未按 owner/repo 去重)、N6(HuggingFace likes 用 stars 分母 10000 归一化导致热度失真)。4 个 P1 优化:N1(fuzzyQuery 保留原词锚点,不再完全替换)、N12(find_wheel 输出新增 translatedQuery 字段供 AI 调试)、N16(top 4-10 只抓 README 不抓 release,减少 35% GitHub API 调用)、N8(topics 短词匹配改用 kebab-case 边界,避免 js 误匹配 vue-js)。
 
 这些会在三期按需加入，见 [README 路线图](../README.md#-路线图)。
 

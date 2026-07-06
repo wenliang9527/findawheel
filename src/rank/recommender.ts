@@ -7,17 +7,38 @@
 // 删除领域特定 stars 归一化分母(DOMAIN_STARS_DENOMINATOR)。
 // 统一用 10000 作为 stars 分母,避免领域配置表带来的维护负担。
 // AI 调用方拿到 stars 原值 + matchScore 后自己判断领域相对热度。
+//
+// N6 修复:HuggingFace 的 stars 实际是 likes(量级 < 100),用 10000 归一化后热度几乎为 0,
+// 导致 AI 模型永远达不到 highly_recommended。改为按 source 选择分母:
+// - github/gitee/gitlab/librariesio:真实 stars,分母 10000
+// - huggingface:likes 量级,分母 500
+// - 其他源:无 stars 或 stars 继承自 GitHub,用默认 10000
 
-import type { Wheel, Recommendation, WheelMatch } from '../normalize/types.js';
+import type { Wheel, Recommendation, WheelMatch, WheelSource } from '../normalize/types.js';
 // P1-9:不再需要 ONE_YEAR_MS —— activity 字段统一由 metricsEnricher.inferActivity 计算
 
 /**
- * stars 归一化分母(统一值)。
- * 不同领域 stars 天花板不同,但 findawheel 不再硬编码领域分母 ——
- * AI 看到 stars 原值后自己判断领域相对热度(嵌入式 1k stars 已是主流,
- * 前端 1k stars 是小众,这种领域知识 AI 比硬规则更准确)。
+ * stars 归一化分母(按 source 差异化)。
+ * N6:不同源的 stars 字段含义/量级差异巨大:
+ * - GitHub/Gitee/GitLab/Libraries.io:真实 stars,主流库 10k+,分母 10000
+ * - HuggingFace:实际是 likes(点赞数),顶级模型也才几百,分母 500
+ * - 其他源(npm/crates/pypi/maven/rubygems/gopkg...):无 stars 或继承自 GitHub,用默认 10000
  */
-const STARS_DENOMINATOR = 10000;
+const STARS_DENOMINATOR_BY_SOURCE: Partial<Record<WheelSource, number>> = {
+  github: 10000,
+  gitee: 5000,       // Gitee stars 量级普遍低于 GitHub
+  gitlab: 5000,      // GitLab stars 量级普遍低于 GitHub
+  librariesio: 10000, // 继承自 GitHub,量级相同
+  huggingface: 500,  // likes 量级远小于 stars
+  'github-code': 10000, // 继承自 GitHub 仓库 stars
+  paperswithcode: 1000, // 关联 repo stars,通常量级较小
+};
+
+const DEFAULT_STARS_DENOMINATOR = 10000;
+
+function getStarsDenominator(source: WheelSource): number {
+  return STARS_DENOMINATOR_BY_SOURCE[source] ?? DEFAULT_STARS_DENOMINATOR;
+}
 
 /**
  * 计算单个 Wheel 的匹配信息。
@@ -54,10 +75,12 @@ export function computeMatch(
   let relevanceScore = hitRate * 0.5;
 
   // R1:topics 命中额外加分(最多 +0.1)
+  // N8:短关键词(≤3 字符如 js/ts/ai/c/go)用子串匹配会误匹配(如 js 匹配 vue-js、ai 匹配 raid)
+  // 改为:短关键词要求精确匹配或 kebab-case 边界匹配
   if (wheel.topics && wheel.topics.length > 0 && queryKeywords.length > 0) {
     const topicsLower = wheel.topics.map(t => t.toLowerCase());
     const topicsHits = queryKeywords.filter(kw =>
-      topicsLower.some(t => t.includes(kw.toLowerCase()) || kw.toLowerCase().includes(t)),
+      topicsLower.some(t => topicMatches(t, kw.toLowerCase())),
     ).length;
     if (topicsHits > 0) {
       relevanceScore += Math.min(topicsHits / queryKeywords.length, 1) * 0.1;
@@ -75,9 +98,10 @@ export function computeMatch(
   // 相关度上限 0.5(原值)+ 0.1(topics) + 0.1(name) = 0.7,但钳制到 0.6 避免过度
   relevanceScore = Math.min(relevanceScore, 0.6);
 
-  // 2. 热度(0~0.3):stars 归一化(统一分母)
+  // 2. 热度(0~0.3):stars 归一化(N6:按 source 差异化分母)
   const stars = wheel.metrics.stars ?? 0;
-  const popularityScore = Math.min(stars / STARS_DENOMINATOR, 1) * 0.3;
+  const denominator = getStarsDenominator(wheel.source);
+  const popularityScore = Math.min(stars / denominator, 1) * 0.3;
 
   // 3. 活跃度(0~0.2):基于 metrics.activity(P1-9:统一由 metricsEnricher.inferActivity 计算)
   // 注:enrich 阶段保证 activity 字段已填充(默认 'low'),不再二次估算
@@ -216,6 +240,28 @@ function buildReason(
 function formatStars(stars: number): string {
   if (stars >= 1000) return `${(stars / 1000).toFixed(1)}k stars`;
   return `${stars} stars`;
+}
+
+/**
+ * N8:topic 与关键词匹配判断。
+ * - 短关键词(≤3 字符,如 js/ts/ai/c/go)用子串匹配会误匹配(js 匹配 vue-js、ai 匹配 raid)
+ *   改为:精确匹配或 kebab-case 边界匹配(前缀/后缀/中间)
+ * - 长关键词(>3 字符)保留双向子串匹配(原逻辑)
+ */
+function topicMatches(topic: string, keyword: string): boolean {
+  // topic 和 keyword 都已 toLowerCase
+  if (keyword.length <= 3) {
+    // 短关键词:要求精确匹配或 kebab-case 边界
+    // 例:topic="vue-js" kw="js" → 命中(后缀 -js)
+    //     topic="react" kw="c" → 不命中(不是边界匹配)
+    //     topic="ai-agent" kw="ai" → 命中(前缀 ai-)
+    return topic === keyword
+      || topic.startsWith(keyword + '-')
+      || topic.endsWith('-' + keyword)
+      || topic.includes('-' + keyword + '-');
+  }
+  // 长关键词:保留原双向子串匹配
+  return topic.includes(keyword) || keyword.includes(topic);
 }
 
 /**

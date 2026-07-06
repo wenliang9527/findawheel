@@ -40,29 +40,33 @@ function extractRepo(wheel: Wheel): string | null {
 }
 
 /**
- * 为单个 Wheel 抓取详情（README + releases + license 比对）。
+ * 为单个 Wheel 抓取详情(README + releases + license 比对)。
  * 仅对 GitHub 源生效,其他源返回 null（无 README API）。
  * 并行抓取 readme + release,任一失败填空不阻断（增强信息缺失不影响主流程）。
+ *
+ * N16:新增 includeRelease 参数。
+ * - top 3 抓 README + release（信息完整,AI 直接展示）
+ * - top 4-10 只抓 README（release 信息密度低,README 已含安装示例）
+ * - 减少约 7 个 GitHub API 请求/次搜索（从 20 降到 13）
  */
 export async function enrichDetails(
   wheel: Wheel,
   opts: EnrichDetailsOpts,
+  includeRelease: boolean = true,
 ): Promise<WheelDetails | null> {
   const repo = extractRepo(wheel);
   if (!repo) return null;
 
-  // 并行抓取 README 和最新 release,任一失败容错（不阻断整个 enrich）
-  const [readmeResult, releaseResult] = await Promise.allSettled([
-    fetchReadme(repo, { timeoutMs: opts.timeoutMs, githubToken: opts.githubToken }),
-    fetchLatestRelease(repo, { timeoutMs: opts.timeoutMs, githubToken: opts.githubToken }),
-  ]);
+  // 并行抓取 README 和最新 release（N16:includeRelease=false 时只抓 README）
+  // 分开处理避免联合类型混乱:readme 是 string,release 是 LatestRelease | null
+  const readmePromise = fetchReadme(repo, { timeoutMs: opts.timeoutMs, githubToken: opts.githubToken })
+    .catch(err => { logError(`readme fetch failed for ${wheel.name}`, err); return ''; });
+  const releasePromise = includeRelease
+    ? fetchLatestRelease(repo, { timeoutMs: opts.timeoutMs, githubToken: opts.githubToken })
+      .catch(err => { logError(`release fetch failed for ${wheel.name}`, err); return null; })
+    : Promise.resolve(null);
 
-  const readmeSnippet = readmeResult.status === 'fulfilled'
-    ? readmeResult.value
-    : (logError(`readme fetch failed for ${wheel.name}`, readmeResult.reason), '');
-  const release = releaseResult.status === 'fulfilled'
-    ? releaseResult.value
-    : (logError(`release fetch failed for ${wheel.name}`, releaseResult.reason), null);
+  const [readmeSnippet, release] = await Promise.all([readmePromise, releasePromise]);
   const codeExamples = readmeSnippet ? extractCodeSnippets(readmeSnippet) : [];
 
   const details: WheelDetails = {

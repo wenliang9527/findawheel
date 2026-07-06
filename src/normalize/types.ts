@@ -83,6 +83,12 @@ export interface FindWheelInput {
 
 export interface FindWheelOutput {
   query: string;
+  /**
+   * N12:翻译后的 query(中英合并),供 AI 调试召回偏差。
+   * 例:用户传"图片水印",translatedQuery = "图片水印 image watermark"。
+   * AI 据此判断翻译是否准确,以及为何搜到的是英文项目。
+   */
+  translatedQuery?: string;
   intent: Intent;
   total: number;
   wheels: Wheel[];
