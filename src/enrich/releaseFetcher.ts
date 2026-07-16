@@ -1,20 +1,16 @@
 // src/enrich/releaseFetcher.ts
 import { httpGet, HttpError } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
-import { toSourceError } from '../sources/sourceError.js';
+import { toSourceError } from '../util/sourceError.js';
+import type { LatestRelease } from '../normalize/types.js';
+
+// LatestRelease 已下沉到 normalize/types.ts(消除 normalize 反向依赖)。
+// re-export 保持向后兼容。
+export type { LatestRelease };
 
 export interface FetchReleaseOpts {
   timeoutMs: number;
   githubToken?: string;
-}
-
-export interface LatestRelease {
-  /** release tag，如 "v4.18.0" */
-  tag: string;
-  /** 发布时间 ISO 字符串 */
-  publishedAt: string;
-  /** release 标题（可选） */
-  name?: string;
 }
 
 interface GitHubRelease {

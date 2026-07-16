@@ -17,23 +17,11 @@ import type { Intent } from '../normalize/types.js';
 import type { ParsedQuery } from './queryParser.js';
 import { isHardwareQuery } from './hardwareKeywords.js';
 
-/** 所有可用的数据源名(与 server.ts 中注册的 adapter.name 一一对应) */
-export const ALL_SOURCES = [
-  'github',
-  'gitee',
-  'gitlab',
-  'registry',           // npm
-  'pypi',
-  'librariesio',
-  'github-code',
-  'vscode-marketplace',
-  'paperswithcode',
-  'huggingface',
-  'web',
-  'maven',              // Java/Kotlin
-  'rubygems',           // Ruby
-  'gopkg',              // Go modules
-] as const;
+// ALL_SOURCES 改为从 registry 派生,消除手写字符串与 server.ts 实例化的双重同步。
+// 导入 + re-export 保持 sourceRouter.js 的公开 API 兼容(测试与 findWheelTool 都从此处 import),
+// 同时 routeSources 内部可继续引用 ALL_SOURCES。
+import { ALL_SOURCES } from '../sources/registry.js';
+export { ALL_SOURCES };
 
 /** 路由上下文 —— 把判断需要的字段打包,避免函数签名爆炸 */
 export interface RoutingContext {
@@ -126,20 +114,23 @@ const ROUTING_RULES: RoutingRule[] = [
     reason: () => 'ecosystem=ruby → Ruby 生态(RubyGems/GitHub/Libraries.io),跳过 npm/PyPI/Maven/GoPkg',
   },
   // 7. ecosystem=cpp/arduino → 硬件类,只在 GitHub/Gitee/PapersWithCode 搜
+  // N3:加入 huggingface —— esp32/stm32+AI 混合 query 可能需要 HuggingFace 轻量模型
   {
     name: 'cpp-arduino-ecosystem',
     match: (ctx) => ctx.ecosystem === 'cpp' || ctx.ecosystem === 'arduino',
-    selectedSources: ['github', 'gitee', 'github-code', 'librariesio', 'paperswithcode', 'web'],
+    selectedSources: ['github', 'gitee', 'github-code', 'librariesio', 'paperswithcode', 'huggingface', 'web'],
     reason: (ctx) => `ecosystem=${ctx.ecosystem} → C++/Arduino 生态(GitHub/Gitee/Libraries.io),跳过 npm/PyPI/Maven/RubyGems/GoPkg`,
   },
-  // 5. 硬件类关键词(stepper/motor/servo/esp32/stm32 等)—— 即使没传 ecosystem 也路由
+  // 8. 硬件类关键词(stepper/motor/servo/esp32/stm32 等)—— 即使没传 ecosystem 也路由
+  // N3:加入 huggingface —— 硬件+AI 混合 query(如 "esp32 ai inference")也能召回 HuggingFace 轻量模型,
+  // 避免 hardware 路由优先于 ai-ml-model 时漏召回 HuggingFace
   {
     name: 'hardware-keywords',
     match: (ctx) => isHardwareQuery(ctx.translatedQuery),
-    selectedSources: ['github', 'gitee', 'github-code', 'paperswithcode', 'web'],
-    reason: () => 'query 含硬件关键词(stepper/motor/servo/esp32/stm32/...) → C++/Arduino 生态,跳过 npm/PyPI/Libraries.io/VSCode/HuggingFace',
+    selectedSources: ['github', 'gitee', 'github-code', 'paperswithcode', 'huggingface', 'web'],
+    reason: () => 'query 含硬件关键词(stepper/motor/servo/esp32/stm32/...) → C++/Arduino 生态(含 HuggingFace 轻量模型),跳过 npm/PyPI/Libraries.io/VSCode',
   },
-  // 6. VSCode 插件(vscode/extension/插件/扩展)
+  // 9. VSCode 插件(vscode/extension/插件/扩展)
   // 注:中文词(插件/扩展)不用 \b,因为 \b 是英文词边界,中文上下文不生效
   {
     name: 'vscode-extension',
@@ -147,14 +138,14 @@ const ROUTING_RULES: RoutingRule[] = [
     selectedSources: ['vscode-marketplace', 'github', 'web'],
     reason: () => 'query 含 VSCode 插件信号 → VSCode Marketplace/GitHub,跳过 npm/PyPI/HuggingFace/PapersWithCode',
   },
-  // 7. AI/ML 模型(model/training/llm/inference/neural/transformer)
+  // 10. AI/ML 模型(model/training/llm/inference/neural/transformer)
   {
     name: 'ai-ml-model',
     match: (ctx) => isAiMlQuery(ctx.translatedQuery),
     selectedSources: ['huggingface', 'paperswithcode', 'github', 'web'],
     reason: () => 'query 含 AI/ML 关键词(model/training/llm/inference/...) → HuggingFace/PapersWithCode/GitHub,跳过 npm/PyPI/VSCode',
   },
-  // 8. 论文/算法(paper/algorithm/论文/算法)
+  // 11. 论文/算法(paper/algorithm/论文/算法)
   // 注:中文词(论文/算法)不用 \b
   {
     name: 'paper-algorithm',
@@ -162,15 +153,17 @@ const ROUTING_RULES: RoutingRule[] = [
     selectedSources: ['paperswithcode', 'github', 'web'],
     reason: () => 'query 含论文/算法信号 → PapersWithCode/GitHub,跳过 npm/PyPI/VSCode/HuggingFace',
   },
-  // 9. 代码片段(snippet/example/function/implementation/片段/示例/函数/实现)
+  // 12. 代码片段(snippet/example/function/implementation/片段/示例/函数/源码)
+  // 注:N1 移除"实现" —— "实现"是高频中文词("我想实现一个功能""实现图片水印"),
+  // 误路由到 github-code 跳过 npm/pypi/maven,丢失主流库召回。保留"片段|示例|函数|源码"。
   // 注:中文词不用 \b
   {
     name: 'code-snippet',
-    match: (ctx) => /\b(snippet|example|function|implementation)\b/i.test(ctx.query) || /(片段|示例|函数|实现|源码)/.test(ctx.query),
+    match: (ctx) => /\b(snippet|example|function|implementation)\b/i.test(ctx.query) || /(片段|示例|函数|源码)/.test(ctx.query),
     selectedSources: ['github-code', 'github', 'web'],
     reason: () => 'query 含代码片段信号 → GitHub Code Search/GitHub,跳过包管理器/HuggingFace',
   },
-  // 10. 前端 UI(react/vue/component/form/table/chart/ui/前端/组件/表格/图表)
+  // 13. 前端 UI(react/vue/component/form/table/chart/ui/前端/组件/表格/图表)
   {
     name: 'frontend-ui',
     match: (ctx) => isFrontendQuery(ctx.query, ctx.translatedQuery),

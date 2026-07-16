@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
     globals: true,
+    setupFiles: ['tests/setup.ts'],
     // Windows 上 forks pool 更稳定,避免 threads 模式的偶发崩溃
     pool: 'forks',
     // 每个测试前自动恢复 mock,防止测试间状态泄漏

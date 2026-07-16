@@ -1,10 +1,8 @@
 // src/enrich/codeSnippetExtractor.ts
-export interface CodeSnippet {
-  /** 代码块语言标记（如 bash/js/ts/python），无标记时为 'text' */
-  language: string;
-  /** 代码内容（已截断到 maxCharsPerSnippet） */
-  code: string;
-}
+import type { CodeSnippet } from '../normalize/types.js';
+
+// CodeSnippet 已下沉到 normalize/types.ts(消除 normalize 反向依赖)。re-export 保持向后兼容。
+export type { CodeSnippet } from '../normalize/types.js';
 
 export interface ExtractOpts {
   /** 最多提取几个代码块，默认 2 */

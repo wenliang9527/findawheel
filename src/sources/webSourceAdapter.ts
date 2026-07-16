@@ -4,7 +4,7 @@
 // 策略:
 // 1. 优先用 Exa(神经网络搜索,对代码/技术语义更准)
 // 2. Exa 失败(额度耗尽 402 / 限流 429 / 网络错误 / 无 key)时 fallback 到 Tavily
-// 3. 两个都失败:返回空数组,不影响主搜索
+// 3. 两个都失败:抛 SourceError(由 findWheelTool 捕获并标记 web 源为 degraded)
 //
 // P1-4:统一走 httpPost(共享超时/重试/错误处理),获得 5xx 重试能力。
 //
@@ -24,6 +24,7 @@ import { translateQuery } from '../classifier/queryTranslator.js';
 import { httpPost } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
 import { logError } from '../util/logger.js';
+import { toSourceError } from './sourceError.js';
 
 interface ExaSearchResponse {
   results: Array<{
@@ -121,6 +122,9 @@ export class WebSourceAdapter implements SourceAdapter {
     // 用 expandedQuery(含中文翻译),两个 API 都不支持复杂语法
     const q = opts.parsedQuery?.expandedQuery ?? translateQuery(query);
 
+    // 跟踪 Exa 是否失败,用于判断"两个子源都失败"(此时需抛 SourceError 让上层标记 degraded)
+    let exaFailed = false;
+
     // 策略 1:优先 Exa(如果有 key)
     if (opts.exaApiKey) {
       try {
@@ -132,6 +136,7 @@ export class WebSourceAdapter implements SourceAdapter {
         // - 401/403:Exa key 无效,Tavily key 仍可能有效(独立账号)
         // - 5xx/网络:服务端故障或网络抖动,Tavily 可能仍可用
         // 4xx 非额度问题不在此提前 return,继续走 Tavily fallback
+        exaFailed = true;
         logError('exa search failed, falling back to tavily', err);
       }
     }
@@ -142,12 +147,17 @@ export class WebSourceAdapter implements SourceAdapter {
         return await searchTavily(q, opts.tavilyApiKey, opts.timeoutMs);
       } catch (err) {
         logError('tavily fallback failed', err);
-        // Tavily 也失败,返回空数组(降级)
+        // 两个子源都失败:抛 SourceError,让 findWheelTool 捕获并标记 web 源为 degraded,
+        // 使 AI 能感知 web 源不可用(与其他 13 个适配器失败时 throw toSourceError 一致)。
+        // 仅当 Exa 也失败时才抛(保留单源容错:Exa 无 key 时 Tavily 失败不算"两个都失败")。
+        if (exaFailed) {
+          throw toSourceError('web', err);
+        }
         return [];
       }
     }
 
-    // 两个都没配 key 或都失败:返回空数组,不影响主搜索
+    // 两个都没配 key:返回空数组(配置缺失不是源故障,不应标记 degraded)
     return [];
   }
 }

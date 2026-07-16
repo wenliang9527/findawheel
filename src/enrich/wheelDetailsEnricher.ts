@@ -1,26 +1,16 @@
 // src/enrich/wheelDetailsEnricher.ts
-import type { Wheel } from '../normalize/types.js';
+import type { Wheel, WheelDetails } from '../normalize/types.js';
 import { fetchReadme } from './readmeFetcher.js';
-import { fetchLatestRelease, type LatestRelease } from './releaseFetcher.js';
-import { extractCodeSnippets, type CodeSnippet } from './codeSnippetExtractor.js';
-import { checkLicenseCompatibility, type LicenseCheck } from './licenseCompatibility.js';
+import { fetchLatestRelease } from './releaseFetcher.js';
+import { extractCodeSnippets } from './codeSnippetExtractor.js';
+import { checkLicenseCompatibility } from './licenseCompatibility.js';
 import { isValidOwnerRepo } from '../util/nameValidator.js';
 import { logError } from '../util/logger.js';
 
-export interface WheelDetails {
-  /** 所属 wheel 标识（GitHub 源为 owner/repo） */
-  name: string;
-  source: string;
-  url: string;
-  /** README 前 N 行摘要（抓取失败时为空字符串） */
-  readmeSnippet: string;
-  /** 从 README 提取的代码示例（最多 2 个，抓取失败时为空数组） */
-  codeExamples: CodeSnippet[];
-  /** 最新 release 信息（无 release 时省略） */
-  release?: LatestRelease;
-  /** license 兼容性检查（userLicense 未配置时省略） */
-  licenseCheck?: LicenseCheck;
-}
+// WheelDetails 及依赖类型(CodeSnippet/LatestRelease/LicenseCheck)已下沉到 normalize/types.ts
+// (消除 normalize 反向依赖)。re-export 保持向后兼容:
+// server.ts/findWheelTool.ts/getWheelDetailsTool.ts/tests 仍从本文件 import type WheelDetails。
+export type { WheelDetails } from '../normalize/types.js';
 
 export interface EnrichDetailsOpts {
   timeoutMs: number;

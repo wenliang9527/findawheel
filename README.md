@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-1.29-orange.svg?style=flat-square)](https://modelcontextprotocol.io/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](./)
-[![Tests](https://img.shields.io/badge/tests-619%2F619-brightgreen.svg?style=flat-square)](./)
+[![Tests](https://img.shields.io/badge/tests-624%2F624-brightgreen.svg?style=flat-square)](./)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](./LICENSE)
 
 </div>
@@ -160,7 +160,7 @@ npm run build
 | `FINDAWHEEL_CACHE_ENABLED` | 否 | `true` | 是否启用本地缓存（`~/.findawheel/cache/`）。设为 `false` 可禁用。 |
 | `FINDAWHEEL_FEEDBACK_DIR` | 否 | `~/.findawheel/feedback/` | 反馈存储目录。持久化用户对 wheel 的 like/hide/click 反馈，跨会话累积影响排序。无 TTL，手动清理即可。 |
 | `FINDAWHEEL_CACHE_TTL_MS` | 否 | `3600000` | 缓存 TTL（毫秒），默认 1 小时。 |
-| `FINDAWHEEL_LIMIT` | 否 | `20` | 默认返回结果数量。 |
+| `FINDAWHEEL_LIMIT` | 否 | `50` | 默认返回结果数量。 |
 | `FINDAWHEEL_TIMEOUT_MS` | 否 | `8000` | 单源请求超时（毫秒）。 |
 | `FINDAWHEEL_LOG_LEVEL` | 否 | `info` | 日志级别：`error` \| `warn` \| `info` \| `debug`。 |
 | `FINDAWHEEL_KB_ENABLED` | 否 | `false` | 是否启用 `search_knowledge` 工具（搜索本地 Markdown 知识库）。设为 `true` 后还需配置 `FINDAWHEEL_KB_ROOT`。详见 [USAGE.md 3.6 节](./docs/USAGE.md)。 |

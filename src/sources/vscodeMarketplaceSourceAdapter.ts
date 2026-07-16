@@ -22,6 +22,11 @@ const MARKETPLACE_URL = 'https://marketplace.visualstudio.com/_apis/public/galle
 // 实际只用 914 让 Marketplace 返回统计信息(installCount/rating)
 const QUERY_FLAGS = 914;
 
+// VS Code Marketplace filterType 枚举(非官方,源自 VS Code 客户端内部协议)
+// 8 = SearchText(按搜索词匹配),12 = TargetVSCode(限定 VS Code 扩展)
+const FILTER_TYPE_SEARCH_TEXT = 8;
+const FILTER_TYPE_TARGET_VSCODE = 12;
+
 interface MarketplaceCriteria {
   filterType: number;
   value: string;
@@ -79,8 +84,8 @@ export class VscodeMarketplaceSourceAdapter implements SourceAdapter {
     const body: MarketplaceRequestBody = {
       filters: [{
         criteria: [
-          { filterType: 8, value: query },  // 8 = SearchText
-          { filterType: 12, value: 'Microsoft.VisualStudio.Code' },  // 12 = TargetVSCode
+          { filterType: FILTER_TYPE_SEARCH_TEXT, value: query },
+          { filterType: FILTER_TYPE_TARGET_VSCODE, value: 'Microsoft.VisualStudio.Code' },
         ],
       }],
       assetTypes: [],

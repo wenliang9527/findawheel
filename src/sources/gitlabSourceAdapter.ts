@@ -31,8 +31,8 @@ export class GitlabSourceAdapter implements SourceAdapter {
   readonly name = 'gitlab';
 
   async search(query: string, opts: SearchOpts): Promise<RawResult[]> {
-    // GitLab 不支持 NOT/引号语法,用翻译后的 query(含中文→英文转换)直接搜
-    const q = translateQuery(query);
+    // GitLab 不支持 NOT/引号语法,用 expandedQuery(含中文翻译)兜底,避免重复翻译
+    const q = opts.parsedQuery?.expandedQuery ?? translateQuery(query);
     const url = new URL('https://gitlab.com/api/v4/projects');
     url.searchParams.set('search', q);
     url.searchParams.set('order_by', 'star_count');

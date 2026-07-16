@@ -11,16 +11,25 @@ export type ErrorCode = typeof ErrorCode[keyof typeof ErrorCode];
 
 export class SourceError extends Error {
   readonly code: ErrorCode;
-  constructor(public source: string, message: string, code: ErrorCode = ErrorCode.SOURCE_FAILURE) {
-    super(`[${source}] ${message}`);
+  constructor(
+    public source: string,
+    message: string,
+    code: ErrorCode = ErrorCode.SOURCE_FAILURE,
+    options?: { cause?: unknown },
+  ) {
+    super(`[${source}] ${message}`, options);
     this.name = 'SourceError';
     this.code = code;
   }
 }
 
 export class RateLimitError extends SourceError {
-  constructor(source: string, public resetAt: Date) {
-    super(source, `rate limited, resets at ${resetAt.toISOString()}`, ErrorCode.RATE_LIMIT);
+  constructor(
+    source: string,
+    public resetAt: Date,
+    options?: { cause?: unknown },
+  ) {
+    super(source, `rate limited, resets at ${resetAt.toISOString()}`, ErrorCode.RATE_LIMIT, options);
     this.name = 'RateLimitError';
   }
 }

@@ -14,8 +14,14 @@
 // - huggingface:likes 量级,分母 500
 // - 其他源:无 stars 或 stars 继承自 GitHub,用默认 10000
 
+import { topicMatches, matchesKeyword } from '../util/keywordMatch.js';
+import { gradeRecommendation } from '../util/recommendation.js';
 import type { Wheel, Recommendation, WheelMatch, WheelSource } from '../normalize/types.js';
 // P1-9:不再需要 ONE_YEAR_MS —— activity 字段统一由 metricsEnricher.inferActivity 计算
+
+// gradeRecommendation 及相关常量已下沉到 src/util/recommendation.ts(消除 feedback→rank 反向依赖)。
+// 此处 re-export 保持向后兼容(已有 import { gradeRecommendation } from '../rank/recommender.js' 的代码不受影响)。
+export { gradeRecommendation } from '../util/recommendation.js';
 
 /**
  * stars 归一化分母(按 source 差异化)。
@@ -36,6 +42,13 @@ const STARS_DENOMINATOR_BY_SOURCE: Partial<Record<WheelSource, number>> = {
 
 const DEFAULT_STARS_DENOMINATOR = 10000;
 
+/**
+ * stars 显示为 "X.Xk" 格式的阈值(>= 1k 时用 k 后缀缩写)。
+ * 同时作为 buildReason 热度描述里"中等热度"的下限(stars >= 1k 视为中等热度)。
+ * 集中到一处避免显示与分级阈值漂移。
+ */
+const K_STARS_THRESHOLD = 1000;
+
 function getStarsDenominator(source: WheelSource): number {
   return STARS_DENOMINATOR_BY_SOURCE[source] ?? DEFAULT_STARS_DENOMINATOR;
 }
@@ -52,7 +65,7 @@ function getStarsDenominator(source: WheelSource): number {
  * (1.1 满分 + 0.4 反馈空间),避免热门项目因反馈累积霸榜。
  *
  * recommendation 等级:
- * - highly_recommended: score >= 0.6 且 stars >= 1000
+ * - highly_recommended: score >= 0.6 且 stars 达到 source 对应阈值(见 util/recommendation.ts 的 HIGHLY_RECOMMENDED_STARS_BY_SOURCE)
  * - recommended: score >= 0.4
  * - optional: score >= 0.2
  * - not_recommended: score < 0.2
@@ -63,8 +76,10 @@ export function computeMatch(
 ): WheelMatch {
   const text = `${wheel.name} ${wheel.description}`.toLowerCase();
   // 命中的关键词
+  // N8:短关键词(≤3 字符如 js/ts/ai/c/go)用子串匹配会误匹配(js 命中 ajax、ai 命中 raid),
+  // 与 ranker 的 matchesKeyword 保持一致,改用词边界匹配。
   const matchedKeywords = queryKeywords.filter(kw =>
-    text.includes(kw.toLowerCase()),
+    matchesKeyword(text, kw.toLowerCase()),
   );
 
   // 1. 相关度(0~0.5):命中率
@@ -112,7 +127,7 @@ export function computeMatch(
   else if (activity === 'low') activityScore = 0.05;
 
   const score = relevanceScore + popularityScore + activityScore;
-  const recommendation = gradeRecommendation(score, stars);
+  const recommendation = gradeRecommendation(score, stars, wheel.source);
   const reason = buildReason(wheel, matchedKeywords, queryKeywords);
   const recallReason = buildRecallReason(matchedKeywords, stars, activity);
 
@@ -156,21 +171,6 @@ function buildRecallReason(
 }
 
 /**
- * 推荐等级阈值常量(gradeRecommendation 用)。
- * 集中管理避免散落在多处导致不一致。
- *
- * 等级定义:
- * - highly_recommended: score >= 0.6 且 stars >= 1000(高分且具备主流热度)
- * - recommended:        score >= 0.4(相关度较好)
- * - optional:           score >= 0.2(弱相关,可备选)
- * - not_recommended:    score < 0.2(不推荐)
- */
-const HIGHLY_RECOMMENDED_SCORE = 0.6;
-const HIGHLY_RECOMMENDED_STARS = 1000;
-const RECOMMENDED_SCORE = 0.4;
-const OPTIONAL_SCORE = 0.2;
-
-/**
  * 推荐等级的中文标签 + 排序顺序(供 findWheelTool 等 summary 输出复用)。
  * 集中在 recommender.ts 一处定义,避免散落在多处导致不一致。
  */
@@ -183,14 +183,6 @@ export const REC_LABELS: Record<Recommendation, string> = {
 export const REC_ORDER: Recommendation[] = [
   'highly_recommended', 'recommended', 'optional', 'not_recommended',
 ];
-
-/** 根据分数和 stars 计算推荐等级。导出供 feedback 调整后重新分级使用。 */
-export function gradeRecommendation(score: number, stars: number): Recommendation {
-  if (score >= HIGHLY_RECOMMENDED_SCORE && stars >= HIGHLY_RECOMMENDED_STARS) return 'highly_recommended';
-  if (score >= RECOMMENDED_SCORE) return 'recommended';
-  if (score >= OPTIONAL_SCORE) return 'optional';
-  return 'not_recommended';
-}
 
 /**
  * 生成推荐理由(中文简述)。
@@ -221,7 +213,7 @@ function buildReason(
 
   // 热度描述
   if (stars >= 10000) parts.push(`高热度(${formatStars(stars)})`);
-  else if (stars >= 1000) parts.push(`中等热度(${formatStars(stars)})`);
+  else if (stars >= K_STARS_THRESHOLD) parts.push(`中等热度(${formatStars(stars)})`);
   else if (stars > 0) parts.push(`小众项目(${formatStars(stars)})`);
 
   // 活跃度描述
@@ -238,30 +230,8 @@ function buildReason(
 }
 
 function formatStars(stars: number): string {
-  if (stars >= 1000) return `${(stars / 1000).toFixed(1)}k stars`;
+  if (stars >= K_STARS_THRESHOLD) return `${(stars / K_STARS_THRESHOLD).toFixed(1)}k stars`;
   return `${stars} stars`;
-}
-
-/**
- * N8:topic 与关键词匹配判断。
- * - 短关键词(≤3 字符,如 js/ts/ai/c/go)用子串匹配会误匹配(js 匹配 vue-js、ai 匹配 raid)
- *   改为:精确匹配或 kebab-case 边界匹配(前缀/后缀/中间)
- * - 长关键词(>3 字符)保留双向子串匹配(原逻辑)
- */
-function topicMatches(topic: string, keyword: string): boolean {
-  // topic 和 keyword 都已 toLowerCase
-  if (keyword.length <= 3) {
-    // 短关键词:要求精确匹配或 kebab-case 边界
-    // 例:topic="vue-js" kw="js" → 命中(后缀 -js)
-    //     topic="react" kw="c" → 不命中(不是边界匹配)
-    //     topic="ai-agent" kw="ai" → 命中(前缀 ai-)
-    return topic === keyword
-      || topic.startsWith(keyword + '-')
-      || topic.endsWith('-' + keyword)
-      || topic.includes('-' + keyword + '-');
-  }
-  // 长关键词:保留原双向子串匹配
-  return topic.includes(keyword) || keyword.includes(topic);
 }
 
 /**

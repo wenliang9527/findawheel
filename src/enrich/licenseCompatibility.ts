@@ -1,10 +1,8 @@
 // src/enrich/licenseCompatibility.ts
-export interface LicenseCheck {
-  /** true=可安全使用, false=不兼容, null=无法判断(未知 license) */
-  compatible: boolean | null;
-  /** 人类可读说明 */
-  note: string;
-}
+import type { LicenseCheck } from '../normalize/types.js';
+
+// LicenseCheck 已下沉到 normalize/types.ts(消除 normalize 反向依赖)。re-export 保持向后兼容。
+export type { LicenseCheck } from '../normalize/types.js';
 
 /** 归一化映射：小写变体 → 标准名 */
 const NORMALIZE_MAP: Record<string, string> = {

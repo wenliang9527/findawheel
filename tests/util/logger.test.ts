@@ -1,5 +1,7 @@
 // tests/util/logger.test.ts
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+// 恢复真实的 logger 实现(全局 setup 文件 mock 了 logger)
+vi.unmock('../../src/util/logger.js');
 import { setLogLevel, logError, logWarn, logInfo, logDebug } from '../../src/util/logger.js';
 
 describe('logger', () => {

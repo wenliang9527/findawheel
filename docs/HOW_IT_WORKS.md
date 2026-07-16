@@ -475,6 +475,8 @@ interface SourceAdapter {
 > 💡 这是**适配器模式**的抽象——所有数据源实现同一接口，主流程不关心具体源的差异。
 > 二期加 Web 搜索源只需新增一个 adapter，不动其他代码。
 
+> 🔧 **adapter 自注册机制**：14 个 adapter 的 import + new 集中在 `src/sources/registry.ts` 单一维护点，`ALL_SOURCES` 由 `ADAPTERS.map(a => a.name)` 自动派生。新增数据源只需在 `registry.ts` 加一行 import + 一行 new，无需同步修改 `sourceRouter.ts` 手写字符串和 `server.ts` 实例化。
+
 > ℹ️ **`per_page` / `page_size` 各 adapter 取值不一致（P2-18 文档化）**
 >
 > 各数据源 API 限流策略不同，故 per_page 取值有意不统一：
@@ -768,6 +770,8 @@ interface SourceAdapter {
 
 > 💡 这是**多源聚合的关键**——不同源的 API 返回字段千差万别，必须先归一化才能统一排序。
 
+> 🔧 **注册表模式**：normalizer 内部用 `Record<WheelSource, Normalizer>` 注册表分发，不再用 switch-case。新增数据源时在注册表加一行映射即可，未注册的 source 会抛 `unknown source` 错误。
+
 **类型推断**：
 
 | 输入 | type |
@@ -915,7 +919,7 @@ type RawResult =
   | HuggingfaceRawResult;// HuggingFace Hub
 ```
 
-> 💡 `source` 字段作为判别标签，Normalizer 用 `switch (raw.source)` 分发处理。
+> 💡 `source` 字段作为判别标签，Normalizer 用注册表（`Record<WheelSource, Normalizer>`）分发处理。
 
 ### FindWheelInput / FindWheelOutput
 

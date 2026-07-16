@@ -109,10 +109,11 @@ describe('routeSources', () => {
       expect(result.selected).toContain('github');
       expect(result.selected).toContain('gitee');
       expect(result.selected).toContain('github-code');
+      // N3:hardware 路由加入 huggingface(硬件+AI 混合 query 可召回轻量模型)
+      expect(result.selected).toContain('huggingface');
       expect(result.skipped).toContain('registry');
       expect(result.skipped).toContain('pypi');
       expect(result.skipped).toContain('vscode-marketplace');
-      expect(result.skipped).toContain('huggingface');
     });
 
     it('detects hardware from translated Chinese query', () => {
@@ -128,7 +129,17 @@ describe('routeSources', () => {
       expect(result.ruleName).toBe('hardware-keywords');
       expect(result.selected).toContain('github');
       expect(result.selected).toContain('gitee');
+      expect(result.selected).toContain('huggingface');
       expect(result.skipped).toContain('pypi');
+    });
+
+    it('N3: esp32 ai inference routes to hardware (still召回 huggingface)', () => {
+      // esp32 是硬件词,优先命中 hardware-keywords(在 ai-ml-model 之前)
+      // N3 修复后 hardware 路由 selected 含 huggingface,不会漏召回
+      const result = routeSources(makeCtx('esp32 ai inference'));
+      expect(result.ruleName).toBe('hardware-keywords');
+      expect(result.selected).toContain('huggingface');
+      expect(result.selected).toContain('paperswithcode');
     });
 
     it('detects stm32 as hardware', () => {
@@ -207,6 +218,23 @@ describe('routeSources', () => {
       const result = routeSources(makeCtx('react 示例'));
       // 注意:frontend-ui 规则在 code-snippet 之后,会先匹配 code-snippet
       expect(result.ruleName).toBe('code-snippet');
+    });
+
+    it('N1: 中文"实现"不再误触发 code-snippet 路由', () => {
+      // "我想实现一个功能" 类高频 query 不应路由到 github-code(跳过 npm/pypi/maven)
+      // 应走兜底全搜或匹配其他规则
+      const result = routeSources(makeCtx('实现图片水印'));
+      expect(result.ruleName).not.toBe('code-snippet');
+      // "实现图片水印" 翻译后含 watermark,可能命中 fallback-all 或其他规则,
+      // 但绝不应跳过 npm/pypi 等(原 bug:"实现" 误路由导致跳过包管理器)
+      expect(result.selected).toContain('registry');
+      expect(result.selected).toContain('pypi');
+    });
+
+    it('N1: 保留"片段|示例|函数|源码"作为 code-snippet 信号', () => {
+      // 这些词仍是 code-snippet 强信号,应触发 code-snippet 路由
+      expect(routeSources(makeCtx('react 函数')).ruleName).toBe('code-snippet');
+      expect(routeSources(makeCtx('源码')).ruleName).toBe('code-snippet');
     });
   });
 

@@ -92,6 +92,13 @@ export function feedbackFileKey(name: string): string {
 export function createFeedbackStore(opts: FeedbackStoreOpts) {
   const enabled = opts.enabled ?? true;
 
+  // 进程内内存缓存:避免每次搜索都全量读盘(readdir + 读所有文件)。
+  // MCP server 是长期运行的 stdio 进程,反馈文件持续累积后全量读盘开销显著。
+  // 缓存策略:首次 getAllFeedback 读盘后缓存,recordFeedback 时失效,60s 自动过期防陈旧。
+  let feedbackCache: FeedbackRecord[] | null = null;
+  let feedbackCacheTime = 0;
+  const FEEDBACK_MEM_CACHE_TTL_MS = 60_000;
+
   function filePath(name: string): string {
     return path.join(opts.dir, `${feedbackFileKey(name)}.json`);
   }
@@ -128,7 +135,8 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
     if (!enabled) return null;
     const existing = await getFeedback(name);
     const now = Date.now();
-    const record: FeedbackRecord = existing ?? {
+    // 显式构造新对象,避免 existing 非空时 record 与 existing 共享引用导致 mutation 污染
+    const record: FeedbackRecord = { ...(existing ?? {
       name,
       source,
       likes: 0,
@@ -136,7 +144,7 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
       clicks: 0,
       lastUpdated: now,
       lastAction: action,
-    };
+    }) };
     // 累加计数
     if (action === 'like') record.likes += 1;
     else if (action === 'hide') record.hides += 1;
@@ -150,9 +158,23 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
       await fs.promises.mkdir(opts.dir, { recursive: true });
       await fs.promises.writeFile(filePath(name), JSON.stringify(record), 'utf8');
       logInfo(`feedback recorded: ${name} ${action} (likes=${record.likes} hides=${record.hides} clicks=${record.clicks})`);
+      // write-through 增量更新:缓存有效则合并新记录,避免下次 getAllFeedback 全量读盘;
+      // 缓存不存在或已过期则置 null,下次 getAllFeedback 全量同步(60s TTL 防止增量漂移)。
+      // 写入成功后才更新缓存,保证缓存与磁盘一致。
+      if (feedbackCache && Date.now() - feedbackCacheTime < FEEDBACK_MEM_CACHE_TTL_MS) {
+        const idx = feedbackCache.findIndex(r => r.name === record.name);
+        if (idx >= 0) {
+          feedbackCache[idx] = record;
+        } else {
+          feedbackCache.push(record);
+        }
+      } else {
+        feedbackCache = null;
+      }
     } catch (err) {
       logError('feedback write failed', err);
       // 写入失败不阻断, 返回 null 提示调用方
+      // 不更新 feedbackCache(保持旧值,与磁盘一致)
       return null;
     }
     return record;
@@ -167,6 +189,10 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
    */
   async function getAllFeedback(): Promise<FeedbackRecord[]> {
     if (!enabled) return [];
+    // 内存缓存命中:避免每次搜索都全量读盘
+    if (feedbackCache && Date.now() - feedbackCacheTime < FEEDBACK_MEM_CACHE_TTL_MS) {
+      return feedbackCache;
+    }
     let files: string[];
     try {
       files = await fs.promises.readdir(opts.dir);
@@ -193,6 +219,9 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
         }
       }
     }
+    // 写入内存缓存
+    feedbackCache = records;
+    feedbackCacheTime = Date.now();
     return records;
   }
 

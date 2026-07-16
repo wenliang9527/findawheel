@@ -58,8 +58,8 @@ export class RubyGemsSourceAdapter implements SourceAdapter {
   readonly name = 'rubygems';
 
   async search(query: string, opts: SearchOpts): Promise<RawResult[]> {
-    // 翻译中文 query,提升英文生态命中率
-    const expandedQuery = translateQuery(query);
+    // 优先复用 parsedQuery.expandedQuery,避免单次请求内重复翻译
+    const expandedQuery = opts.parsedQuery?.expandedQuery ?? translateQuery(query);
     const url = new URL(`${API_BASE}/search.json`);
     url.searchParams.set('query', expandedQuery);
 

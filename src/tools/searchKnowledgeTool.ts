@@ -6,7 +6,7 @@
 // - search_knowledge 用于搜索用户自己的笔记/wiki/ADR/内部文档
 // AI 根据意图自行决定调用哪个工具。
 
-import { searchKnowledgeBase, type KnowledgeItem, type KbType } from '../sources/knowledgeSourceAdapter.js';
+import { searchKnowledgeBase, type KnowledgeItem, type KbType } from '../knowledge/knowledgeBase.js';
 import type { EnvConfig } from '../util/env.js';
 import { BASE_STOPWORDS } from '../util/stopwords.js';
 import { sha1Short } from '../util/hash.js';

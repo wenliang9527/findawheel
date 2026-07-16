@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-1.29-orange.svg?style=flat-square)](https://modelcontextprotocol.io/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](./)
-[![Tests](https://img.shields.io/badge/tests-619%2F619-brightgreen.svg?style=flat-square)](./)
+[![Tests](https://img.shields.io/badge/tests-624%2F624-brightgreen.svg?style=flat-square)](./)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](./LICENSE)
 
 </div>
@@ -162,7 +162,7 @@ Restart your client, describe your idea in conversation, and the AI will automat
 | `FINDAWHEEL_CACHE_ENABLED` | No | `true` | Enable local cache (`~/.findawheel/cache/`). Set to `false` to disable. |
 | `FINDAWHEEL_FEEDBACK_DIR` | No | `~/.findawheel/feedback/` | Feedback storage directory. Persists user feedback (like/hide/click) across sessions to adjust search ranking. No TTL — clear manually. |
 | `FINDAWHEEL_CACHE_TTL_MS` | No | `3600000` | Cache TTL in milliseconds, default 1 hour. |
-| `FINDAWHEEL_LIMIT` | no | `20` | Default result count. |
+| `FINDAWHEEL_LIMIT` | no | `50` | Default result count. |
 | `FINDAWHEEL_TIMEOUT_MS` | no | `8000` | Per-source timeout (ms). |
 | `FINDAWHEEL_LOG_LEVEL` | no | `info` | `error` \| `warn` \| `info` \| `debug`. |
 | `FINDAWHEEL_KB_ENABLED` | No | `false` | Enable the `search_knowledge` tool (searches local Markdown knowledge base). When `true`, also set `FINDAWHEEL_KB_ROOT`. See [USAGE.md §3.6](./docs/USAGE.md). |

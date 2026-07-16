@@ -8,7 +8,10 @@ import {
 import { type Cache } from '../cache/cache.js';
 import type { McpToolResult } from './types.js';
 import { isValidOwnerRepo } from '../util/nameValidator.js';
-import { sha1Short } from '../util/hash.js';
+// detailsCacheKey 下沉到 ./shared.js,消除 findWheelTool → getWheelDetailsTool 的反向依赖;
+// 此处 re-export 保持既有 import { detailsCacheKey } from './getWheelDetailsTool.js' 兼容。
+import { detailsCacheKey } from './shared.js';
+export { detailsCacheKey };
 
 export interface GetWheelDetailsInput {
   /** GitHub 仓库标识,owner/repo 格式 */
@@ -20,11 +23,6 @@ export interface CreateGetWheelDetailsToolOpts {
   cache?: Cache<WheelDetails>;
   /** enrichDetails 所需配置(githubToken/userLicense/timeoutMs) */
   enrichOpts: EnrichDetailsOpts;
-}
-
-/** 计算 details cache key:sha1("details:" + name) */
-export function detailsCacheKey(name: string): string {
-  return sha1Short(`details:${name}`);
 }
 
 /**

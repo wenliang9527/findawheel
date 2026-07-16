@@ -25,18 +25,24 @@ function shouldLog(level: LogLevel): boolean {
   return LEVEL_PRIORITY[level] <= LEVEL_PRIORITY[currentLevel];
 }
 
-/** 错误日志:总是输出。用于 catch 块中记录吞掉的错误。 */
-export function logError(message: string, err?: unknown): void {
-  if (!shouldLog('error')) return;
-  const errStr = err instanceof Error ? `${err.name}: ${err.message}` : String(err ?? '');
-  process.stderr.write(`[findawheel] ERROR: ${message}${errStr ? ` — ${errStr}` : ''}\n`);
+function formatError(err?: unknown): string {
+  if (err == null) return '';
+  return err instanceof Error ? `${err.name}: ${err.message}` : String(err);
 }
 
-/** 警告日志:可恢复的异常情况 */
+function writeLog(level: string, message: string, err?: unknown): void {
+  const errStr = formatError(err);
+  process.stderr.write(`[findawheel] ${level}: ${message}${errStr ? ` — ${errStr}` : ''}\n`);
+}
+
+export function logError(message: string, err?: unknown): void {
+  if (!shouldLog('error')) return;
+  writeLog('ERROR', message, err);
+}
+
 export function logWarn(message: string, err?: unknown): void {
   if (!shouldLog('warn')) return;
-  const errStr = err instanceof Error ? `${err.name}: ${err.message}` : String(err ?? '');
-  process.stderr.write(`[findawheel] WARN: ${message}${errStr ? ` — ${errStr}` : ''}\n`);
+  writeLog('WARN', message, err);
 }
 
 /** 信息日志:常规运行信息 */

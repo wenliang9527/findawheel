@@ -5,7 +5,8 @@ import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 import { toSourceError } from './sourceError.js';
-import { decodeHtml } from './pypiSourceAdapter.js';
+import { decodeHtml } from '../util/html.js';
+import { logWarn } from '../util/logger.js';
 
 /**
  * 解析 pkg.go.dev 搜索页 HTML,提取 Go 模块信息。
@@ -83,7 +84,8 @@ export class GoModuleSourceAdapter implements SourceAdapter {
   readonly name = 'gopkg';
 
   async search(query: string, opts: SearchOpts): Promise<RawResult[]> {
-    const q = translateQuery(query);
+    // 优先复用 parsedQuery.expandedQuery,避免单次请求内重复翻译
+    const q = opts.parsedQuery?.expandedQuery ?? translateQuery(query);
     const url = new URL('https://pkg.go.dev/search');
     url.searchParams.set('q', q);
     url.searchParams.set('m', 'package');
@@ -95,7 +97,12 @@ export class GoModuleSourceAdapter implements SourceAdapter {
         text: true,
         retry: DEFAULT_RETRY,
       });
-      return parseGoHtml(html);
+      const results = parseGoHtml(html);
+      // HTML 结构变更时解析返回空数组(请求本身成功),打 warn 便于及时发现结构漂移
+      if (results.length === 0) {
+        logWarn('gopkg search returned 0 results (HTML structure may have changed)');
+      }
+      return results;
     } catch (err) {
       // 网络错误/HTTP 错误仍需上报(但 HTML 解析失败已在 parseGoHtml 内容错返回空)
       throw toSourceError('gopkg', err);

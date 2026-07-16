@@ -47,16 +47,17 @@ export interface ParsedQuery {
  *
  * 基础停用词复用 util/stopwords.ts 的 BASE_STOPWORDS(避免与 searchKnowledgeTool 重复)。
  * 此处扩展的部分是 queryParser 专用的:
- * - 通用技术词(image/tool/library 等)不当核心
+ * - 通用项目类型词(package/pkg/project)不当核心
  * - 意图动词(want/make/build/create 等)表达用户想做什么,不是搜索对象本身
  * - 中文意图词(想做/想要/帮我 等,翻译后可能仍是中文)
  *
- * 注意:implement/function/snippet/example/sample 已在 ACTION_VERBS,这里不再列入
- * STOPWORDS,否则会在过滤阶段被剔除,无法成为 coreWords(参见 queryParser 测试)
+ * 注意:image/tool/library/lib 可能作为核心对象词(如 "image watermark removal"),
+ * 不列入 STOPWORDS,否则会丢失精确性。implement/function/snippet/example/sample 已在
+ * ACTION_VERBS,这里不再列入 STOPWORDS,否则会在过滤阶段被剔除,无法成为 coreWords
  */
 const STOPWORDS: ReadonlySet<string> = new Set([
   ...BASE_STOPWORDS,
-  'looking', 'image', 'tool', 'library', 'lib', 'package', 'pkg', 'project',
+  'looking', 'package', 'pkg', 'project',
   'wants', 'wanna', 'make', 'build', 'create', 'write', 'develop',
   'could', 'would', 'should', 'can', 'may',
   'good', 'best', 'popular', 'recommend', 'recommended',
@@ -64,6 +65,8 @@ const STOPWORDS: ReadonlySet<string> = new Set([
   '想做', '想要', '帮助', '实现', '开发', '编写', '创建', '构建',
   '一个', '这个', '那种', '这种',
 ]);
+// STOPWORDS 已用 ReadonlySet 类型注解:类型层面禁止 .add/.delete/.clear。
+// 模块内部只通过 .has 读取,任何修改都应在此处静态数组里编辑后重建 Set。
 
 /**
  * Q3:复合词拆分 —— 把 "image-watermark"/"serial_port" 等连字符/下划线连接的词拆成多个词。
@@ -71,13 +74,15 @@ const STOPWORDS: ReadonlySet<string> = new Set([
  * 让每个词都能独立匹配 description 和 topics。
  */
 function splitCompoundWords(query: string): string {
-  // 把连字符/下划线/斜杠连接的词用空格分隔
-  // 但保留 GitHub owner/repo 格式(如 a/b),这种格式在 GitHub 搜索里有特殊含义
-  // 简单策略:只在非 owner/repo 上下文拆分
+  // 整体符合 owner/repo 格式时不拆分(GitHub 搜索里 owner/repo 有精确仓库的特殊含义,
+  // 拆成 "owner repo" 会退化为关键词搜索,丢失精确性)
+  if (/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+$/.test(query.trim())) {
+    return query.trim();
+  }
   return query
     .replace(/([a-z])-([a-z])/gi, '$1 $2')  // image-watermark → image watermark
     .replace(/([a-z])_([a-z])/gi, '$1 $2')   // serial_port → serial port
-    .replace(/([a-z])\/([a-z])/gi, '$1 $2')  // image/watermark → image watermark(但 owner/repo 也会被拆,可接受)
+    .replace(/([a-z])\/([a-z])/gi, '$1 $2')  // image/watermark → image watermark
     .trim();
 }
 
@@ -103,7 +108,7 @@ const FORMAT_WORDS = new Set([
  * - 硬件类:drive/control/step/pwm...(嵌入式场景)
  * - 串口类:scan/sniff/terminal/console...(串口调试场景)
  */
-const ACTION_VERBS = new Set([
+const ACTION_VERBS: ReadonlySet<string> = new Set([
   // 监控/追踪
   'monitor', 'track', 'tracking', 'observe', 'watch', 'detect', 'trace',
   'log', 'logging', 'measure', 'metric', 'metrics', 'stat', 'stats', 'status',
@@ -135,7 +140,7 @@ const ACTION_VERBS = new Set([
  *
  * 注意:每个词的第一项不能是原词,否则 fuzzyQuery 取 syns[0] 等于原词,无泛化效果。
  */
-const SYNONYMS: Record<string, string[]> = {
+const SYNONYMS_DATA: Record<string, string[]> = {
   monitor: ['observer', 'watcher', 'tracker', 'dashboard', 'monitor'],
   tracking: ['tracing', 'logging', 'metrics'],
   coding: ['development', 'dev', 'programming'],
@@ -220,6 +225,19 @@ const SYNONYMS: Record<string, string[]> = {
   auth: ['authentication', 'authn', 'auth'],
 };
 
+// 移除每个同义词列表中与 key 相同的原词项(符合"第一项不能是原词"的约定,
+// 避免 fuzzyQuery 取到原词无泛化效果)
+for (const key of Object.keys(SYNONYMS_DATA)) {
+  SYNONYMS_DATA[key] = SYNONYMS_DATA[key].filter(s => s !== key);
+}
+
+/**
+ * SYNONYMS 在 mutate 完成后以只读类型导出,类型层面禁止后续改写
+ * (Readonly<Record> 禁止重新赋值,readonly string[] 禁止 push/splice 等)。
+ * 如需新增/修改同义词,编辑上方 SYNONYMS_DATA 静态字面量后重建。
+ */
+const SYNONYMS: Readonly<Record<string, readonly string[]>> = SYNONYMS_DATA;
+
 /**
  * Q1:从 query 识别 ecosystem。
  * 识别模式:
@@ -257,6 +275,9 @@ const ECOSYSTEM_PATTERNS: Array<{ pattern: RegExp; ecosystem: string }> = [
   { pattern: /\bcargo\b[\s_-]*(crate|package)/i, ecosystem: 'rust' },
   { pattern: /\bmaven\b[\s_-]*(package|artifact)/i, ecosystem: 'java' },
   { pattern: /\bcomposer\b[\s_-]*(package)/i, ecosystem: 'php' },
+  // arduino:arduino 本身就是明确的生态信号(arduino library/arduino sketch/arduino framework),
+  // 不需 LANG_RES 后缀。补齐与 suggestQueriesTool 的 arduino 检测能力对齐。
+  { pattern: /\barduino\b/i, ecosystem: 'arduino' },
 ];
 
 function detectEcosystem(query: string): string | undefined {
@@ -324,10 +345,10 @@ export function parseQuery(query: string): ParsedQuery {
 
   // 5. 生成 fuzzyQuery:用同义词/上位词泛化,用于副搜索扩大召回
   // N1:原逻辑用 syns[0] 替换原词,丢失精确召回锚点(如 motor → actuator 后,搜不到 motor)
-  // 改为:原词 + 同义词,既保留精确召回又扩大同义词覆盖
+  // 改为:原词 + 前 3 个同义词,既保留精确召回又扩大同义词覆盖(取太多会召回噪声)
   const fuzzyWords = allWords.flatMap(w => {
     const syns = SYNONYMS[w];
-    return syns && syns.length > 0 ? [w, syns[0]] : [w];
+    return syns && syns.length > 0 ? [w, ...syns.slice(0, 3)] : [w];
   });
   // 去重(同义词可能和原词重复,如 syns 含原词时)
   const fuzzyQuery = [...new Set(fuzzyWords)].join(' ');

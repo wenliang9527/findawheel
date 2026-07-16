@@ -5,17 +5,12 @@ import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 import { toSourceError } from './sourceError.js';
-import { logError } from '../util/logger.js';
+import { logError, logWarn } from '../util/logger.js';
+import { decodeHtml } from '../util/html.js';
 
-/** 解码常见 HTML 实体(避免引入完整 HTML 解析依赖) */
-export function decodeHtml(s: string): string {
-  return s
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
-}
+// decodeHtml 已下沉到 util/html.ts(消除 goModuleSourceAdapter 跨适配器耦合)。
+// re-export 保持向后兼容(tests/sources/pypiSourceAdapter.test.ts 仍从本文件 import decodeHtml)。
+export { decodeHtml };
 
 /**
  * 解析 PyPI 搜索页 HTML,提取包信息。
@@ -98,6 +93,11 @@ function extractGithubUrl(data: PypiJsonResponse): string | undefined {
  * 流程:查 pypi.org/pypi/<name>/json 取 home_page → 若指向 GitHub 则查 GitHub API 取 stars。
  * 只对前 10 个包做 enrich(控制 API 调用数),其余保持原样。
  * 需配置 githubToken 才做 GitHub stars 查询(避免无 token 时 60/hour 限流)。
+ *
+ * 两阶段 batch(修复1):阶段1 并行查所有 top10 的 PyPI JSON 拿 home_page/githubUrl,
+ * 阶段2 对有 githubUrl 的并行查 GitHub stars。
+ * 避免单包内串行两步瀑布(pypi.org 8s + github 8s = 16s 长尾):
+ * 两阶段各 8s 并行,总耗时 ~16s 非串行叠加,P95 改善。
  */
 async function enrichPypiResults(
   results: PypiRawResult[],
@@ -110,41 +110,52 @@ async function enrichPypiResults(
   const ENRICH_LIMIT = 10;
   const toEnrich = results.slice(0, ENRICH_LIMIT);
   const rest = results.slice(ENRICH_LIMIT);
+
+  // 阶段1:并行查所有 top10 的 PyPI JSON,提取 githubUrl(10 个并行)
+  const stage1 = await Promise.all(
+    toEnrich.map(r => fetchPypiGithubUrl(r, timeoutMs)),
+  );
+  // 阶段2:对有 githubUrl 的并行查 GitHub stars(仅 GitHub 项目才发请求)
   const enriched = await Promise.all(
-    toEnrich.map(r => enrichSinglePypi(r, timeoutMs, githubToken)),
+    stage1.map(item => fetchGithubStars(item, timeoutMs, githubToken)),
   );
   return [...enriched, ...rest];
 }
 
-async function enrichSinglePypi(
+/** 阶段1:查 PyPI JSON API 获取 home_page,提取 githubUrl */
+async function fetchPypiGithubUrl(
   result: PypiRawResult,
   timeoutMs: number,
-  githubToken: string,
-): Promise<PypiRawResult> {
+): Promise<{ result: PypiRawResult; githubUrl?: string }> {
   try {
-    // 1. 查 PyPI JSON API 获取 home_page
     const pyData = await httpGet<PypiJsonResponse>(
       `https://pypi.org/pypi/${result.name}/json`,
       { timeoutMs, retry: DEFAULT_RETRY },
     );
-    const githubUrl = extractGithubUrl(pyData);
-    if (!githubUrl) return result; // 非 GitHub 项目,跳过
-
-    // 2. 查 GitHub API 获取 stars
-    const ownerRepo = githubUrl.replace('https://github.com/', '');
-    try {
-      const ghData = await httpGet<GitHubRepoData>(
-        `https://api.github.com/repos/${ownerRepo}`,
-        { timeoutMs, token: githubToken, extraHeaders: { accept: 'application/vnd.github+json' }, retry: DEFAULT_RETRY },
-      );
-      return { ...result, stars: ghData.stargazers_count, githubUrl };
-    } catch (err) {
-      logError(`pypi github stars enrich failed for ${result.name} (${ownerRepo})`, err);
-      return { ...result, githubUrl }; // 仍保留 githubUrl,即使 stars 获取失败
-    }
+    return { result, githubUrl: extractGithubUrl(pyData) };
   } catch (err) {
     logError(`pypi enrich failed for ${result.name}`, err);
-    return result; // enrich 失败不影响搜索结果
+    return { result }; // enrich 失败不影响搜索结果
+  }
+}
+
+/** 阶段2:查 GitHub API 获取 stars(仅有 githubUrl 的包才发请求) */
+async function fetchGithubStars(
+  item: { result: PypiRawResult; githubUrl?: string },
+  timeoutMs: number,
+  githubToken: string,
+): Promise<PypiRawResult> {
+  if (!item.githubUrl) return item.result; // 非 GitHub 项目,跳过
+  const ownerRepo = item.githubUrl.replace('https://github.com/', '');
+  try {
+    const ghData = await httpGet<GitHubRepoData>(
+      `https://api.github.com/repos/${ownerRepo}`,
+      { timeoutMs, token: githubToken, extraHeaders: { accept: 'application/vnd.github+json' }, retry: DEFAULT_RETRY },
+    );
+    return { ...item.result, stars: ghData.stargazers_count, githubUrl: item.githubUrl };
+  } catch (err) {
+    logError(`pypi github stars enrich failed for ${item.result.name} (${ownerRepo})`, err);
+    return { ...item.result, githubUrl: item.githubUrl }; // 仍保留 githubUrl,即使 stars 获取失败
   }
 }
 
@@ -159,7 +170,8 @@ export class PypiSourceAdapter implements SourceAdapter {
   readonly name = 'pypi';
 
   async search(query: string, opts: SearchOpts): Promise<RawResult[]> {
-    const q = translateQuery(query);
+    // 优先复用 parsedQuery.expandedQuery,避免单次请求内重复翻译
+    const q = opts.parsedQuery?.expandedQuery ?? translateQuery(query);
     const url = new URL('https://pypi.org/search/');
     url.searchParams.set('q', q);
 
@@ -171,6 +183,10 @@ export class PypiSourceAdapter implements SourceAdapter {
         retry: DEFAULT_RETRY,
       });
       const results = parsePypiHtml(html);
+      // HTML 结构变更时解析返回空数组(请求本身成功),打 warn 便于及时发现结构漂移
+      if (results.length === 0) {
+        logWarn('pypi search returned 0 results (HTML structure may have changed)');
+      }
       // O4:对 top 10 补充 GitHub stars(需 githubToken)
       return await enrichPypiResults(results, opts.timeoutMs, opts.githubToken);
     } catch (err) {

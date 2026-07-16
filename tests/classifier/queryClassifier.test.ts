@@ -1,6 +1,6 @@
 // tests/classifier/queryClassifier.test.ts
 import { describe, it, expect } from 'vitest';
-import { classify } from '../../src/classifier/queryClassifier.js';
+import { classify, PROJECT_SIGNALS, FEATURE_SIGNALS } from '../../src/classifier/queryClassifier.js';
 
 describe('classify', () => {
   it('returns explicit hint when not auto', () => {
@@ -50,5 +50,19 @@ describe('classify', () => {
 
   it('classifies encoder hal driver as feature', () => {
     expect(classify('encoder hal driver')).toBe('feature');
+  });
+
+  describe('信号词表导出', () => {
+    it('PROJECT_SIGNALS 已导出且非空', () => {
+      expect(PROJECT_SIGNALS).toBeDefined();
+      expect(Array.isArray(PROJECT_SIGNALS)).toBe(true);
+      expect(PROJECT_SIGNALS.length).toBeGreaterThan(0);
+    });
+
+    it('FEATURE_SIGNALS 已导出且非空', () => {
+      expect(FEATURE_SIGNALS).toBeDefined();
+      expect(Array.isArray(FEATURE_SIGNALS)).toBe(true);
+      expect(FEATURE_SIGNALS.length).toBeGreaterThan(0);
+    });
   });
 });

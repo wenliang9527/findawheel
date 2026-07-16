@@ -1,11 +1,11 @@
 // src/util/retry.ts
 // 重试包装器:仅对 RetryableError 重试(网络错误 + 5xx),4xx 直接抛。
-// 指数退避:baseMs * 2^attempt
+// 指数退避 + 抖动:baseMs * 2^attempt * (0.5~1.0 随机因子),打散并发重试避免惊群
 
 /** 可重试错误标记(网络错误、5xx 等) */
 export class RetryableError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
     this.name = 'RetryableError';
   }
 }
@@ -44,7 +44,7 @@ export async function withRetry<T>(
       if (!(err instanceof RetryableError)) throw err;
       // 最后一次不再等待
       if (attempt === opts.retries) break;
-      const delay = opts.baseMs * Math.pow(2, attempt);
+      const delay = opts.baseMs * Math.pow(2, attempt) * (0.5 + Math.random() * 0.5);
       await sleep(delay);
     }
   }

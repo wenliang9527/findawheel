@@ -1,9 +1,9 @@
-// tests/sources/knowledgeSourceAdapter.test.ts
+// tests/knowledge/knowledgeBase.test.ts
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { searchKnowledgeBase } from '../../src/sources/knowledgeSourceAdapter.js';
+import { searchKnowledgeBase } from '../../src/knowledge/knowledgeBase.js';
 
 let tmpDir: string;
 
@@ -83,7 +83,7 @@ afterAll(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
-describe('knowledgeSourceAdapter', () => {
+describe('knowledgeBase', () => {
   describe('basic search', () => {
     it('returns matching files by title', async () => {
       const items = await searchKnowledgeBase([tmpDir], {

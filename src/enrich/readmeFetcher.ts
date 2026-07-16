@@ -1,7 +1,7 @@
 // src/enrich/readmeFetcher.ts
 import { httpGet, HttpError } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
-import { toSourceError } from '../sources/sourceError.js';
+import { toSourceError } from '../util/sourceError.js';
 
 export interface FetchReadmeOpts {
   timeoutMs: number;

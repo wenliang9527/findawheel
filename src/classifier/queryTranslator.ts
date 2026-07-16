@@ -285,6 +285,51 @@ const ZH_TO_EN: Record<string, string[]> = {
 };
 
 /**
+ * 在 query 中查找所有命中的中文/英文大写关键词,按最长匹配优先。
+ *
+ * 解决三个问题:
+ * 1. 大小写不敏感:翻译表里的英文大写词条(SPI/I2C/HTTP 等)能匹配小写输入
+ * 2. 最长匹配优先:"数据库"命中后,"库"在其范围内不再重复匹配(避免噪声)
+ * 3. 不破坏相邻词条:"图片水印"应同时命中"图片"和"水印"(二者不重叠)
+ *
+ * 实现:按 key 长度降序遍历,维护 consumed 数组标记 query 中已被消费的字符位置,
+ * 后续 key 只在未消费字符范围内查找匹配,避免短词在已匹配长词范围内再次命中。
+ */
+function findZhMappings(query: string): Map<string, string[]> {
+  const queryLower = query.toLowerCase();
+  const consumed = new Array<boolean>(query.length).fill(false);
+  const entries = Object.entries(ZH_TO_EN)
+    .map(([zh, enList]) => ({ zh, zhLower: zh.toLowerCase(), enList }))
+    .sort((a, b) => b.zh.length - a.zh.length);
+  const result = new Map<string, string[]>();
+  for (const { zh, zhLower, enList } of entries) {
+    let idx = 0;
+    while (idx <= queryLower.length - zhLower.length) {
+      // 在未消费区域查找 zhLower 的出现位置
+      let matchStart = -1;
+      for (let i = idx; i <= queryLower.length - zhLower.length; i++) {
+        let ok = true;
+        for (let j = 0; j < zhLower.length; j++) {
+          if (consumed[i + j] || queryLower[i + j] !== zhLower[j]) {
+            ok = false;
+            break;
+          }
+        }
+        if (ok) {
+          matchStart = i;
+          break;
+        }
+      }
+      if (matchStart === -1) break;
+      for (let i = matchStart; i < matchStart + zhLower.length; i++) consumed[i] = true;
+      if (!result.has(zh)) result.set(zh, enList);
+      idx = matchStart + zhLower.length;
+    }
+  }
+  return result;
+}
+
+/**
  * 把 query 中的中文关键词翻译成英文,与原 query 合并。
  * 保留原中文(用于命中中文 README 的仓库),追加英文(扩大覆盖)。
  *
@@ -293,11 +338,10 @@ const ZH_TO_EN: Record<string, string[]> = {
  * translateQuery('markdown 解析') // 'markdown 解析 parser'
  */
 export function translateQuery(query: string): string {
+  const mappings = findZhMappings(query);
   const enWords = new Set<string>();
-  for (const [zh, enList] of Object.entries(ZH_TO_EN)) {
-    if (query.includes(zh)) {
-      for (const en of enList) enWords.add(en);
-    }
+  for (const enList of mappings.values()) {
+    for (const en of enList) enWords.add(en);
   }
   if (enWords.size === 0) return query;
   return `${query} ${[...enWords].join(' ')}`;
@@ -314,12 +358,11 @@ export function extractKeywords(query: string): string[] {
     .split(/[\s,，。、;；!！?？]+/)
     .filter(w => w.length > 1 && !BASE_STOPWORDS.has(w));
 
-  // 把中文翻译后也加入关键词集
+  // 把中文翻译后也加入关键词集(与 translateQuery 共用最长匹配逻辑)
   const enWords = new Set<string>(words);
-  for (const [zh, enList] of Object.entries(ZH_TO_EN)) {
-    if (query.includes(zh)) {
-      for (const en of enList) enWords.add(en);
-    }
+  const mappings = findZhMappings(query);
+  for (const enList of mappings.values()) {
+    for (const en of enList) enWords.add(en);
   }
   return [...enWords];
 }

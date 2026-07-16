@@ -11,7 +11,9 @@
 // - coreWords/formatWords/antonymExcludes 参数 → 不再需要
 
 import type { Wheel, Intent } from '../normalize/types.js';
+import { GITHUB_CODE_PATH_SEP } from '../normalize/types.js';
 import { THREE_YEARS_MS, ONE_YEAR_MS } from '../util/time.js';
+import { matchesKeyword, topicMatches } from '../util/keywordMatch.js';
 
 // ===== 聚合类仓库模式表(集中管理) =====
 // 这些是"资源列表",不是具体可用的轮子,在 filterOut 阶段统一剔除。
@@ -74,6 +76,8 @@ export function filterOut(wheel: Wheel): boolean {
   return false;
 }
 
+// matchesKeyword 和 topicMatches 已移到 src/util/keywordMatch.ts 共享模块
+
 /**
  * 描述匹配加分:检查 description 是否包含 query 的核心关键词。
  * 真正相关的项目描述里通常会包含 query 的关键词,
@@ -82,7 +86,7 @@ export function filterOut(wheel: Wheel): boolean {
 function descriptionMatchBonus(wheel: Wheel, queryKeywords: string[]): number {
   if (!wheel.description || queryKeywords.length === 0) return 0;
   const descLower = wheel.description.toLowerCase();
-  const hitCount = queryKeywords.filter(kw => descLower.includes(kw.toLowerCase())).length;
+  const hitCount = queryKeywords.filter(kw => matchesKeyword(descLower, kw.toLowerCase())).length;
   // 命中率 × 0.15 加分(最多加 0.15)
   return Math.min(hitCount / Math.max(queryKeywords.length, 1), 1) * 0.15;
 }
@@ -95,7 +99,7 @@ function descriptionMatchBonus(wheel: Wheel, queryKeywords: string[]): number {
 function nameMatchBonus(wheel: Wheel, queryKeywords: string[]): number {
   if (!wheel.name || queryKeywords.length === 0) return 0;
   const nameLower = wheel.name.toLowerCase();
-  const hitCount = queryKeywords.filter(kw => nameLower.includes(kw.toLowerCase())).length;
+  const hitCount = queryKeywords.filter(kw => matchesKeyword(nameLower, kw.toLowerCase())).length;
   if (hitCount === 0) return 0;
   // name 命中至少 1 个关键词就加 0.1,全部命中加 0.15
   return Math.min(0.1 + (hitCount / queryKeywords.length) * 0.05, 0.15);
@@ -141,21 +145,7 @@ function topicsMatchBonus(wheel: Wheel, queryKeywords: string[]): number {
   return Math.min(0.05 + (hitCount / queryKeywords.length) * 0.05, 0.1);
 }
 
-/**
- * N8:topic 与关键词匹配判断(与 recommender.ts 的 topicMatches 保持一致)。
- * - 短关键词(≤3 字符,如 js/ts/ai/c/go)用子串匹配会误匹配
- *   改为:精确匹配或 kebab-case 边界匹配
- * - 长关键词(>3 字符)保留双向子串匹配(原逻辑)
- */
-function topicMatches(topic: string, keyword: string): boolean {
-  if (keyword.length <= 3) {
-    return topic === keyword
-      || topic.startsWith(keyword + '-')
-      || topic.endsWith('-' + keyword)
-      || topic.includes('-' + keyword + '-');
-  }
-  return topic.includes(keyword) || keyword.includes(topic);
-}
+// topicMatches 已移到 src/util/keywordMatch.ts 共享模块
 
 /**
  * 计算 query 全词覆盖率:description/name 命中 query 所有实义词的比例。
@@ -165,7 +155,7 @@ function topicMatches(topic: string, keyword: string): boolean {
 function queryCoverage(wheel: Wheel, queryKeywords: string[]): number {
   if (queryKeywords.length === 0) return 0;
   const text = `${wheel.name} ${wheel.description}`.toLowerCase();
-  const hitCount = queryKeywords.filter(kw => text.includes(kw.toLowerCase())).length;
+  const hitCount = queryKeywords.filter(kw => matchesKeyword(text, kw.toLowerCase())).length;
   return hitCount / queryKeywords.length;
 }
 
@@ -176,7 +166,7 @@ function queryCoverage(wheel: Wheel, queryKeywords: string[]): number {
 function isZeroHit(wheel: Wheel, queryKeywords: string[]): boolean {
   if (queryKeywords.length === 0) return false;
   const text = `${wheel.name} ${wheel.description}`.toLowerCase();
-  return !queryKeywords.some(kw => text.includes(kw.toLowerCase()));
+  return !queryKeywords.some(kw => matchesKeyword(text, kw.toLowerCase()));
 }
 
 function normalize(v: number | undefined, max: number): number {
@@ -263,7 +253,7 @@ export function dedupe(wheels: Wheel[]): Wheel[] {
     let key: string;
     if (w.source === 'github-code') {
       // github-code name = "owner/repo#path",取 owner/repo 部分作为 dedupe key
-      const repo = w.name.split('#')[0].toLowerCase();
+      const repo = w.name.split(GITHUB_CODE_PATH_SEP)[0].toLowerCase();
       key = `gh-code:${repo}`;  // 用前缀避免与 github 仓库级结果冲突
       // N3:同仓库已有 github 仓库级结果 → 丢弃 github-code 文件级结果
       if (githubRepos.has(repo)) continue;
@@ -282,13 +272,9 @@ export function dedupe(wheels: Wheel[]): Wheel[] {
     // Merge: keep richer metrics (more defined fields)
     const wScore = Object.values(w.metrics).filter(v => v !== undefined).length;
     const eScore = Object.values(existing.metrics).filter(v => v !== undefined).length;
-    if (wScore > eScore) {
-      // w 替换 existing,但用合并后的 topics
-      map.set(key, { ...w, topics: mergedTopics });
-    } else {
-      // 保留 existing,但更新 topics
-      existing.topics = mergedTopics;
-    }
+    // 统一不可变风格:两条分支都用 map.set 构造新对象,避免原地修改 existing 污染外部引用
+    const base = wScore > eScore ? w : existing;
+    map.set(key, { ...base, topics: mergedTopics });
   }
   return [...map.values()];
 }

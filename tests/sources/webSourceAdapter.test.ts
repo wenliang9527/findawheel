@@ -4,10 +4,25 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock httpPost before importing the adapter
 vi.mock('../../src/util/http.js', () => ({
   httpPost: vi.fn(),
+  HttpError: class HttpError extends Error {
+    constructor(
+      public status: number,
+      public url: string,
+      body: string,
+      public headers?: Record<string, string>,
+    ) {
+      super(`HTTP ${status} from ${url}: ${body.slice(0, 200)}`);
+      this.name = 'HttpError';
+    }
+    get retryable(): boolean {
+      return this.status >= 500;
+    }
+  },
 }));
 
 import { httpPost } from '../../src/util/http.js';
 import { WebSourceAdapter } from '../../src/sources/webSourceAdapter.js';
+import { SourceError } from '../../src/errors.js';
 import type { SearchOpts } from '../../src/sources/sourceAdapter.js';
 
 const baseOpts: SearchOpts = {
@@ -76,17 +91,15 @@ describe('WebSourceAdapter', () => {
     expect(httpPost).toHaveBeenCalledTimes(2); // Exa 失败 + Tavily 成功
   });
 
-  it('returns empty array when both Exa and Tavily fail', async () => {
+  it('throws SourceError when both Exa and Tavily fail', async () => {
     vi.mocked(httpPost).mockRejectedValue(new Error('network error'));
 
     const adapter = new WebSourceAdapter();
-    const results = await adapter.search('test query', {
-      ...baseOpts,
-      exaApiKey: 'exa-key',
-      tavilyApiKey: 'tavily-key',
-    });
-
-    expect(results).toEqual([]);
+    const opts = { ...baseOpts, exaApiKey: 'exa-key', tavilyApiKey: 'tavily-key' };
+    // 两个子源都失败时抛 SourceError,使 findWheelTool 能标记 web 源为 degraded
+    await expect(adapter.search('test query', opts)).rejects.toBeInstanceOf(SourceError);
+    // source name 应为 'web'(toSourceError('web', err) 生成 [web] ... 格式 message)
+    await expect(adapter.search('test query', opts)).rejects.toThrow(/\[web\]/);
   });
 
   it('returns empty array when no API keys configured', async () => {

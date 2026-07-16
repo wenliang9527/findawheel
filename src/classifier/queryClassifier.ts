@@ -1,12 +1,12 @@
 // src/classifier/queryClassifier.ts
 import type { Intent } from '../normalize/types.js';
 
-const PROJECT_SIGNALS = [
+export const PROJECT_SIGNALS = [
   'app', 'application', 'platform', 'tool', 'editor', 'dashboard',
   '系统', '平台', '应用', '编辑器', '网站', '管理系统',
 ];
 
-const FEATURE_SIGNALS = [
+export const FEATURE_SIGNALS = [
   'parse', 'convert', 'generate', 'compress', 'encrypt',
   'client', 'sdk', 'wrapper',
   '解析', '转换', '压缩', '加密', '客户端',

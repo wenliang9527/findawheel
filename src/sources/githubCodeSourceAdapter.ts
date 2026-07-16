@@ -14,6 +14,7 @@ import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
 import { ECOSYSTEM_LANG } from './ecosystemMapping.js';
 import { toSourceError } from './sourceError.js';
+import { translateQuery } from '../classifier/queryTranslator.js';
 
 /**
  * 构造 GitHub Code Search 查询表达式。
@@ -75,7 +76,11 @@ export class GitHubCodeSourceAdapter implements SourceAdapter {
       return [];
     }
 
-    const q = buildGithubCodeQuery(query, opts.ecosystem);
+    // N2:用翻译后的 query(中文 query 翻译成英文才能在 GitHub Code Search 有效召回)。
+    // 优先用 parsedQuery.expandedQuery(中英合并,与主搜索一致),缺失时降级到 translateQuery。
+    // 注意:github-code 在 RATE_LIMITED_SOURCES 中跳过副搜索,主搜索必须有效。
+    const translatedQuery = opts.parsedQuery?.expandedQuery ?? translateQuery(query);
+    const q = buildGithubCodeQuery(translatedQuery, opts.ecosystem);
     const url = new URL('https://api.github.com/search/code');
     url.searchParams.set('q', q);
     url.searchParams.set('sort', 'indexed');

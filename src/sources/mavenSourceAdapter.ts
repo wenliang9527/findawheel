@@ -57,8 +57,8 @@ export class MavenSourceAdapter implements SourceAdapter {
   readonly name = 'maven';
 
   async search(query: string, opts: SearchOpts): Promise<RawResult[]> {
-    // 翻译中文 query(如"图片水印" → "图片水印 image watermark"),提升英文生态命中率
-    const q = translateQuery(query);
+    // 优先复用 parsedQuery.expandedQuery,避免单次请求内重复翻译
+    const q = opts.parsedQuery?.expandedQuery ?? translateQuery(query);
     const url = new URL(API_BASE);
     url.searchParams.set('q', q);
     url.searchParams.set('rows', String(DEFAULT_ROWS));

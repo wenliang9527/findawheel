@@ -5,7 +5,7 @@ import type { Wheel } from '../normalize/types.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
-import { logError } from '../util/logger.js';
+import { logError, logWarn } from '../util/logger.js';
 import { sha1Short } from '../util/hash.js';
 
 export interface CacheOpts {
@@ -69,18 +69,21 @@ export function createCache<T = Wheel[]>(opts: CacheOpts): Cache<T> {
       parsed = CacheEntrySchema.safeParse(JSON.parse(raw));
     } catch (err) {
       logError('cache parse failed', err);
-      try { await fs.promises.unlink(file); } catch { /* ignore */ }
+      try { await fs.promises.unlink(file); } catch (err) { logWarn('cache unlink failed: ' + file, err); }
       return undefined;
     }
     if (!parsed.success) {
       logError('cache parse failed', parsed.error);
       // 异常 JSON 或字段缺失,删除损坏文件避免下次再读
-      try { await fs.promises.unlink(file); } catch { /* ignore */ }
+      try { await fs.promises.unlink(file); } catch (err) { logWarn('cache unlink failed: ' + file, err); }
       return undefined;
     }
     const entry = parsed.data as CacheEntry<T>;
-    // TTL 过期检查
-    if (Date.now() - entry.writtenAt > opts.ttlMs) return undefined;
+    // TTL 过期检查:过期则删除文件(被动清理,避免缓存目录无限增长)
+    if (Date.now() - entry.writtenAt > opts.ttlMs) {
+      try { await fs.promises.unlink(file); } catch (err) { logWarn('cache unlink failed: ' + file, err); }
+      return undefined;
+    }
     return entry.wheels;
   }
 
@@ -111,4 +114,66 @@ export function createCache<T = Wheel[]>(opts: CacheOpts): Cache<T> {
   }
 
   return { get, set, dedupe };
+}
+
+/**
+ * 主动清理缓存目录中的过期文件(修复4)。
+ *
+ * 仅有被动 TTL 清理(get 时发现过期才 unlink)会导致从未被读取的过期文件永远残留,
+ * 磁盘空间无界增长。本函数遍历 cacheDir 下所有 .json 文件,parse 后检查
+ * writtenAt + ttlMs 是否过期,过期则 unlink。
+ *
+ * 并发控制:批量处理(每批 100 个),避免同时 unlink 上万文件触发 fd/IO 压力。
+ * 只清理过期文件;parse 失败的损坏文件留给 get() 被动清理(避免误删)。
+ *
+ * @returns 实际清理的文件数
+ */
+export async function cleanupExpired(cacheDir: string, ttlMs: number): Promise<number> {
+  let files: string[];
+  try {
+    files = await fs.promises.readdir(cacheDir);
+  } catch (err) {
+    logError('cache cleanup readdir failed', err);
+    return 0;
+  }
+  const jsonFiles = files.filter(f => f.endsWith('.json'));
+  let cleaned = 0;
+  const BATCH = 100;
+  for (let i = 0; i < jsonFiles.length; i += BATCH) {
+    const batch = jsonFiles.slice(i, i + BATCH);
+    const settled = await Promise.allSettled(
+      batch.map(async (f): Promise<boolean> => {
+        const file = path.join(cacheDir, f);
+        let raw: string;
+        try {
+          raw = await fs.promises.readFile(file, 'utf8');
+        } catch (err) {
+          // 读失败跳过(可能权限问题,不删)
+          return false;
+        }
+        let entry: CacheEntry;
+        try {
+          entry = JSON.parse(raw) as CacheEntry;
+        } catch (err) {
+          // parse 失败不删(留给 get 被动清理,避免误删非缓存文件)
+          return false;
+        }
+        // 只清理过期文件
+        if (typeof entry.writtenAt === 'number' && Date.now() - entry.writtenAt > ttlMs) {
+          try {
+            await fs.promises.unlink(file);
+            return true;
+          } catch (err) {
+            logWarn('cache unlink failed: ' + file, err);
+            return false;
+          }
+        }
+        return false;
+      }),
+    );
+    for (const r of settled) {
+      if (r.status === 'fulfilled' && r.value) cleaned += 1;
+    }
+  }
+  return cleaned;
 }

@@ -1,4 +1,4 @@
-// src/sources/knowledgeSourceAdapter.ts
+// src/knowledge/knowledgeBase.ts
 // 个人知识库搜索适配器(本地 Markdown 文件夹)。
 //
 // 设计:
@@ -223,6 +223,17 @@ function parseMarkdown(content: string, fileName: string): ParsedMarkdown {
 /** 知识库递归深度上限(P0-3:防止符号链接循环或异常深层目录致栈溢出) */
 const MAX_KB_DEPTH = 8;
 
+/**
+ * 文件读取并发上限(P0:防止大型 vault OOM/EMFILE)。
+ *
+ * 参照 feedbackStore.ts 的 FEEDBACK_CONCURRENCY=16 分批模式。
+ * 设为 32(略高于 feedback 的 16,因为知识库扫描通常更批量,
+ * 单文件 100KB × 32 ≈ 3.2MB 内存峰值,远小于 1GB 全量并发场景)。
+ * Linux 默认 fd 上限 1024,32 个并发 readFile 不会触发 EMFILE。
+ * Windows fd 上限更高,无需调整。
+ */
+const KB_READ_CONCURRENCY = 32;
+
 /** 递归扫描目录下所有 .md 文件 */
 async function scanMarkdownFiles(rootDir: string, depth = 0): Promise<string[]> {
   if (depth >= MAX_KB_DEPTH) {
@@ -242,8 +253,17 @@ async function scanMarkdownFiles(rootDir: string, depth = 0): Promise<string[]> 
       try {
         const stat = await fs.lstat(fullPath);
         isSymlink = stat.isSymbolicLink();
-      } catch {
-        // lstat 失败(权限/不存在)按非符号链接处理,后续 readdir/readFile 会再报错
+      } catch (err) {
+        // ENOENT(路径不存在)/ EACCES(权限拒绝):跳过该 entry,
+        // 不当"非符号链接"处理 —— 否则后续 readdir/readFile 会再失败浪费 IO
+        if (err instanceof Error) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code === 'ENOENT' || code === 'EACCES') {
+            logWarn(`KB scan lstat ${code}: ${fullPath}`, err);
+            continue;
+          }
+        }
+        // 其他未知错误:保持 isSymlink=false,后续 readdir/readFile 会再报错
       }
       if (isSymlink) {
         logWarn(`KB scan skipping symlink ${fullPath}`);
@@ -311,11 +331,11 @@ export async function searchKnowledgeBase(
     }),
   );
 
-  // 并行读取并匹配所有文件
-  const readTasks: Promise<void>[] = [];
+  // 收集所有读取任务(分批执行,控制 fd 占用,避免大型 vault OOM/EMFILE)
+  const readTasks: (() => Promise<void>)[] = [];
   for (const { root, files, kbType } of allFiles) {
     for (const file of files) {
-      readTasks.push((async () => {
+      readTasks.push(async () => {
         try {
           const stat = await fs.stat(file);
           if (stat.size > maxFileBytes) return; // 超大文件跳过
@@ -356,10 +376,17 @@ export async function searchKnowledgeBase(
           logError('KB parse failed', err);
           // 单文件读取失败:跳过,不阻断
         }
-      })());
+      });
     }
   }
-  await Promise.all(readTasks);
+  // 分批执行:每批 KB_READ_CONCURRENCY 个文件并行,
+  // 避免 10000 文件同时打开触发 EMFILE(Linux fd 上限 1024)或 OOM 内存峰值。
+  // 单文件失败由任务内 try/catch 兜底(logError 后跳过),不阻塞整批;
+  // 用 allSettled 防御性处理,即使任务内异常逃逸也不会中断后续批次。
+  for (let i = 0; i < readTasks.length; i += KB_READ_CONCURRENCY) {
+    const batch = readTasks.slice(i, i + KB_READ_CONCURRENCY);
+    await Promise.allSettled(batch.map(task => task()));
+  }
 
   // 排序:命中字段优先级(title > path > tag > content)
   const fieldOrder: Record<KnowledgeItem['matchedField'], number> = {

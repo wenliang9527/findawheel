@@ -40,8 +40,8 @@ describe('withRetry', () => {
     const start = Date.now();
     await withRetry(fn, { retries: 2, baseMs: 50 });
     const elapsed = Date.now() - start;
-    // 至少等了 50ms 退避
-    expect(elapsed).toBeGreaterThanOrEqual(40);
+    // 退避含 jitter(0.5~1.0 随机因子),delay 范围 25~50ms,下限按 0.5 因子放宽到 20ms
+    expect(elapsed).toBeGreaterThanOrEqual(20);
     expect(sleepSpy).toHaveBeenCalled();
     sleepSpy.mockRestore();
   });

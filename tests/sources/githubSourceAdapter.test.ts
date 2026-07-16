@@ -36,8 +36,8 @@ describe('buildGithubQuery', () => {
     // Phase 6 简化:统一逻辑,多词 corePhrase 加引号(不再有嵌入式特殊处理)
     const parsed = parseQuery('invisible image watermark encryption');
     const q = buildGithubQuery('invisible image watermark encryption', 'feature', undefined, parsed);
-    // core phrase "invisible watermark" 应该被引号包裹
-    expect(q).toContain('"invisible watermark"');
+    // core phrase "invisible image" 应该被引号包裹(image 作为核心对象词不再被停用词过滤)
+    expect(q).toContain('"invisible image"');
   });
 
   it('does NOT wrap single-word core phrase in quotes', () => {

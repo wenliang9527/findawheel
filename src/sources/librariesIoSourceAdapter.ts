@@ -31,7 +31,8 @@ export class LibrariesIoSourceAdapter implements SourceAdapter {
     // 无 API key 时跳过(零配置兼容:不调 fetch,直接返回空)
     if (!opts.librariesIoApiKey) return [];
 
-    const q = translateQuery(query);
+    // 优先复用 parsedQuery.expandedQuery,避免单次请求内重复翻译
+    const q = opts.parsedQuery?.expandedQuery ?? translateQuery(query);
     const url = new URL('https://libraries.io/api/search');
     url.searchParams.set('q', q);
     url.searchParams.set('api_key', opts.librariesIoApiKey);

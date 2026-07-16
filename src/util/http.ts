@@ -1,8 +1,24 @@
 // src/util/http.ts
 import { withRetry, RetryableError, type RetryOpts } from './retry.js';
 
+/**
+ * 应用版本号(与 package.json version 保持一致)。
+ * 集中到一处常量避免散落多处硬编码,版本升级时只需改这一处 + package.json。
+ * 不引入构建时注入(保持构建简单),版本号变化时手动同步。
+ */
+const APP_VERSION = '0.1.0';
+
+/** HTTP user-agent 头默认值,标识 findawheel 客户端 */
+const USER_AGENT = `findawheel/${APP_VERSION}`;
+
 export class HttpError extends Error {
-  constructor(public status: number, public url: string, body: string) {
+  constructor(
+    public status: number,
+    public url: string,
+    body: string,
+    /** 响应头(小写键),供下游读取 Retry-After / X-RateLimit-Reset 等限流信息 */
+    public headers?: Record<string, string>,
+  ) {
     super(`HTTP ${status} from ${url}: ${body.slice(0, 200)}`);
     this.name = 'HttpError';
   }
@@ -63,20 +79,17 @@ async function doFetch<T>(
     const res = await fetch(url, fetchOpts);
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      const err = new HttpError(res.status, url, body);
-      // 5xx 包装成 RetryableError 让 withRetry 重试
-      if (err.retryable) throw new RetryableError(err.message);
+      const err = new HttpError(res.status, url, body, Object.fromEntries(res.headers.entries()));
+      if (err.retryable) throw new RetryableError(err.message, { cause: err });
       throw err;
     }
     // text 模式:返回原始文本(用于 HTML 解析);否则解析 JSON
     if (opts.text) return (await res.text()) as T;
     return (await res.json()) as T;
   } catch (err) {
-    // 网络错误/abort 也包装成可重试
     if (err instanceof RetryableError) throw err;
     if (err instanceof HttpError) throw err;
-    // TypeError(fetch failed) / AbortError
-    throw new RetryableError((err as Error).message);
+    throw new RetryableError((err as Error).message, { cause: err });
   } finally {
     clearTimeout(timer);
   }
@@ -85,7 +98,7 @@ async function doFetch<T>(
 export async function httpGet<T>(url: string, opts: HttpGetOptions): Promise<T> {
   const headers: Record<string, string> = {
     'accept': 'application/json',
-    'user-agent': opts.userAgent ?? 'findawheel/0.1',
+    'user-agent': opts.userAgent ?? USER_AGENT,
     ...opts.extraHeaders,
   };
   if (opts.token) headers.authorization = `Bearer ${opts.token}`;
@@ -108,7 +121,7 @@ export async function httpGet<T>(url: string, opts: HttpGetOptions): Promise<T> 
 export async function httpPost<T>(url: string, opts: HttpPostOptions): Promise<T> {
   const headers: Record<string, string> = {
     'accept': 'application/json',
-    'user-agent': 'findawheel/0.1',
+    'user-agent': USER_AGENT,
     ...opts.headers,
   };
 

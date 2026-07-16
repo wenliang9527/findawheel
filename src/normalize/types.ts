@@ -1,9 +1,18 @@
 // src/normalize/types.ts
-// type-only import: 编译期擦除,不产生运行时循环依赖
-// (wheelDetailsEnricher 反向 import type Wheel,同为 type-only,TS 能正确处理)
-import type { WheelDetails } from '../enrich/wheelDetailsEnricher.js';
+// WheelDetails 及其依赖的纯类型(CodeSnippet/LatestRelease/LicenseCheck)已从 enrich/ 下沉到本文件,
+// 消除 normalize → enrich 的反向依赖。enrich/ 各文件 re-export 保持向后兼容。
 
 export type WheelSource = 'github' | 'gitlab' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'librariesio' | 'web' | 'github-code' | 'vscode-marketplace' | 'paperswithcode' | 'huggingface' | 'maven' | 'rubygems' | 'gopkg';
+
+/**
+ * github-code 源的 name 路径分隔符。
+ * github-code wheel 的 name 形如 "owner/repo#path"(owner/repo 来自 GitHub 仓库名,
+ * path 是命中的文件路径),用 '#' 分隔以区别于 '/' (owner/repo 本身已含 '/')。
+ * 三处使用:normalize 构造 name、ranker/findWheelTool 解析出 owner/repo 部分做去重/排除。
+ * 修改此分隔符需同步更新所有引用处。
+ */
+export const GITHUB_CODE_PATH_SEP = '#';
+
 export type WheelType = 'project' | 'package' | 'api' | 'cli' | 'sdk' | 'snippet' | 'extension' | 'paper' | 'model';
 export type Activity = 'high' | 'medium' | 'low';
 
@@ -41,6 +50,48 @@ export interface WheelMetrics {
   archived?: boolean;
   downloads?: number;
   activity?: Activity;
+}
+
+/** 代码块(从 README 提取) */
+export interface CodeSnippet {
+  /** 代码块语言标记（如 bash/js/ts/python），无标记时为 'text' */
+  language: string;
+  /** 代码内容（已截断到 maxCharsPerSnippet） */
+  code: string;
+}
+
+/** 最新 release 信息 */
+export interface LatestRelease {
+  /** release tag，如 "v4.18.0" */
+  tag: string;
+  /** 发布时间 ISO 字符串 */
+  publishedAt: string;
+  /** release 标题（可选） */
+  name?: string;
+}
+
+/** license 兼容性检查结果 */
+export interface LicenseCheck {
+  /** true=可安全使用, false=不兼容, null=无法判断(未知 license) */
+  compatible: boolean | null;
+  /** 人类可读说明 */
+  note: string;
+}
+
+/** Wheel 详情(README 摘要 + 代码示例 + release + license) */
+export interface WheelDetails {
+  /** 所属 wheel 标识（GitHub 源为 owner/repo） */
+  name: string;
+  source: string;
+  url: string;
+  /** README 前 N 行摘要（抓取失败时为空字符串） */
+  readmeSnippet: string;
+  /** 从 README 提取的代码示例（最多 2 个，抓取失败时为空数组） */
+  codeExamples: CodeSnippet[];
+  /** 最新 release 信息（无 release 时省略） */
+  release?: LatestRelease;
+  /** license 兼容性检查（userLicense 未配置时省略） */
+  licenseCheck?: LicenseCheck;
 }
 
 export interface Wheel {
@@ -114,6 +165,11 @@ export interface FindWheelOutput {
     warning?: string;
   };
   degradedSources?: string[];
+  /**
+   * 被限流的源(可选)。这些源因触达 403/429 被进程内熔断器在恢复时间前跳过,
+   * 或本次搜索时返回限流错误。AI 可据此判断召回是否因限流而缺失某些源。
+   */
+  rateLimitedSources?: string[];
   /** 命中缓存时为 true,提示调用方结果可能非实时 */
   cached?: boolean;
   /**

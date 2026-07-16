@@ -3,6 +3,7 @@ import type { SourceAdapter } from '../sources/sourceAdapter.js';
 import type {
   FindWheelInput, FindWheelOutput, Intent, RawResult, Wheel,
 } from '../normalize/types.js';
+import { GITHUB_CODE_PATH_SEP } from '../normalize/types.js';
 import { classify } from '../classifier/queryClassifier.js';
 import { extractKeywords } from '../classifier/queryTranslator.js';
 import { parseQuery } from '../classifier/queryParser.js';
@@ -14,13 +15,15 @@ import { rank } from '../rank/ranker.js';
 import { enrichWithMatch, REC_LABELS, REC_ORDER } from '../rank/recommender.js';
 import { readEnv } from '../util/env.js';
 import { logError, logInfo } from '../util/logger.js';
+import { isRateLimited, markRateLimited } from '../util/rateLimitCircuitBreaker.js';
+import { RateLimitError } from '../errors.js';
 import { createCache, cacheKey, type Cache } from '../cache/cache.js';
 import {
   enrichDetails,
   type WheelDetails,
   type EnrichDetailsOpts,
 } from '../enrich/wheelDetailsEnricher.js';
-import { detailsCacheKey } from './getWheelDetailsTool.js';
+import { detailsCacheKey } from './shared.js';
 import type { FeedbackStore } from '../feedback/feedbackStore.js';
 import { applyFeedbackToWheels } from '../feedback/feedbackWeighter.js';
 import type { McpToolResult } from './types.js';
@@ -48,11 +51,48 @@ interface SearchResult {
   expandedFallback?: boolean;
   /** N12:翻译后的 query(中英合并),供 output.translatedQuery 字段使用 */
   translatedQuery?: string;
+  /** 本次请求中被限流的源(被熔断跳过或搜索时触 403/429),供输出 rateLimitedSources 告知 AI */
+  rateLimited?: string[];
+}
+
+/**
+ * 缓存值结构(修复2):wheels + routingInfo 一起序列化。
+ * 缓存命中时从 routing 恢复 skippedSources/routingReason/fallbackExpansion 到 output,
+ * 避免 AI 调试召回偏差时丢失路由上下文。
+ * 向后兼容:旧缓存是纯 Wheel[](无 routing 字段),读取时检测 Array.isArray 兜底。
+ */
+interface CachedSearchResult {
+  wheels: Wheel[];
+  /** 路由信息(供缓存命中时恢复到 output) */
+  routing?: {
+    skippedSources?: string[];
+    routingReason?: string;
+    fallbackExpansion?: { reason: string };
+  };
 }
 
 /** 兜底扩展阈值:top 1 stars < LOW_STARS_THRESHOLD 或总结果 < FALLBACK_MIN_RESULTS 条时触发 */
 const FALLBACK_TOP_STARS_THRESHOLD = 10;
 const FALLBACK_MIN_RESULTS = 5;
+/**
+ * N4:小众领域差异化阈值 —— 嵌入式/硬件/学术等领域 top1 stars 普遍 < 10,
+ * 用原阈值会几乎每次触发全源扩展,路由节省的配额被消耗。
+ * 改为更宽松的阈值(小众领域 top1<3 或 results<3 才触发扩展)。
+ */
+const FALLBACK_TOP_STARS_THRESHOLD_NICHE = 3;
+const FALLBACK_MIN_RESULTS_NICHE = 3;
+/**
+ * N4:小众领域路由规则集合 —— 这些规则命中的 query 通常返回低 star 结果(嵌入式/学术/论文库),
+ * 用更宽松的 fallback 阈值,避免几乎每次都触发全源扩展。
+ * - hardware-keywords: 硬件/嵌入式,主流库 stars 普遍 < 100
+ * - cpp-arduino-ecosystem: C++/Arduino 生态,个人项目为主
+ * - paper-algorithm: 学术论文相关,star 量普遍偏低
+ */
+const NICHE_ROUTING_RULES = new Set([
+  'hardware-keywords',
+  'cpp-arduino-ecosystem',
+  'paper-algorithm',
+]);
 /** 低 star 阈值:低于此值视为低质量结果(用于兜底扩展 + 低质量警告) */
 const LOW_STARS_THRESHOLD = 10;
 
@@ -91,7 +131,7 @@ function shouldExclude(wheel: Wheel, excludeSet: Set<string>): boolean {
   if (excludeSet.has(name)) return true;
   // N11:github-code 的 name 是 owner/repo#path,检查 owner/repo 部分
   if (wheel.source === 'github-code') {
-    const repo = name.split('#')[0];
+    const repo = name.split(GITHUB_CODE_PATH_SEP)[0];
     if (excludeSet.has(repo)) return true;
   }
   return false;
@@ -127,12 +167,19 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     const key = cacheKey(input.query, intent, input.ecosystem, limit);
     const cached = await cache.get(key);
     if (cached) {
-      logInfo(`cache hit: query="${input.query}" intent=${intent} ${cached.length} wheels`);
+      // 修复2:向后兼容检测 —— 旧缓存是纯 Wheel[],新缓存是 { wheels, routing }。
+      // 新格式命中时恢复 routingInfo(skippedSources/routingReason/fallbackExpansion)到 output,
+      // 避免 AI 调试召回偏差时丢失路由上下文。
+      const isLegacy = Array.isArray(cached);
+      const cachedEntry = isLegacy ? undefined : (cached as unknown as CachedSearchResult);
+      const cachedWheels = isLegacy ? cached : cachedEntry!.wheels;
+      const cachedRouting = isLegacy ? undefined : cachedEntry!.routing;
+      logInfo(`cache hit: query="${input.query}" intent=${intent} ${cachedWheels.length} wheels`);
       // 缓存命中后也应用 exclude 过滤(让 AI 能用 exclude 二次筛选缓存结果)
       // N11:用 shouldExclude helper,支持 github-code 的 owner/repo#path 格式
       const filtered = excludeSet.size > 0
-        ? cached.filter(w => !shouldExclude(w, excludeSet))
-        : cached;
+        ? cachedWheels.filter(w => !shouldExclude(w, excludeSet))
+        : cachedWheels;
       const output: FindWheelOutput = {
         query: input.query,
         intent,
@@ -140,6 +187,8 @@ export function createFindWheelTool(opts: CreateToolOpts) {
         wheels: filtered,
         summary: buildSummary(filtered),
         cached: true,
+        // 修复2:恢复缓存写入时的路由信息(若为旧格式缓存则无此字段,行为不变)
+        ...(cachedRouting ?? {}),
       };
       return { content: [{ type: 'text', text: JSON.stringify(output) }] };
     }
@@ -155,26 +204,23 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     }
 
     // 成功才写缓存(失败结果不缓存,避免下次命中错误响应)
-    // 顺序: feedback 加权(重新排序) → exclude 过滤 → 详情预抓取(top 10 按新排序) → 写缓存
-    // 缓存存最终结果(含 feedback 调整和 details), 命中时直接返回; feedback 变化等 TTL 刷新
+    // 顺序: feedback 加权(重新排序) → 详情预抓取(top 10 按全量排序) → 写缓存(全量)
+    //       → exclude 过滤(仅影响本次返回,不污染缓存)
+    // 修复:exclude 不计入 cacheKey,若把过滤后的子集写入缓存,后续不传 exclude 的请求
+    // 会命中缓存拿到缺失结果。改为缓存存全量,exclude 过滤在 cache.set 之后执行。
     let finalWheels = result.wheels;
     if (opts.feedbackStore) {
       finalWheels = await applyFeedback(finalWheels);
     }
-    // C 阶段:exclude 过滤(AI 二次筛选不相关项目)
-    // N11:用 shouldExclude helper,支持 github-code 的 owner/repo#path 格式
-    if (excludeSet.size > 0) {
-      finalWheels = finalWheels.filter(w => !shouldExclude(w, excludeSet));
-    }
     // 混合呈现:enrichOpts 配置时对 top 10 预抓取详情,top 3 内联,4-10 加 hasDetails 标记
     // 预抓取失败不阻断主流程(容错);缓存里存的是已内联 details 的 wheels,命中时直接返回
     if (opts.enrichOpts) {
-      await enrichTopWheels(finalWheels, opts.enrichOpts, opts.detailsCache);
+      finalWheels = await enrichTopWheels(finalWheels, opts.enrichOpts, opts.detailsCache);
     }
-    await cache.set(key, finalWheels);
-
-    // 构造路由信息输出:
+    // 构造路由信息(修复2:提前到 cache.set 之前,以便缓存写入时一起序列化):
     // - N13:触发兜底扩展时输出 fallbackExpansion,让 AI 知道召回范围已扩大
+    // - 修复2:扩展后仍输出原始 routingReason(不输出 skippedSources:扩展后全部源都搜过了),
+    //   让 AI 调试召回偏差时知道原本路由跳过了哪些类型的源
     // - 未触发扩展且路由跳过了源时,输出 skippedSources/routingReason
     // - 无路由信息时(如 fallback-all 全搜)两者都不输出
     const routingInfo = result.expandedFallback
@@ -182,6 +228,10 @@ export function createFindWheelTool(opts: CreateToolOpts) {
           fallbackExpansion: {
             reason: 'top 1 stars < 10 or results < 5, expanded to all sources',
           },
+          // 修复2:扩展后输出原始 routingReason(不输出 skippedSources,因为全部源都搜过了)
+          ...(result.routing && result.routing.skipped.length > 0
+            ? { routingReason: result.routing.reason }
+            : {}),
         }
       : (result.routing && result.routing.skipped.length > 0
         ? {
@@ -189,6 +239,16 @@ export function createFindWheelTool(opts: CreateToolOpts) {
             routingReason: result.routing.reason,
           }
         : undefined);
+
+    // 缓存存全量结果 + routingInfo(修复2:命中时恢复路由上下文,避免 AI 丢失召回偏差调试信息)
+    // 注意:exclude 不计入 cacheKey,缓存存全量;exclude 过滤在 cache.set 之后执行(仅影响本次返回)
+    const cacheValue: CachedSearchResult = { wheels: finalWheels, routing: routingInfo };
+    await cache.set(key, cacheValue as unknown as Wheel[]);
+    // C 阶段:exclude 过滤(AI 二次筛选不相关项目,仅影响本次返回)
+    // N11:用 shouldExclude helper,支持 github-code 的 owner/repo#path 格式
+    if (excludeSet.size > 0) {
+      finalWheels = finalWheels.filter(w => !shouldExclude(w, excludeSet));
+    }
 
     const output: FindWheelOutput = {
       query: input.query,
@@ -199,6 +259,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       wheels: finalWheels,
       summary: buildSummary(finalWheels),
       ...(result.degraded.length > 0 ? { degradedSources: result.degraded } : {}),
+      ...(result.rateLimited && result.rateLimited.length > 0 ? { rateLimitedSources: result.rateLimited } : {}),
       ...routingInfo,
     };
     return { content: [{ type: 'text', text: JSON.stringify(output) }] };
@@ -213,7 +274,9 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     if (!opts.feedbackStore) return wheels;
     const allFeedback = await opts.feedbackStore.getAllFeedback();
     if (allFeedback.length === 0) return wheels;
-    const feedbackMap = new Map(allFeedback.map(f => [f.name, f]));
+    // N5:key 用 toLowerCase 归一化(与 ranker dedupe 一致),
+    // 避免 feedback 存 "Lodash" 而 wheel.name 是 "lodash" 时 get 不命中导致反馈失效
+    const feedbackMap = new Map(allFeedback.map(f => [f.name.toLowerCase(), f]));
     return applyFeedbackToWheels(wheels, feedbackMap);
   }
 
@@ -240,6 +303,17 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     const selectedAdapters = opts.adapters.filter(a => routing.selected.includes(a.name));
     const skippedAdapters = opts.adapters.filter(a => routing.skipped.includes(a.name));
 
+    // 限流熔断:跳过仍处于限流期的源,避免反复触发 403/429 浪费超时。
+    // 被熔断跳过的源收集到 rateLimited,在输出中告知 AI(这些源本轮未参与搜索)。
+    const rateLimited: string[] = selectedAdapters
+      .filter(a => isRateLimited(a.name))
+      .map(a => a.name);
+    let activeAdapters = selectedAdapters.filter(a => !isRateLimited(a.name));
+    // 全部被限流时降级为使用全部源(不能完全无结果)
+    if (activeAdapters.length === 0) {
+      activeAdapters = selectedAdapters;
+    }
+
     const searchOpts = {
       intent, ecosystem: input.ecosystem, timeoutMs,
       githubToken: env.githubToken,
@@ -257,13 +331,13 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     // O1:严格限流源(github/github-code/gitee/gitlab)跳过副搜索,避免双倍消耗配额。
     // N2:全文搜索型源(huggingface/paperswithcode/vscode-marketplace)也跳过副搜索,
     // 因为这些源 API 无精确短语语法,同义词泛化后召回噪声大,主搜索已足够。
-    const fuzzyAdapters = selectedAdapters.filter(
+    const fuzzyAdapters = activeAdapters.filter(
       a => !RATE_LIMITED_SOURCES.has(a.name) && !FUZZY_NOISY_SOURCES.has(a.name),
     );
 
     // 主搜索(全量源)+ 副搜索(仅宽松源)并行,结果合并去重(由 rank() 的 dedupe 处理)
     const [mainSettled, fuzzySettled] = await Promise.all([
-      Promise.allSettled(selectedAdapters.map(a => a.search(input.query, searchOpts))),
+      Promise.allSettled(activeAdapters.map(a => a.search(input.query, searchOpts))),
       Promise.allSettled(fuzzyAdapters.map(a => a.search(parsedQuery.fuzzyQuery, fuzzyOpts))),
     ]);
 
@@ -273,7 +347,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     // 收集主搜索结果
     for (let i = 0; i < mainSettled.length; i++) {
       const r = mainSettled[i];
-      const name = selectedAdapters[i].name;
+      const name = activeAdapters[i].name;
       if (r.status === 'fulfilled') {
         allRaw.push(...r.value);
         // 主搜索 fulfilled 即视为该源可用(即使返回空数组)
@@ -285,6 +359,11 @@ export function createFindWheelTool(opts: CreateToolOpts) {
         // AI 需要知道哪些源的主搜索失败了,以便判断结果是否可信。
         degraded.push(name);
         logError(`${name} main search failed`, r.reason);
+        // 限流熔断:记录该源被限流,后续请求在 resetAt 前跳过该源
+        if (r.reason instanceof RateLimitError) {
+          markRateLimited(name, r.reason.resetAt.getTime());
+          if (!rateLimited.includes(name)) rateLimited.push(name);
+        }
       }
     }
     // 收集副搜索结果(追加到 allRaw,后续 dedupe 会按 name 去重)
@@ -298,7 +377,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     }
 
     if (allFailed) {
-      return { wheels: [], degraded, allFailed: true, routing, translatedQuery: translated };
+      return { wheels: [], degraded, allFailed: true, routing, translatedQuery: translated, rateLimited };
     }
 
     let wheels: Wheel[] = allRaw.map(w => enrich(normalize(w)));
@@ -310,22 +389,32 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     let rankedWithMatch = collectAndRank(wheels, intent, limit, queryKeywords);
 
     // ===== 兜底扩展:召回不足时搜索被跳过的源 =====
-    // 严格阈值:top 1 stars < 10 或总结果 < 5 条 → 扩展到全源重搜
+    // 严格阈值:top 1 stars < 阈值 或总结果 < 阈值 条 → 扩展到全源重搜
     // 仅当本次路由跳过了源(skipped.length > 0)时才可能触发扩展
+    // N4:小众领域(hardware/cpp-arduino/paper)用更宽松的阈值(NICHE 版本),
+    // 避免这些领域 top1 stars 普遍偏低导致几乎每次都触发全源扩展,消耗路由节省的配额
     let expandedFallback = false;
     if (routing.skipped.length > 0 && skippedAdapters.length > 0) {
       const topStars = rankedWithMatch[0]?.metrics.stars ?? 0;
       const totalResults = rankedWithMatch.length;
-      const needsExpansion = totalResults < FALLBACK_MIN_RESULTS || topStars < FALLBACK_TOP_STARS_THRESHOLD;
+      // N4:按路由类型选择阈值 —— 小众领域用宽松阈值,其他用严格阈值
+      const isNicheRoute = NICHE_ROUTING_RULES.has(routing.ruleName);
+      const minResultsThreshold = isNicheRoute ? FALLBACK_MIN_RESULTS_NICHE : FALLBACK_MIN_RESULTS;
+      const topStarsThreshold = isNicheRoute ? FALLBACK_TOP_STARS_THRESHOLD_NICHE : FALLBACK_TOP_STARS_THRESHOLD;
+      const needsExpansion = totalResults < minResultsThreshold || topStars < topStarsThreshold;
       if (needsExpansion) {
         logInfo(`fallback expansion triggered: topStars=${topStars} results=${totalResults} → search ${skippedAdapters.length} skipped sources`);
+        // 限流熔断:兜底扩展也跳过仍处于限流期的源
+        let extSearchAdapters = skippedAdapters.filter(a => !isRateLimited(a.name));
+        // 全部被限流时降级为使用全部源(避免完全无扩展结果)
+        if (extSearchAdapters.length === 0) extSearchAdapters = skippedAdapters;
         // O1+N2:兜底扩展也跳过限流源和全文噪声源的副搜索
-        const extFuzzyAdapters = skippedAdapters.filter(
+        const extFuzzyAdapters = extSearchAdapters.filter(
           a => !RATE_LIMITED_SOURCES.has(a.name) && !FUZZY_NOISY_SOURCES.has(a.name),
         );
         // 搜索被跳过的源,合并结果后重新 rank
         const [extMain, extFuzzy] = await Promise.all([
-          Promise.allSettled(skippedAdapters.map(a => a.search(input.query, searchOpts))),
+          Promise.allSettled(extSearchAdapters.map(a => a.search(input.query, searchOpts))),
           Promise.allSettled(extFuzzyAdapters.map(a => a.search(parsedQuery.fuzzyQuery, fuzzyOpts))),
         ]);
         // 收集扩展结果
@@ -336,9 +425,14 @@ export function createFindWheelTool(opts: CreateToolOpts) {
             extRaw.push(...r.value);
           } else {
             // 扩展阶段失败的源也加入 degraded(让 AI 知道哪些源不可用)
-            const name = skippedAdapters[i].name;
+            const name = extSearchAdapters[i].name;
             if (!degraded.includes(name)) degraded.push(name);
             logError(`${name} fallback search failed`, r.reason);
+            // 限流熔断:记录扩展阶段被限流的源
+            if (r.reason instanceof RateLimitError) {
+              markRateLimited(name, r.reason.resetAt.getTime());
+              if (!rateLimited.includes(name)) rateLimited.push(name);
+            }
           }
         }
         for (const r of extFuzzy) {
@@ -346,9 +440,28 @@ export function createFindWheelTool(opts: CreateToolOpts) {
           else logError('fallback fuzzy search failed', r.reason);
         }
         if (extRaw.length > 0) {
-          // 合并扩展结果到主结果,重新 rank
-          wheels = [...wheels, ...extRaw.map(w => enrich(normalize(w)))];
-          rankedWithMatch = collectAndRank(wheels, intent, limit, queryKeywords);
+          // 修复1:扩展结果单独 rank(各自 filter+dedupe+score+sort+slice),
+          // 避免对主结果(已 rank 过一次)重新 score/dedupe。
+          // 主结果 rankedWithMatch 保持不变,扩展结果独立 collectAndRank 得 extRanked,
+          // 合并后只做轻量 dedupe(按 name toLowerCase)+ 一次 sort(按 match.score)。
+          const extWheels = extRaw.map(w => enrich(normalize(w)));
+          const extRanked = collectAndRank(extWheels, intent, limit, queryKeywords);
+          // 跨主+扩展的重复项处理:按 name toLowerCase 轻量 dedupe
+          // (两边各自已过 ranker 的完整 dedupe,跨边界重复只可能是同名,如主搜 github 返回 a/b
+          //  而扩展搜 gitee 也返回同名 a/b)
+          const seen = new Set<string>();
+          const merged: Wheel[] = [];
+          for (const w of rankedWithMatch) {
+            const k = w.name.toLowerCase();
+            if (!seen.has(k)) { seen.add(k); merged.push(w); }
+          }
+          for (const w of extRanked) {
+            const k = w.name.toLowerCase();
+            if (!seen.has(k)) { seen.add(k); merged.push(w); }
+          }
+          // 合并后只 sort(按 match.score 降序),不重新 score/dedupe
+          merged.sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0));
+          rankedWithMatch = merged.slice(0, limit);
         }
         // 无论扩展是否带来新结果,都标记为已扩展(避免下次重复扩展,也避免误报 skippedSources)
         expandedFallback = true;
@@ -356,7 +469,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       }
     }
 
-    return { wheels: rankedWithMatch, degraded, allFailed: false, routing, expandedFallback, translatedQuery: translated };
+    return { wheels: rankedWithMatch, degraded, allFailed: false, routing, expandedFallback, translatedQuery: translated, rateLimited };
   }
 
   return { handle };
@@ -395,8 +508,8 @@ async function enrichTopWheels(
   wheels: Wheel[],
   enrichOpts: EnrichDetailsOpts,
   detailsCache?: Cache<WheelDetails>,
-): Promise<void> {
-  if (wheels.length === 0) return;
+): Promise<Wheel[]> {
+  if (wheels.length === 0) return wheels;
   const prefetchCount = Math.min(TOP_PREFETCH, wheels.length);
   const top = wheels.slice(0, prefetchCount);
 
@@ -406,6 +519,8 @@ async function enrichTopWheels(
     top.map((w, i) => enrichDetails(w, enrichOpts, i < TOP_INLINE)),
   );
 
+  // 不修改入参:用浅拷贝构造新数组,仅对命中详情的元素构造新对象替换
+  const enriched: Wheel[] = [...wheels];
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
     if (r.status !== 'fulfilled') {
@@ -428,11 +543,12 @@ async function enrichTopWheels(
 
     // top 3 内联 details;其余加 hasDetails 标记
     if (i < TOP_INLINE) {
-      top[i].details = details;
+      enriched[i] = { ...enriched[i], details };
     } else {
-      top[i].hasDetails = true;
+      enriched[i] = { ...enriched[i], hasDetails: true };
     }
   }
+  return enriched;
 }
 
 /** 推荐等级的中文标签 + 排序顺序 — 已移到 src/rank/recommender.ts 共享层 */

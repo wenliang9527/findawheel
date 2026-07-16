@@ -5,8 +5,8 @@ import { parseQuery } from '../../src/classifier/queryParser.js';
 describe('parseQuery', () => {
   it('extracts core phrase from first 2 content words', () => {
     const r = parseQuery('invisible image watermark encryption');
-    // corePhrase 用前 2 个实义词(image 是停用词被过滤)
-    expect(r.corePhrase).toBe('invisible watermark');
+    // corePhrase 用前 2 个实义词(image 作为核心对象词不再被停用词过滤)
+    expect(r.corePhrase).toBe('invisible image');
     expect(r.modifiers).toContain('encryption');
     // coreWords 动词优先:watermark 是动作动词,排在前面
     expect(r.coreWords).toEqual(['watermark', 'invisible']);
@@ -48,7 +48,8 @@ describe('parseQuery', () => {
 
   it('coreWords is empty array when query has no content words', () => {
     // 全是停用词的 query,coreWords 为空(不应触发核心词过滤)
-    const r = parseQuery('a tool for library');
+    // 用 package/project 仍是停用词,避免被当成核心对象词
+    const r = parseQuery('a package for project');
     expect(r.coreWords).toEqual([]);
     expect(r.corePhrase).toBe('');
   });
@@ -69,8 +70,8 @@ describe('parseQuery', () => {
   // Phase 6 简化:删除 domain 相关测试(领域特化逻辑已删)
 
   it('filters out stopwords from core phrase', () => {
-    const r = parseQuery('a tool for markdown');
-    // 'a' 'for' 'tool' are stopwords, core = 'markdown' (only 1 content word left)
+    const r = parseQuery('a package for markdown');
+    // 'a' 'for' 'package' are stopwords, core = 'markdown' (only 1 content word left)
     expect(r.corePhrase).toBe('markdown');
   });
 

@@ -3,7 +3,7 @@
 // 策略: 固定分值加减, 累加上限防刷(含 hide 上限, 避免误操作永久降权)。
 import type { FeedbackRecord } from './feedbackStore.js';
 import type { Wheel } from '../normalize/types.js';
-import { gradeRecommendation } from '../rank/recommender.js';
+import { gradeRecommendation } from '../util/recommendation.js';
 
 /** 单次动作的分值 */
 export const FEEDBACK_WEIGHTS = {
@@ -25,6 +25,13 @@ export const FEEDBACK_CAPS = {
   click: 0.3,  // 最多 +0.3 (6 个 click 封顶)
   hide: -1.0,  // N9:最多 -1.0 (2 个 hide 封顶,避免极端压制)
 } as const;
+
+/**
+ * score 钳制边界(与 recommender 实际上限 1.1 + 0.4 反馈空间对齐,见下方 applyFeedbackScore 注释)。
+ * 集中到模块顶部常量,避免在多处硬编码 0 / 1.5 导致漂移。
+ */
+const SCORE_MIN = 0;
+const SCORE_MAX = 1.5;
 
 export interface FeedbackWeightResult {
   /** 调整后的 score, 钳制在 [0, 1.5] */
@@ -80,8 +87,8 @@ export function applyFeedbackScore(
   const hideDelta = Math.max(hideRaw, FEEDBACK_CAPS.hide);  // 负值取 max(更接近 0)
 
   const feedbackDelta = likeDelta + clickDelta + hideDelta;
-  // 钳制到 [0, 1.5](与 recommender 实际上限 1.1 + 0.4 反馈空间对齐)
-  const adjustedScore = Math.max(0, Math.min(1.5, baseScore + feedbackDelta));
+  // 钳制到 [SCORE_MIN, SCORE_MAX](与 recommender 实际上限 1.1 + 0.4 反馈空间对齐)
+  const adjustedScore = Math.max(SCORE_MIN, Math.min(SCORE_MAX, baseScore + feedbackDelta));
 
   return {
     adjustedScore,
@@ -111,7 +118,9 @@ export function applyFeedbackToWheels(
 
   const adjusted = wheels.map(w => {
     if (!w.match) return w;
-    const feedback = feedbackMap.get(w.name) ?? null;
+    // N5:用 toLowerCase 查询(与 findWheelTool.applyFeedback 构建 feedbackMap 时的 key 归一化一致),
+    // 避免 feedback 存 "Lodash" 而 wheel.name 是 "lodash" 时 get 不命中导致反馈失效
+    const feedback = feedbackMap.get(w.name.toLowerCase()) ?? null;
     // 无反馈记录: 不调整
     if (!feedback) return w;
     const result = applyFeedbackScore(w.match.score, feedback);
