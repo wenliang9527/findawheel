@@ -92,15 +92,7 @@ export function createServer() {
       {
         name: 'suggest_queries',
         description:
-          'Generate 4 precise English search query variants (precise/action-oriented/fuzzy/concise) from user\'s original request. CALL THIS FIRST before find_wheel.\n' +
-          '\n== RULES ==\n' +
-          '1. Pass user\'s original words (Chinese/English/any) as input. Returns 4 variants + 1 recommended.\n' +
-          '2. NEVER pass raw user words to find_wheel — always go through this tool first.\n' +
-          '3. If output includes "recommendedEcosystem" (e.g., "arduino"/"cpp" for hardware queries), PASS IT to find_wheel\'s ecosystem param.\n' +
-          '\n== WHY ==\n' +
-          'AI knowledge has training cutoff → may hallucinate. Real search returns real libraries with current APIs.\n' +
-          '\n== WORKFLOW ==\n' +
-          'user says "I want to make X" → suggest_queries → pick recommended (+ use recommendedEcosystem if present) → find_wheel → recommend 2-3 → code.',
+          'Generate 4 English search-term variants (precise/action-oriented/fuzzy/concise) from user\'s original request. CALL THIS FIRST before find_wheel — never pass raw user input to find_wheel. If output includes "recommendedEcosystem" (e.g., "arduino"/"cpp" for hardware), pass it to find_wheel\'s ecosystem param.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -113,25 +105,14 @@ export function createServer() {
       {
         name: 'find_wheel',
         description:
-          'Search for existing reusable wheels (libraries/packages/APIs/CLIs/SDKs/models/snippets) BEFORE writing new code.\n' +
-          '\n== CORE RULES ==\n' +
-          '1. Call suggest_queries FIRST to get precise English query. DO NOT pass raw user input (e.g., "我想做AI串口监控" → use "serial port monitor tool").\n' +
-          '2. findawheel does NOT filter by relevance — YOU judge. Skip irrelevant results (e.g., "remove watermark" when user wants ADD).\n' +
-          '3. List ALL results grouped by recommendation level. Recommend 2-3 best fits with reasons, then code with reference.\n' +
-          '\n== OUTPUT ==\n' +
-          '- Each result has "match": { recommendation, score, reason, matchedKeywords, recallReason }. Use recallReason to quickly judge relevance.\n' +
-          '- Top 3 include inline "details" (README/code/release); results 4-10 have "hasDetails": true (call get_wheel_details).\n' +
-          '- "exclude" param: re-call with wheel names to skip irrelevant results without re-querying APIs.\n' +
-          '- Intelligent routing: hardware → GitHub/Gitee, python → PyPI/GitHub. "skippedSources" field shows which sources were skipped. Auto-expands to all sources if top result stars < 10 or results < 5.\n' +
-          '\n== WORKFLOW ==\n' +
-          'suggest_queries → find_wheel → review top 5 → recommend 2-3 → code with reference.',
+          'Search 14 data sources for existing wheels (libraries/packages/SDKs/models) BEFORE writing new code. Call suggest_queries first. findawheel does NOT filter by relevance — YOU judge and skip irrelevant results (e.g., "remove watermark" when user wants ADD). Use "exclude" to filter on re-call without re-querying APIs.',
         inputSchema: {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'Precise English search query (NOT raw user input). Call suggest_queries first to generate this.' },
             intent: { type: 'string', enum: ['feature', 'project', 'auto'], default: 'auto' },
             ecosystem: { type: 'string', description: 'js | ts | python | rust | go | java | cpp | arduino' },
-            limit: { type: 'number', minimum: 1, default: 20 },
+            limit: { type: 'number', minimum: 1, default: 50 },
             exclude: {
               type: 'array',
               items: { type: 'string' },
@@ -144,10 +125,7 @@ export function createServer() {
       {
         name: 'get_wheel_details',
         description:
-          'Retrieve detailed information (README snippet, code examples, latest release, license compatibility) for a single wheel by name. ' +
-          'Use this AFTER find_wheel when you want to show the user more about a specific result that had "hasDetails": true (its details were pre-fetched and cached, so this call is instant). ' +
-          'Only works for GitHub-hosted wheels (owner/repo format). Non-GitHub wheels or fetch failures return an error. ' +
-          'Input: the wheel\'s "name" field exactly as returned by find_wheel (e.g., "facebook/react").',
+          'Retrieve detailed info (README snippet, code examples, latest release, license compatibility) for a single wheel. Call AFTER find_wheel when a result had "hasDetails": true (details pre-fetched and cached, so instant). Only works for GitHub-hosted wheels (owner/repo format).',
         inputSchema: {
           type: 'object',
           properties: {
@@ -159,10 +137,7 @@ export function createServer() {
       {
         name: 'record_feedback',
         description:
-          'Record user feedback on a wheel to improve future search ranking. Call this AFTER showing find_wheel results and observing the user\'s reaction. ' +
-          'Actions: "like" (user praised/selected this wheel — boosts its future ranking), "hide" (user said it\'s irrelevant — demotes it), "click" (user opened the link — small boost). ' +
-          'Feedback is persisted locally (~/.findawheel/feedback/) and accumulates across sessions. ' +
-          'Input: the wheel\'s "name" (owner/repo format) and the "action".',
+          'Record user feedback on a wheel to improve future search ranking. Actions: "like" (user praised/selected — boosts), "hide" (user said irrelevant — demotes), "click" (user opened link — small boost). Call AFTER showing find_wheel results and observing user reaction. Persisted locally, accumulates across sessions.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -175,10 +150,7 @@ export function createServer() {
       {
         name: 'search_knowledge',
         description:
-          'Search user\'s personal knowledge base (local Markdown notes: Obsidian/Logseq/plain .md folders). Returns matching documents with snippets and file:// URLs.\n' +
-          '\nWHEN TO CALL: "what does my team\'s wiki say about X" / "查我的笔记里关于 X" / "内部文档" / "团队规范".\n' +
-          'WHEN NOT TO CALL: open-source libraries → use find_wheel instead.\n' +
-          '\nCONFIG: Requires FINDAWHEEL_KB_ENABLED=true and FINDAWHEEL_KB_ROOT=<path>. Search priority: title > path > tag > content.',
+          'Search user\'s personal knowledge base (local Markdown notes: Obsidian/Logseq/.md). Returns matching docs with snippets and file:// URLs. WHEN TO CALL: "team wiki about X" / "查笔记里关于 X" / "内部文档" / "团队规范". For open-source libraries, use find_wheel instead. Requires FINDAWHEEL_KB_ENABLED=true and FINDAWHEEL_KB_ROOT=<path>.',
         inputSchema: {
           type: 'object',
           properties: {

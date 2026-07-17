@@ -29,7 +29,7 @@ describe('readEnv', () => {
     expect(env.exaApiKey).toBeUndefined();
     expect(env.tavilyApiKey).toBeUndefined();
     expect(env.giteeToken).toBeUndefined();
-    expect(env.limit).toBe(20);
+    expect(env.limit).toBe(50);
     expect(env.timeoutMs).toBe(8000);
     expect(env.logLevel).toBe('info');
     expect(env.cacheEnabled).toBe(true); // 默认开启
@@ -59,7 +59,7 @@ describe('readEnv', () => {
   it('falls back to default on invalid number', () => {
     process.env.FINDAWHEEL_LIMIT = 'not-a-number';
     const env = readEnv();
-    expect(env.limit).toBe(20);
+    expect(env.limit).toBe(50);
   });
 
   it('reads github token', () => {

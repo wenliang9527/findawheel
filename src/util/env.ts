@@ -66,7 +66,7 @@ export function readEnv(): EnvConfig {
     giteeToken: process.env.GITEE_TOKEN || undefined,
     librariesIoApiKey: process.env.LIBRARIES_IO_API_KEY || undefined,
     userLicense: process.env.FINDAWHEEL_USER_LICENSE || undefined,
-    limit: parseInt(process.env.FINDAWHEEL_LIMIT, 20),
+    limit: parseInt(process.env.FINDAWHEEL_LIMIT, 50),
     timeoutMs: parseInt(process.env.FINDAWHEEL_TIMEOUT_MS, 8000),
     logLevel: level && (validLevels as readonly string[]).includes(level)
       ? (level as EnvConfig['logLevel'])
