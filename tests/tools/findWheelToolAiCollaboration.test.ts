@@ -1,6 +1,6 @@
 // tests/tools/findWheelToolAiCollaboration.test.ts
 // C 阶段:验证 AI 协作深化(exclude 参数 + recallReason 召回解释)
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createFindWheelTool } from '../../src/tools/findWheelTool.js';
 import { makeMockAdapter, makeGhResult } from './helpers.js';
 
@@ -8,6 +8,10 @@ describe('findWheelTool AI 协作深化 (C 阶段)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     process.env.FINDAWHEEL_CACHE_ENABLED = 'false';
+  });
+
+  afterEach(() => {
+    delete process.env.FINDAWHEEL_CACHE_ENABLED;
   });
 
   describe('exclude 参数', () => {

@@ -160,15 +160,18 @@ AI 客户端通过 MCP 协议发送 `tools/call` 请求：
 |:---:|:-----|:-----|:-----|
 | 1 | `python-ecosystem` | `ecosystem=python` | PyPI/GitHub/Libraries.io/Web |
 | 2 | `js-ts-ecosystem` | `ecosystem=js/ts` | npm/GitHub/Libraries.io/Web |
-| 3 | `compiled-ecosystem` | `ecosystem=rust/go/java` | GitHub/Libraries.io/Web |
-| 4 | `cpp-arduino-ecosystem` | `ecosystem=cpp/arduino` | GitHub/Gitee/GitHub-Code/PapersWithCode/Web |
-| 5 | `hardware-keywords` | query 含 `stepper/motor/servo/esp32/stm32/...` | 同 cpp-arduino |
-| 6 | `vscode-extension` | query 含 `vscode/extension/插件/扩展` | VSCode-Marketplace/GitHub/Web |
-| 7 | `ai-ml-model` | query 含 `llm/transformer/bert/gpt/model+ML` | HuggingFace/PapersWithCode/GitHub/Web |
-| 8 | `paper-algorithm` | query 含 `paper/algorithm/论文/算法` | PapersWithCode/GitHub/Web |
-| 9 | `code-snippet` | query 含 `snippet/example/function/片段/示例/函数/实现` | GitHub-Code/GitHub/Web |
-| 10 | `frontend-ui` | query 含 `react/vue/component/前端/组件/表格/图表` | npm/GitHub/Libraries.io/Web |
-| 兜底 | `fallback-all` | 无强信号匹配 | 全搜（11 个源，保持召回完整）|
+| 3 | `rust-ecosystem` | `ecosystem=rust` | crates.io/GitHub/Libraries.io/Web |
+| 4 | `go-ecosystem` | `ecosystem=go` | pkg.go.dev/GitHub/Libraries.io/Web |
+| 5 | `java-ecosystem` | `ecosystem=java/kotlin` | Maven Central/GitHub/Libraries.io/Web |
+| 6 | `ruby-ecosystem` | `ecosystem=ruby` | RubyGems/GitHub/Libraries.io/Web |
+| 7 | `cpp-arduino-ecosystem` | `ecosystem=cpp/arduino` | GitHub/Gitee/GitHub-Code/PapersWithCode/Web |
+| 8 | `hardware-keywords` | query 含 `stepper/motor/servo/esp32/stm32/...` | 同 cpp-arduino |
+| 9 | `vscode-extension` | query 含 `vscode/extension/插件/扩展` | VSCode-Marketplace/GitHub/Web |
+| 10 | `ai-ml-model` | query 含 `llm/transformer/bert/gpt/model+ML` | HuggingFace/PapersWithCode/GitHub/Web |
+| 11 | `paper-algorithm` | query 含 `paper/algorithm/论文/算法` | PapersWithCode/GitHub/Web |
+| 12 | `code-snippet` | query 含 `snippet/example/function/片段/示例/函数/源码` | GitHub-Code/GitHub/Web |
+| 13 | `frontend-ui` | query 含 `react/vue/component/前端/组件/表格/图表` | npm/GitHub/Libraries.io/Web |
+| 兜底 | `fallback-all` | 无强信号匹配 | 全搜（15 个源，保持召回完整）|
 
 > 💡 **中文正则限制**：`\b` 是英文词边界，中文上下文不生效。中文关键词（如"插件/论文/算法"）单独用 `/(插件|扩展)/` 形式的不带 `\b` 正则匹配。
 
@@ -858,7 +861,7 @@ interface SourceAdapter {
 5. 收集 `matchedKeywords` 列表
 6. 生成 `recallReason`（Phase 7 新增，召回解释）：简短说明为什么召回该 wheel，形如"命中 stepper/motor;3.0k stars;活跃维护"，帮 AI 快速判断相关性
 
-> 💡 Recommender 在 Ranker **之前**运行——先填好 `match` 字段，Ranker 的过滤和评分才能引用 match 信息。
+> 💡 Ranker 先执行排名（filter+score+dedupe+sort+slice），`enrichWithMatch`（Recommender 的入口函数）再附加 `match` 字段（score/recommendation/reason/matchedKeywords/recallReason）。`findWheelTool.collectAndRank` 内部顺序为 `rank(wheels, ...) → enrichWithMatch(ranked, ...)`，因此 Ranker 评分时引用的是尚未填充 match 的 wheel，Recommender 在 Ranker 之后运行。
 
 ---
 
@@ -871,7 +874,7 @@ interface SourceAdapter {
 ```typescript
 interface Wheel {
   name: string;            // 仓库名 / 包名 / 服务名
-  source: WheelSource;     // 'github' | 'gitlab' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'librariesio' | 'web' | 'github-code' | 'vscode-marketplace' | 'paperswithcode' | 'huggingface'
+  source: WheelSource;     // 'github' | 'gitlab' | 'gitee' | 'npm' | 'pypi' | 'crates' | 'librariesio' | 'web' | 'github-code' | 'vscode-marketplace' | 'paperswithcode' | 'huggingface' | 'maven' | 'rubygems' | 'gopkg'
   url: string;             // 主页/仓库链接
   description: string;     // 简短描述
   type: WheelType;         // 'project' | 'package' | 'api' | 'cli' | 'sdk' | 'snippet' | 'extension' | 'paper' | 'model'
@@ -1284,15 +1287,15 @@ findawheel 注册了五个工具：
 
 1. **存储层**（`feedbackStore.ts`）：`recordFeedback(name, action)` 累加计数并写磁盘，`getAllFeedback()` 批量读取
 2. **加权计算**（`feedbackWeighter.ts`）：`applyFeedbackScore(baseScore, feedback)` 按固定分值调整
-3. **集成**（`findWheelTool.ts`）：`runSearch` → `applyFeedback` → `enrichTopWheels` → `cache.set`
+3. **集成**（`findWheelTool.ts`）：`runSearch` → `enrichTopWheels` → `cache.set` → `applyFeedback`（P1-1 修复后的顺序，缓存存 pre-feedback wheels）
 
 | 动作 | 分值 | 累加上限 | 说明 |
 |:-----|:-----|:-----|:-----|
 | `like` | +0.2 | +1.0 | 正向反馈封顶防刷 |
 | `click` | +0.05 | +0.3 | 小幅加分封顶 |
-| `hide` | -0.5 | 无上限 | 强负面信号，扣分不封顶 |
+| `hide` | -0.5 | -1.0 | N9 累加上限 -1.0（与 like +1.0 对称，避免误操作极端压制；2 次 hide 封顶） |
 
-`applyFeedbackToWheels(wheels, feedbackMap)` 批量处理：调整 `matchScore` → 填 `feedbackDelta` → 用 `gradeRecommendation` 重新分级 → 按 adjustedScore 降序重排。缓存存最终结果（含 feedback 调整），反馈变化等 TTL（1h）自然刷新。
+`applyFeedbackToWheels(wheels, feedbackMap)` 批量处理：调整 `matchScore` → 填 `feedbackDelta` → 用 `gradeRecommendation` 重新分级 → 按 adjustedScore 降序重排。缓存存 pre-feedback wheels（已 enrich，未应用 feedback），每次读取（命中或未命中）重新应用最新 feedback，反馈变化立即生效无需等 TTL 刷新。
 
 ### 关键设计：工具只给数据，不写文案
 
@@ -1318,7 +1321,7 @@ findawheel 注册了五个工具：
 | 硬规则相关性过滤 | Phase 6 已删除——判断交给 AI 调用方（RAG 范式） |
 | 领域特化配置表 | Phase 6 已删除 DOMAINS/GENERIC_WORDS/STARS_DENOMINATOR——统一处理 |
 
-> ✅ **Phase 6 简化（RAG 范式）**：findawheel 重新定位为"AI 编程的上下文增强器"。检索器只负责召回，相关性判断交给 AI。删除了 isMissingCoreConcept / isReverseIntent 等硬过滤函数、6 领域配置表、embedded 4 处特殊逻辑。保留翻译表/同义词表/ACTION_VERBS/feedback 加权/详情预抓取/硬件 ecosystem 推荐等纯增益机制。619 测试全通过。
+> ✅ **Phase 6 简化（RAG 范式）**：findawheel 重新定位为"AI 编程的上下文增强器"。检索器只负责召回，相关性判断交给 AI。删除了 isMissingCoreConcept / isReverseIntent 等硬过滤函数、6 领域配置表、embedded 4 处特殊逻辑。保留翻译表/同义词表/ACTION_VERBS/feedback 加权/详情预抓取/硬件 ecosystem 推荐等纯增益机制。634 测试全通过。
 >
 > 🔧 **第二轮搜索/判断优化（N1-N17，commit xxx）**：聚焦"搜索召回质量、判断准确性、AI 协作体验"三个维度。修复 3 个 P0 bug:N7(filterOut 误杀 Maven 包 — 空描述+无 stars 被过滤)、N3(github-code 文件级结果与 github 仓库级结果未按 owner/repo 去重)、N6(HuggingFace likes 用 stars 分母 10000 归一化导致热度失真)。4 个 P1 优化:N1(fuzzyQuery 保留原词锚点,不再完全替换)、N12(find_wheel 输出新增 translatedQuery 字段供 AI 调试)、N16(top 4-10 只抓 README 不抓 release,减少 35% GitHub API 调用)、N8(topics 短词匹配改用 kebab-case 边界,避免 js 误匹配 vue-js)。
 

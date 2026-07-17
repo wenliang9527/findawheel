@@ -1,6 +1,6 @@
 // tests/tools/findWheelToolFeedback.test.ts
 // Task 4: 验证 findWheelTool 集成 feedback 加权 (like 加分上排, hide 扣分下排, 重新分级)
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 
 import { createFindWheelTool } from '../../src/tools/findWheelTool.js';
@@ -12,6 +12,10 @@ describe('findWheelTool feedback 集成 (Task 4)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     process.env.FINDAWHEEL_CACHE_ENABLED = 'false';
+  });
+
+  afterEach(() => {
+    delete process.env.FINDAWHEEL_CACHE_ENABLED;
   });
 
   it('feedbackStore 未提供时不调整 (向后兼容)', async () => {

@@ -474,13 +474,17 @@ export function createFindWheelTool(opts: CreateToolOpts) {
             if (!seen.has(k)) { seen.add(k); merged.push(w); }
           }
           // 合并后只 sort(按 match.score 降序),不重新 score/dedupe
+          // P0-2 修复:fallback expansion 内部不应用 feedback,由主流程(line 257)统一应用一次。
+          // 原实现(mergedForSlice = await applyFeedback(merged))会导致 feedback 被应用两次:
+          //   1) 这里对 merged 应用一次 → 返回 result.wheels(已含 feedback)
+          //   2) 主流程 finalWheels = result.wheels → applyFeedback(finalWheels) 再应用一次
+          // 且缓存写入的是 post-feedback wheels(与"存 pre-feedback"注释不一致,污染缓存)。
+          // 删除此处 applyFeedback 后:runSearch 返回 pre-feedback → enrich → cache.set(pre-feedback)
+          //   → 主流程 applyFeedback 一次,既无 double-apply 也不污染缓存。
+          // 注意:放弃了 P2-4 的"slice 前应用 feedback 避免偏好项被截断"优化,
+          //   但 double-apply 是更严重的正确性 bug,优先修复。
           merged.sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0));
-          // P2-4:在 slice 前应用 feedback,避免 feedback 偏好的项目被未加权 score 截断
-          let mergedForSlice = merged;
-          if (opts.feedbackStore) {
-            mergedForSlice = await applyFeedback(merged);
-          }
-          rankedWithMatch = mergedForSlice.slice(0, limit);
+          rankedWithMatch = merged.slice(0, limit);
         }
         // 无论扩展是否带来新结果,都标记为已扩展(避免下次重复扩展,也避免误报 skippedSources)
         expandedFallback = true;

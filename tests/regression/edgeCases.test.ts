@@ -4,7 +4,7 @@
 // 2. recommender buildRecallReason 边界场景
 // 3. exclude 参数与空结果交互
 // 4. 多源混合时 recallReason 一致性
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { computeMatch, enrichWithMatch } from '../../src/rank/recommender.js';
 import { HuggingfaceSourceAdapter } from '../../src/sources/huggingfaceSourceAdapter.js';
 import { createFindWheelTool } from '../../src/tools/findWheelTool.js';
@@ -39,6 +39,10 @@ describe('K 阶段:边界场景覆盖', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     process.env.FINDAWHEEL_CACHE_ENABLED = 'false';
+  });
+
+  afterEach(() => {
+    delete process.env.FINDAWHEEL_CACHE_ENABLED;
   });
 
   describe('K1. HuggingFace 异常数据容错', () => {

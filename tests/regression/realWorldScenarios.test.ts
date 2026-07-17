@@ -6,7 +6,7 @@
 // 3. exclude 参数在缓存命中和未命中两条路径都生效
 // 4. recallReason 字段在结果中正确生成
 // 5. 修复 server.ts FindWheelSchema 缺少 exclude 字段的 bug
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createFindWheelTool } from '../../src/tools/findWheelTool.js';
 import { createCache } from '../../src/cache/cache.js';
 import type { RawResult } from '../../src/normalize/types.js';
@@ -24,6 +24,10 @@ describe('G 阶段:实战验证', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     process.env.FINDAWHEEL_CACHE_ENABLED = 'false';
+  });
+
+  afterEach(() => {
+    delete process.env.FINDAWHEEL_CACHE_ENABLED;
   });
 
   describe('G1. 串口调试助手场景(中文 query)', () => {

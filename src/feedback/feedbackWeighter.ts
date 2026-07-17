@@ -131,7 +131,7 @@ export function applyFeedbackToWheels(
         ...w.match,
         score: result.adjustedScore,
         feedbackDelta: result.feedbackDelta,
-        recommendation: gradeRecommendation(result.adjustedScore, stars),
+        recommendation: gradeRecommendation(result.adjustedScore, stars, w.source),
       },
     };
   });

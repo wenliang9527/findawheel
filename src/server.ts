@@ -42,6 +42,7 @@ const GetWheelDetailsSchema = z.object({
 const RecordFeedbackSchema = z.object({
   name: z.string(),
   action: z.enum(['like', 'hide', 'click']),
+  source: z.string().optional(),
 });
 
 const SearchKnowledgeSchema = z.object({
@@ -116,7 +117,7 @@ export function createServer() {
             query: { type: 'string', description: 'Precise English search query (NOT raw user input). Call suggest_queries first to generate this.' },
             intent: { type: 'string', enum: ['feature', 'project', 'auto'], default: 'auto' },
             ecosystem: { type: 'string', description: 'js | ts | python | rust | go | java | cpp | arduino' },
-            limit: { type: 'number', minimum: 1, default: 50 },
+            limit: { type: 'number', minimum: 1, maximum: 100, default: 50 },
             exclude: {
               type: 'array',
               items: { type: 'string' },
@@ -145,8 +146,9 @@ export function createServer() {
         inputSchema: {
           type: 'object',
           properties: {
-            name: { type: 'string', description: 'Wheel name in owner/repo format (e.g., facebook/react)' },
+            name: { type: 'string', description: 'Wheel name (e.g., facebook/react, lodash, serde) — supports multi-source name formats' },
             action: { type: 'string', enum: ['like', 'hide', 'click'], description: 'Feedback action: like (boost), hide (demote), click (small boost)' },
+            source: { type: 'string', description: 'Wheel source (e.g., github/npm/pypi/crates). Optional but recommended for accurate feedback tracking.' },
           },
           required: ['name', 'action'],
         },
@@ -159,7 +161,7 @@ export function createServer() {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'Search query in any language (Chinese/English). Will be split into keywords for matching.' },
-            limit: { type: 'number', description: 'Max results (default 10, max 50)' },
+            limit: { type: 'number', minimum: 1, maximum: 100, description: 'Max results (default 10, max 100)' },
           },
           required: ['query'],
         },

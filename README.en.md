@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-1.29-orange.svg?style=flat-square)](https://modelcontextprotocol.io/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](./)
-[![Tests](https://img.shields.io/badge/tests-634%2F634-brightgreen.svg?style=flat-square)](./)
+[![Tests](https://img.shields.io/badge/tests-649%2F649-brightgreen.svg?style=flat-square)](./)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](./LICENSE)
 
 </div>

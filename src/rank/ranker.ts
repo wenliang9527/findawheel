@@ -305,7 +305,7 @@ function mergeTopics(a?: string[], b?: string[]): string[] | undefined {
 }
 
 /**
- * 排序:基础过滤 + 去重 + 评分排序 + 截断。
+ * 排序:基础过滤 + 去重 + 评分排序 + 多样性惩罚 + 截断。
  *
  * 简化后只做"召回 + 排序",不做"必命中过滤"。
  * 相关性判断交给 AI 调用方 —— AI 看到 top N 结果后自己挑最适合的。
@@ -323,5 +323,38 @@ export function rank(
   const scored = deduped
     .map(w => ({ w, s: score(w, intent, queryKeywords) }))
     .sort((a, b) => b.s - a.s);
-  return scored.slice(0, limit).map(x => x.w);
+  // P1-1:同源多样性惩罚(连续 4+ 同源后,第 4 次起 score*=0.9),避免单一源霸榜
+  const diversified = applySourceDiversity(scored);
+  return diversified.slice(0, limit).map(x => x.w);
+}
+
+/**
+ * 多样性惩罚:同源连续 3 次后,第 4 次起 score*=0.9。
+ * 避免单一源(如 GitHub)霸榜 top 结果。
+ *
+ * 实现说明:在 rank 内部基于已计算的 score(`s` 字段)惩罚,不依赖 match.score
+ * (rank 阶段还未 enrichWithMatch,match 字段尚未填充)。
+ * 不 mutate 原数组,返回新数组;惩罚后重新按 score 降序排序。
+ *
+ * project_memory.md 记录:"Source diversity is enforced in results with penalty
+ * for 4+ consecutive same-source entries (score*=0.9)"。
+ */
+function applySourceDiversity(scored: { w: Wheel; s: number }[]): { w: Wheel; s: number }[] {
+  if (scored.length < 4) return scored;
+  const result = [...scored];  // 不 mutate 原数组
+  let consecutiveCount = 1;
+  for (let i = 1; i < result.length; i++) {
+    if (result[i].w.source === result[i - 1].w.source) {
+      consecutiveCount++;
+      if (consecutiveCount >= 4) {
+        // 第 4 次起(含)惩罚
+        result[i] = { ...result[i], s: result[i].s * 0.9 };
+      }
+    } else {
+      consecutiveCount = 1;
+    }
+  }
+  // 重新排序(惩罚后顺序可能变化)
+  result.sort((a, b) => b.s - a.s);
+  return result;
 }

@@ -80,9 +80,10 @@ export interface FeedbackStoreOpts {
   enabled?: boolean;
 }
 
-/** 计算 feedback 文件名: feedback-<sha1(name)[0..24]>.json */
+/** 计算 feedback 文件名: feedback-<sha1(name.toLowerCase())[0..24]>.json */
 export function feedbackFileKey(name: string): string {
-  return 'feedback-' + sha1Short(name);
+  // 归一化:统一小写后再 sha1,避免大小写不同导致同一 wheel 的反馈分散在多个文件
+  return 'feedback-' + sha1Short(name.toLowerCase());
 }
 
 /**

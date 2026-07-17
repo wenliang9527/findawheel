@@ -75,11 +75,15 @@ const normalizers: Record<WheelSource, Normalizer> = {
   },
   gitee: (raw) => {
     if (raw.source !== 'gitee') throw new Error(`expected gitee, got ${raw.source}`);
+    // humanName 拼到 description 前面,让 Ranker 能匹配项目的人类可读名(如 vue-element-admin)
+    const desc = raw.humanName
+      ? `${raw.humanName}: ${raw.description}`
+      : raw.description;
     return {
       name: raw.name,
       source: 'gitee',
       url: raw.url,
-      description: raw.description,
+      description: desc,
       type: 'project',
       metrics: {
         stars: raw.stars,
@@ -178,11 +182,20 @@ const normalizers: Record<WheelSource, Normalizer> = {
   },
   paperswithcode: (raw) => {
     if (raw.source !== 'paperswithcode') throw new Error(`expected paperswithcode, got ${raw.source}`);
+    // year 和 repoUrl 拼到 description(Wheel 接口保持稳定,不加新字段),
+    // 让 Ranker 能命中发表年份和关联仓库链接
+    let desc = raw.description || '';
+    if (raw.year) {
+      desc = desc ? `${desc} (${raw.year})` : `Published ${raw.year}`;
+    }
+    if (raw.repoUrl) {
+      desc = desc ? `${desc}\nRepo: ${raw.repoUrl}` : `Repo: ${raw.repoUrl}`;
+    }
     return {
       name: raw.name,
       source: 'paperswithcode',
       url: raw.url,
-      description: raw.description,
+      description: desc,
       type: 'paper',
       metrics: {
         // stars 字段适配器暂未填充(paperswithcode API 不直接返回,需额外查关联 repo)

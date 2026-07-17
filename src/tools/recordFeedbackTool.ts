@@ -4,13 +4,15 @@
 import type { FeedbackStore, FeedbackAction } from '../feedback/feedbackStore.js';
 import { FEEDBACK_ACTIONS } from '../feedback/feedbackStore.js';
 import type { McpToolResult } from './types.js';
-import { isValidOwnerRepo } from '../util/nameValidator.js';
+import { isValidWheelName } from '../util/nameValidator.js';
 
 export interface RecordFeedbackInput {
-  /** wheel 标识, owner/repo 格式(与 find_wheel 返回的 name 一致) */
+  /** wheel 标识, 与 find_wheel 返回的 name 一致(支持 owner/repo、npm 包名、crate 名等多源格式) */
   name: string;
   /** 反馈动作: like(点赞) / hide(隐藏) / click(点击查看) */
   action: FeedbackAction;
+  /** wheel 来源(github/npm/pypi/crates 等),可选;未传时 store 内部默认 'github' */
+  source?: string;
 }
 
 export interface CreateRecordFeedbackToolOpts {
@@ -29,10 +31,10 @@ export interface CreateRecordFeedbackToolOpts {
  */
 export function createRecordFeedbackTool(opts: CreateRecordFeedbackToolOpts) {
   async function handle(input: RecordFeedbackInput): Promise<McpToolResult> {
-    // 校验 name: 必须是 owner/repo 格式
-    if (!input.name || !isValidOwnerRepo(input.name)) {
+    // 校验 name: 必须是非空字符串且不含路径穿越(支持 owner/repo、npm 包名等多源格式)
+    if (!isValidWheelName(input.name)) {
       return {
-        content: [{ type: 'text', text: 'invalid name: expected owner/repo format (e.g., facebook/react)' }],
+        content: [{ type: 'text', text: 'invalid name: expected a non-empty wheel name without path traversal (e.g., facebook/react or lodash)' }],
         isError: true,
       };
     }
@@ -44,7 +46,8 @@ export function createRecordFeedbackTool(opts: CreateRecordFeedbackToolOpts) {
       };
     }
 
-    const record = await opts.store.recordFeedback(input.name, input.action);
+    // P2-4:把 source 透传给 store(未传时 store 内部默认 'github')
+    const record = await opts.store.recordFeedback(input.name, input.action, input.source);
     if (!record) {
       // store 返回 null: 可能是 enabled=false 或磁盘写入失败
       return {

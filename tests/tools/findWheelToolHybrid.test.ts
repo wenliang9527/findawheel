@@ -1,6 +1,6 @@
 // tests/tools/findWheelToolHybrid.test.ts
 // Task 7: 验证 findWheelTool 的混合呈现(top3 内联 details + top4-10 hasDetails 标记 + top10 预抓取写缓存)
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 
 // mock enrichDetails: 用 vi.hoisted 拿到可在工厂里引用的引用
@@ -40,6 +40,10 @@ describe('findWheelTool 混合呈现 (Task 7)', () => {
     enrichDetailsMock.mockReset();
     // 默认禁用搜索缓存,避免磁盘污染
     process.env.FINDAWHEEL_CACHE_ENABLED = 'false';
+  });
+
+  afterEach(() => {
+    delete process.env.FINDAWHEEL_CACHE_ENABLED;
   });
 
   it('enrichOpts 未配置时不预抓取,所有 wheels 无 details/hasDetails (向后兼容)', async () => {

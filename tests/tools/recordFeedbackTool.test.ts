@@ -14,12 +14,61 @@ describe('recordFeedbackTool.handle', () => {
     expect(res.content[0].text).toContain('invalid name');
   });
 
-  it('rejects name without / (not owner/repo)', async () => {
+  it('accepts non-owner/repo names (npm/crates/pypi etc., P0-1)', async () => {
+    const dir = makeTmpDir('fw-record');
+    fs.rmSync(dir, { recursive: true, force: true });
+    const store = createFeedbackStore({ dir });
+    const tool = createRecordFeedbackTool({ store });
+    const res = await tool.handle({ name: 'lodash', action: 'like' });
+    expect(res.isError).toBeFalsy();
+    const payload = JSON.parse(res.content[0].text);
+    expect(payload.name).toBe('lodash');
+    expect(payload.totalLikes).toBe(1);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('rejects path traversal name (..)', async () => {
     const store = createFeedbackStore({ dir: makeTmpDir('fw-record') });
     const tool = createRecordFeedbackTool({ store });
-    const res = await tool.handle({ name: 'justname', action: 'like' });
+    const res = await tool.handle({ name: '../etc/passwd', action: 'like' });
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toContain('invalid name');
+  });
+
+  it('rejects whitespace-only name', async () => {
+    const store = createFeedbackStore({ dir: makeTmpDir('fw-record') });
+    const tool = createRecordFeedbackTool({ store });
+    const res = await tool.handle({ name: '   ', action: 'like' });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('invalid name');
+  });
+
+  it('passes source to store.recordFeedback (P2-4)', async () => {
+    const dir = makeTmpDir('fw-record');
+    fs.rmSync(dir, { recursive: true, force: true });
+    const store = createFeedbackStore({ dir });
+    const spy = vi.spyOn(store, 'recordFeedback');
+    const tool = createRecordFeedbackTool({ store });
+    const res = await tool.handle({ name: 'lodash', action: 'like', source: 'npm' });
+    expect(res.isError).toBeFalsy();
+    expect(spy).toHaveBeenCalledWith('lodash', 'like', 'npm');
+    // 落盘后 source 字段应为 npm
+    const record = await store.getFeedback('lodash');
+    expect(record?.source).toBe('npm');
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('omits source when not provided (store defaults to github, P2-4)', async () => {
+    const dir = makeTmpDir('fw-record');
+    fs.rmSync(dir, { recursive: true, force: true });
+    const store = createFeedbackStore({ dir });
+    const spy = vi.spyOn(store, 'recordFeedback');
+    const tool = createRecordFeedbackTool({ store });
+    await tool.handle({ name: 'a/b', action: 'like' });
+    expect(spy).toHaveBeenCalledWith('a/b', 'like', undefined);
+    const record = await store.getFeedback('a/b');
+    expect(record?.source).toBe('github');
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it('rejects invalid action', async () => {

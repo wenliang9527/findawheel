@@ -1,5 +1,5 @@
 // tests/tools/findWheelTool.test.ts
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createFindWheelTool } from '../../src/tools/findWheelTool.js';
 import { createCache } from '../../src/cache/cache.js';
 import type { SourceAdapter } from '../../src/sources/sourceAdapter.js';
@@ -14,6 +14,10 @@ describe('findWheelTool.handle', () => {
     vi.restoreAllMocks();
     // 默认禁用缓存,避免现有测试受磁盘缓存污染
     process.env.FINDAWHEEL_CACHE_ENABLED = 'false';
+  });
+
+  afterEach(() => {
+    delete process.env.FINDAWHEEL_CACHE_ENABLED;
   });
 
   it('returns empty query error', async () => {

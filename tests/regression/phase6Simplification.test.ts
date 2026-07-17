@@ -2,7 +2,7 @@
 // Phase 6 简化回归测试:验证"删硬过滤 + 保留软排序"的核心行为符合预期。
 // 这些测试用 mock 数据固化"金标准 query 应召回主流库"的期望,
 // 防止未来改动破坏简化成果(如重新引入过拟合的硬过滤)。
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createFindWheelTool } from '../../src/tools/findWheelTool.js';
 import type { SourceAdapter } from '../../src/sources/sourceAdapter.js';
 import type { RawResult } from '../../src/normalize/types.js';
@@ -38,6 +38,10 @@ describe('Phase 6 简化回归测试', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     process.env.FINDAWHEEL_CACHE_ENABLED = 'false';
+  });
+
+  afterEach(() => {
+    delete process.env.FINDAWHEEL_CACHE_ENABLED;
   });
 
   describe('A1. 主流库不被误杀', () => {
