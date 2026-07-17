@@ -10,7 +10,7 @@ import { createFindWheelTool } from './tools/findWheelTool.js';
 import { createSuggestQueriesTool } from './tools/suggestQueriesTool.js';
 import { createGetWheelDetailsTool } from './tools/getWheelDetailsTool.js';
 import { ADAPTERS } from './sources/registry.js';
-import { createCache } from './cache/cache.js';
+import { createCache, cleanupExpired } from './cache/cache.js';
 import type { WheelDetails } from './enrich/wheelDetailsEnricher.js';
 import { createFeedbackStore } from './feedback/feedbackStore.js';
 import { createRecordFeedbackTool } from './tools/recordFeedbackTool.js';
@@ -244,4 +244,8 @@ export async function runServer() {
   const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  // 启动时清理过期缓存(避免长期运行后磁盘累积)
+  // 复用 readEnv 派生 cacheDir/cacheTtlMs,与 createCache 取值逻辑一致
+  const env = readEnv();
+  cleanupExpired(env.cacheDir, env.cacheTtlMs).catch(() => {});
 }

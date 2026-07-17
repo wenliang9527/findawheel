@@ -332,10 +332,13 @@ export async function searchKnowledgeBase(
   );
 
   // 收集所有读取任务(分批执行,控制 fd 占用,避免大型 vault OOM/EMFILE)
+  // P3-4:累计 scanned/failed/matched,扫描结束后聚合输出 warn 便于发现批量读取失败
   const readTasks: (() => Promise<void>)[] = [];
+  let scanned = 0, failed = 0, matched = 0;
   for (const { root, files, kbType } of allFiles) {
     for (const file of files) {
       readTasks.push(async () => {
+        scanned++;
         try {
           const stat = await fs.stat(file);
           if (stat.size > maxFileBytes) return; // 超大文件跳过
@@ -372,7 +375,9 @@ export async function searchKnowledgeBase(
             kbRoot: root,
             kbType,
           });
+          matched++;
         } catch (err) {
+          failed++;
           logError('KB parse failed', err);
           // 单文件读取失败:跳过,不阻断
         }
@@ -386,6 +391,11 @@ export async function searchKnowledgeBase(
   for (let i = 0; i < readTasks.length; i += KB_READ_CONCURRENCY) {
     const batch = readTasks.slice(i, i + KB_READ_CONCURRENCY);
     await Promise.allSettled(batch.map(task => task()));
+  }
+
+  // P3-4:聚合统计,有失败时输出 warn(便于发现权限/编码等问题导致的批量读取失败)
+  if (failed > 0) {
+    logWarn(`knowledge base scan: ${scanned} files scanned, ${failed} failed, ${matched} matched`);
   }
 
   // 排序:命中字段优先级(title > path > tag > content)

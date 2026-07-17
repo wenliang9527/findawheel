@@ -11,16 +11,33 @@ const APP_VERSION = '0.1.0';
 /** HTTP user-agent 头默认值,标识 findawheel 客户端 */
 const USER_AGENT = `findawheel/${APP_VERSION}`;
 
+/**
+ * 从 URL 中移除敏感查询参数,避免 token 泄露到日志/错误消息。
+ * 处理 Gitee (access_token)、Libraries.io (api_key) 等在 URL query 中带 token 的源。
+ */
+function sanitizeUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    ['access_token', 'api_key', 'token', 'private_token'].forEach(k => u.searchParams.delete(k));
+    return u.toString();
+  } catch {
+    return raw;
+  }
+}
+
 export class HttpError extends Error {
   constructor(
     public status: number,
-    public url: string,
+    url: string,
     body: string,
     /** 响应头(小写键),供下游读取 Retry-After / X-RateLimit-Reset 等限流信息 */
     public headers?: Record<string, string>,
   ) {
-    super(`HTTP ${status} from ${url}: ${body.slice(0, 200)}`);
+    const safeUrl = sanitizeUrl(url);
+    super(`HTTP ${status} from ${safeUrl}: ${body.slice(0, 200)}`);
     this.name = 'HttpError';
+    // url 字段也存脱敏后的值(供外部读取时不含 token)
+    Object.defineProperty(this, 'url', { value: safeUrl, enumerable: true, writable: false });
   }
   /** 5xx 可重试,4xx 不可重试 */
   get retryable(): boolean {
@@ -89,7 +106,8 @@ async function doFetch<T>(
   } catch (err) {
     if (err instanceof RetryableError) throw err;
     if (err instanceof HttpError) throw err;
-    throw new RetryableError((err as Error).message, { cause: err });
+    const errMsg = err instanceof Error ? err.message : String(err);
+    throw new RetryableError(errMsg, { cause: err });
   } finally {
     clearTimeout(timer);
   }

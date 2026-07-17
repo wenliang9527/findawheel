@@ -26,6 +26,7 @@ import { logWarn } from '../util/logger.js';
 export function parseGoHtml(html: string): GoModuleRawResult[] {
   const results: GoModuleRawResult[] = [];
   // 匹配每个 SearchSnippet <div> 块。
+  // 已知限制:非贪婪到第一个 </div>,不支持嵌套 div。pkg.go.dev 当前结构无嵌套,结构变更时会静默返回空数组(容错)。
   // 非贪婪 [\s\S]*? 到第一个 </div>:依赖 SearchSnippet 内部无嵌套 <div>(synopsis 是 <p>,版本是 <span>)。
   // 若 pkg.go.dev 改版引入嵌套 div,此处需调整;当前结构变更时返回空数组(容错,不抛错)。
   const snippetRegex = /<div[^>]*class="SearchSnippet"[^>]*>([\s\S]*?)<\/div>/g;

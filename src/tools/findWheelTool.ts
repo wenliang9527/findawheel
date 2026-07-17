@@ -31,7 +31,7 @@ import type { McpToolResult } from './types.js';
 export interface CreateToolOpts {
   adapters: SourceAdapter[];
   /** 可选缓存实例(测试注入);未提供时按 env 配置创建磁盘缓存 */
-  cache?: Cache;
+  cache?: Cache<CachedSearchResult | Wheel[]>;
   /** 可选详情缓存实例(与 get_wheel_details 工具共享,预抓取的详情写入此处供懒加载复用) */
   detailsCache?: Cache<WheelDetails>;
   /** 可选详情抓取配置;未提供时不做预抓取(保持原行为,向后兼容) */
@@ -139,7 +139,7 @@ function shouldExclude(wheel: Wheel, excludeSet: Set<string>): boolean {
 
 export function createFindWheelTool(opts: CreateToolOpts) {
   const env = readEnv();
-  const cache: Cache = opts.cache ?? createCache({
+  const cache: Cache<CachedSearchResult | Wheel[]> = opts.cache ?? createCache<CachedSearchResult | Wheel[]>({
     dir: env.cacheDir,
     ttlMs: env.cacheTtlMs,
     enabled: env.cacheEnabled,
@@ -170,10 +170,10 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       // 修复2:向后兼容检测 —— 旧缓存是纯 Wheel[],新缓存是 { wheels, routing }。
       // 新格式命中时恢复 routingInfo(skippedSources/routingReason/fallbackExpansion)到 output,
       // 避免 AI 调试召回偏差时丢失路由上下文。
-      const isLegacy = Array.isArray(cached);
-      const cachedEntry = isLegacy ? undefined : (cached as unknown as CachedSearchResult);
-      const cachedWheels = isLegacy ? cached : cachedEntry!.wheels;
-      const cachedRouting = isLegacy ? undefined : cachedEntry!.routing;
+      // P2-1/P3-2:cache 泛型为 CachedSearchResult | Wheel[],用 Array.isArray 类型守卫收窄,
+      // 替代 as unknown as 双重断言与 cachedEntry!.wheels 非空断言 —— 类型系统可直接保证一致性。
+      const cachedWheels = Array.isArray(cached) ? cached : cached.wheels;
+      const cachedRouting = Array.isArray(cached) ? undefined : cached.routing;
       logInfo(`cache hit: query="${input.query}" intent=${intent} ${cachedWheels.length} wheels`);
       // 缓存命中后也应用 exclude 过滤(让 AI 能用 exclude 二次筛选缓存结果)
       // N11:用 shouldExclude helper,支持 github-code 的 owner/repo#path 格式
@@ -243,7 +243,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     // 缓存存全量结果 + routingInfo(修复2:命中时恢复路由上下文,避免 AI 丢失召回偏差调试信息)
     // 注意:exclude 不计入 cacheKey,缓存存全量;exclude 过滤在 cache.set 之后执行(仅影响本次返回)
     const cacheValue: CachedSearchResult = { wheels: finalWheels, routing: routingInfo };
-    await cache.set(key, cacheValue as unknown as Wheel[]);
+    await cache.set(key, cacheValue);
     // C 阶段:exclude 过滤(AI 二次筛选不相关项目,仅影响本次返回)
     // N11:用 shouldExclude helper,支持 github-code 的 owner/repo#path 格式
     if (excludeSet.size > 0) {

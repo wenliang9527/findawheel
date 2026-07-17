@@ -98,6 +98,10 @@ export function createCache<T = Wheel[]>(opts: CacheOpts): Cache<T> {
       logError('cache write failed', err);
       // 缓存写入失败不阻断主流程
     }
+    // 1% 概率触发清理(写时清理,避免无界增长)
+    if (Math.random() < 0.01) {
+      cleanupExpired(opts.dir, opts.ttlMs).catch(() => {});  // 不 await,不阻塞写入
+    }
   }
 
   async function dedupe<U>(key: string, fn: () => Promise<U>): Promise<U> {
@@ -124,7 +128,7 @@ export function createCache<T = Wheel[]>(opts: CacheOpts): Cache<T> {
  * writtenAt + ttlMs 是否过期,过期则 unlink。
  *
  * 并发控制:批量处理(每批 100 个),避免同时 unlink 上万文件触发 fd/IO 压力。
- * 只清理过期文件;parse 失败的损坏文件留给 get() 被动清理(避免误删)。
+ * 只清理过期文件;损坏文件(schema 校验失败)直接删除,行为与 get() 一致。
  *
  * @returns 实际清理的文件数
  */
@@ -151,15 +155,23 @@ export async function cleanupExpired(cacheDir: string, ttlMs: number): Promise<n
           // 读失败跳过(可能权限问题,不删)
           return false;
         }
-        let entry: CacheEntry;
+        // P2-5:用 zod schema 校验外层结构(与 get 函数行为一致)
+        let parsed: ReturnType<typeof CacheEntrySchema.safeParse>;
         try {
-          entry = JSON.parse(raw) as CacheEntry;
+          parsed = CacheEntrySchema.safeParse(JSON.parse(raw));
         } catch (err) {
-          // parse 失败不删(留给 get 被动清理,避免误删非缓存文件)
+          // 无效 JSON,删除损坏文件(与 get 函数行为一致)
+          try { await fs.promises.unlink(file); } catch { /* ignore */ }
           return false;
         }
-        // 只清理过期文件
-        if (typeof entry.writtenAt === 'number' && Date.now() - entry.writtenAt > ttlMs) {
+        if (!parsed.success) {
+          // schema 校验失败,删除损坏文件(与 get 函数行为一致)
+          try { await fs.promises.unlink(file); } catch { /* ignore */ }
+          return false;
+        }
+        const entry = parsed.data;
+        // 只清理过期文件(writtenAt 已由 schema 保证为 number)
+        if (Date.now() - entry.writtenAt > ttlMs) {
           try {
             await fs.promises.unlink(file);
             return true;

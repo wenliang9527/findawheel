@@ -2,23 +2,37 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock httpPost before importing the adapter
-vi.mock('../../src/util/http.js', () => ({
-  httpPost: vi.fn(),
-  HttpError: class HttpError extends Error {
-    constructor(
-      public status: number,
-      public url: string,
-      body: string,
-      public headers?: Record<string, string>,
-    ) {
-      super(`HTTP ${status} from ${url}: ${body.slice(0, 200)}`);
-      this.name = 'HttpError';
+vi.mock('../../src/util/http.js', () => {
+  // 与 src/util/http.ts 真实 HttpError 保持一致(含 sanitizeUrl 脱敏逻辑)
+  function sanitizeUrl(raw: string): string {
+    try {
+      const u = new URL(raw);
+      ['access_token', 'api_key', 'token', 'private_token'].forEach(k => u.searchParams.delete(k));
+      return u.toString();
+    } catch {
+      return raw;
     }
-    get retryable(): boolean {
-      return this.status >= 500;
-    }
-  },
-}));
+  }
+  return {
+    httpPost: vi.fn(),
+    HttpError: class HttpError extends Error {
+      constructor(
+        public status: number,
+        url: string,
+        body: string,
+        public headers?: Record<string, string>,
+      ) {
+        const safeUrl = sanitizeUrl(url);
+        super(`HTTP ${status} from ${safeUrl}: ${body.slice(0, 200)}`);
+        this.name = 'HttpError';
+        Object.defineProperty(this, 'url', { value: safeUrl, enumerable: true, writable: false });
+      }
+      get retryable(): boolean {
+        return this.status >= 500;
+      }
+    },
+  };
+});
 
 import { httpPost } from '../../src/util/http.js';
 import { WebSourceAdapter } from '../../src/sources/webSourceAdapter.js';

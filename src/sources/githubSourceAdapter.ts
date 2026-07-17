@@ -9,6 +9,23 @@ import { ECOSYSTEM_LANG } from './ecosystemMapping.js';
 import { toSourceError } from './sourceError.js';
 
 /**
+ * 移除 GitHub 搜索语法特殊字符,避免用户输入污染搜索语义。
+ * 处理:
+ * - `:` (qualifier 语法如 language:python)
+ * - `*` (通配符)
+ * - `"` `(` `)` (短语/分组)
+ * - `\` (转义符)
+ * - NOT/AND/OR 关键词
+ */
+function sanitizeGithubTerm(s: string): string {
+  return s
+    .replace(/[:*()"\\]/g, ' ')
+    .replace(/\b(NOT|AND|OR)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * 构造 GitHub 搜索表达式。
  *
  * Phase 6 简化后:
@@ -36,12 +53,21 @@ export function buildGithubQuery(
   // 修饰词交给 Ranker 后处理时做加分/过滤即可。
   let searchTerms: string;
   if (parsed && parsed.corePhrase) {
-    if (!parsed.corePhrase.includes(' ')) {
-      // 单词不加引号
-      searchTerms = parsed.corePhrase;
+    // P1-4:对 corePhrase 先做 sanitize,移除 GitHub 搜索语法特殊字符
+    // (如 `:` `*` `(` `)` `"` `\` 和 NOT/AND/OR 关键词),避免用户输入
+    // 如 `language:python` 或 `*` 污染搜索语义或导致 422。
+    const cleanPhrase = sanitizeGithubTerm(parsed.corePhrase);
+    if (cleanPhrase) {
+      if (!cleanPhrase.includes(' ')) {
+        // 单词不加引号
+        searchTerms = cleanPhrase;
+      } else {
+        // 多词:用引号短语精确匹配
+        searchTerms = `"${cleanPhrase}"`;
+      }
     } else {
-      // 多词:用引号短语精确匹配
-      searchTerms = `"${parsed.corePhrase}"`;
+      // sanitize 后为空(如用户输入纯语法字符 `*` 或 `NOT`),降级到翻译后的 query
+      searchTerms = translateQuery(query);
     }
   } else {
     // 兜底:无 parsedQuery 时用翻译后的完整 query

@@ -7,6 +7,8 @@ import { translateQuery } from '../classifier/queryTranslator.js';
 import { toSourceError } from './sourceError.js';
 import { logError, logWarn } from '../util/logger.js';
 import { decodeHtml } from '../util/html.js';
+import { isRateLimited, markRateLimited } from '../util/rateLimitCircuitBreaker.js';
+import { RateLimitError } from '../errors.js';
 
 // decodeHtml 已下沉到 util/html.ts(消除 goModuleSourceAdapter 跨适配器耦合)。
 // re-export 保持向后兼容(tests/sources/pypiSourceAdapter.test.ts 仍从本文件 import decodeHtml)。
@@ -146,6 +148,12 @@ async function fetchGithubStars(
   githubToken: string,
 ): Promise<PypiRawResult> {
   if (!item.githubUrl) return item.result; // 非 GitHub 项目,跳过
+  // 熔断器前置检查:GitHub 当前被限流时跳过 enrich(不报错,保留 githubUrl 但不补 stars)。
+  // 避免连续搜索不同 PyPI 包时 enrich 阶段持续消耗 GitHub 配额,加剧 429。
+  // source 名 'github' 与 GitHubSourceAdapter.name 一致,共享同一熔断状态。
+  if (isRateLimited('github')) {
+    return { ...item.result, githubUrl: item.githubUrl };
+  }
   const ownerRepo = item.githubUrl.replace('https://github.com/', '');
   try {
     const ghData = await httpGet<GitHubRepoData>(
@@ -154,6 +162,12 @@ async function fetchGithubStars(
     );
     return { ...item.result, stars: ghData.stargazers_count, githubUrl: item.githubUrl };
   } catch (err) {
+    // httpGet 对 429/403 抛 HttpError(非 RateLimitError),用 toSourceError 转换后判定。
+    // 命中限流则标记熔断器,后续 enrich 调用由前置检查直接跳过,避免反复触发 429。
+    const sourceErr = toSourceError('github', err);
+    if (sourceErr instanceof RateLimitError) {
+      markRateLimited('github', sourceErr.resetAt.getTime());
+    }
     logError(`pypi github stars enrich failed for ${item.result.name} (${ownerRepo})`, err);
     return { ...item.result, githubUrl: item.githubUrl }; // 仍保留 githubUrl,即使 stars 获取失败
   }

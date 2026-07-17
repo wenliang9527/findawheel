@@ -11,7 +11,9 @@ export interface ExtractOpts {
   maxCharsPerSnippet?: number;
 }
 
-const FENCE_RE = /```(\w*)\n([\s\S]*?)```/g;
+// P2-3:支持 GFM ~~~ 围栏(与 ``` 等价)。结束围栏用 (?:```|~~~) 而非反向引用,
+// 简化版(实际混用 ``` 开头 ~~~ 结尾的场景罕见,不额外处理)。
+const FENCE_RE = /(?:```|~~~)(\w*)\n([\s\S]*?)(?:```|~~~)/g;
 
 function priority(language: string): number {
   switch (language.toLowerCase()) {

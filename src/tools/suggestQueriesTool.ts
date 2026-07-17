@@ -118,7 +118,10 @@ export function createSuggestQueriesTool() {
     ];
 
     // 推荐:动作导向通常最精准(动词表达意图)
-    const recommended = suggestions[1].query;
+    // P2-4:用 angle 字段查找替代硬编码索引 [1],避免 suggestions 顺序调整后取错
+    const recommended = suggestions.find(s => s.angle === 'action_oriented')?.query
+      ?? suggestions[0]?.query
+      ?? '';
     let reason = `动作导向搜索词"${recommended}"优先使用了动词(${parsed.coreWords.join('/')}),最能表达用户意图,推荐作为 find_wheel 的 query 参数`;
 
     // 硬件类 ecosystem 推荐:检测到硬件关键词时建议用 arduino/cpp 搜索
