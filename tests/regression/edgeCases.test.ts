@@ -52,8 +52,10 @@ describe('K 阶段:边界场景覆盖', () => {
       // 不应抛错,应返回 name=undefined 的结果(由 normalizer 兜底)
       const results = await adapter.search('test', baseOpts);
       expect(results).toHaveLength(1);
-      // name 应为 undefined 或空字符串(取决于 JS 行为)
-      // 关键是不崩溃
+      // 明确断言 name 值,验证兜底行为:
+      // 实际实现 name: m.id,缺 id 时 m.id 为 undefined,直接透传给 name 字段。
+      // (类型声明为 string,但运行时为 undefined —— 这是实现侧的小瑕疵,测试断言反映实际行为)
+      expect(results[0].name).toBeUndefined();
     });
 
     it('API 返回 null 时容错为空数组', async () => {

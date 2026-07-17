@@ -172,11 +172,17 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       // 避免 AI 调试召回偏差时丢失路由上下文。
       // P2-1/P3-2:cache 泛型为 CachedSearchResult | Wheel[],用 Array.isArray 类型守卫收窄,
       // 替代 as unknown as 双重断言与 cachedEntry!.wheels 非空断言 —— 类型系统可直接保证一致性。
-      const cachedWheels = Array.isArray(cached) ? cached : cached.wheels;
+      let cachedWheels = Array.isArray(cached) ? cached : cached.wheels;
       const cachedRouting = Array.isArray(cached) ? undefined : cached.routing;
       logInfo(`cache hit: query="${input.query}" intent=${intent} ${cachedWheels.length} wheels`);
+      // P1-1:缓存命中也应用 feedback(缓存存 pre-feedback wheels,每次读取重新应用),
+      // 避免用户记录 hide/like 后在 TTL 内命中缓存返回旧排序。
+      if (opts.feedbackStore) {
+        cachedWheels = await applyFeedback(cachedWheels);
+      }
       // 缓存命中后也应用 exclude 过滤(让 AI 能用 exclude 二次筛选缓存结果)
       // N11:用 shouldExclude helper,支持 github-code 的 owner/repo#path 格式
+      // P1-1:exclude 过滤在 applyFeedback 之后(用户隐藏的项目应该被过滤)
       const filtered = excludeSet.size > 0
         ? cachedWheels.filter(w => !shouldExclude(w, excludeSet))
         : cachedWheels;
@@ -204,14 +210,13 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     }
 
     // 成功才写缓存(失败结果不缓存,避免下次命中错误响应)
-    // 顺序: feedback 加权(重新排序) → 详情预抓取(top 10 按全量排序) → 写缓存(全量)
-    //       → exclude 过滤(仅影响本次返回,不污染缓存)
+    // P1-1 修复:缓存存 pre-feedback wheels(已 enrich),每次读取(命中或未命中)重新应用 feedback。
+    //   原顺序:feedback → enrich → cache.set → exclude(缓存污染 feedback 结果,命中时返回旧排序)
+    //   新顺序:enrich → cache.set(pre-feedback) → feedback(仅影响本次返回) → exclude
+    //   这样用户记录 hide/like 后,即使 TTL 内命中缓存也会重新应用最新 feedback。
     // 修复:exclude 不计入 cacheKey,若把过滤后的子集写入缓存,后续不传 exclude 的请求
     // 会命中缓存拿到缺失结果。改为缓存存全量,exclude 过滤在 cache.set 之后执行。
     let finalWheels = result.wheels;
-    if (opts.feedbackStore) {
-      finalWheels = await applyFeedback(finalWheels);
-    }
     // 混合呈现:enrichOpts 配置时对 top 10 预抓取详情,top 3 内联,4-10 加 hasDetails 标记
     // 预抓取失败不阻断主流程(容错);缓存里存的是已内联 details 的 wheels,命中时直接返回
     if (opts.enrichOpts) {
@@ -241,9 +246,16 @@ export function createFindWheelTool(opts: CreateToolOpts) {
         : undefined);
 
     // 缓存存全量结果 + routingInfo(修复2:命中时恢复路由上下文,避免 AI 丢失召回偏差调试信息)
+    // P1-1:缓存存 pre-feedback wheels(finalWheels 此时只经过 enrich,未应用 feedback),
+    //       命中时由缓存命中路径重新调用 applyFeedback 应用最新反馈。
     // 注意:exclude 不计入 cacheKey,缓存存全量;exclude 过滤在 cache.set 之后执行(仅影响本次返回)
     const cacheValue: CachedSearchResult = { wheels: finalWheels, routing: routingInfo };
     await cache.set(key, cacheValue);
+    // P1-1:feedback 在 cache.set 之后应用,只影响本次返回,不污染缓存。
+    //   保持 exclude 过滤在 applyFeedback 之后(用户隐藏的项目应该被过滤)。
+    if (opts.feedbackStore) {
+      finalWheels = await applyFeedback(finalWheels);
+    }
     // C 阶段:exclude 过滤(AI 二次筛选不相关项目,仅影响本次返回)
     // N11:用 shouldExclude helper,支持 github-code 的 owner/repo#path 格式
     if (excludeSet.size > 0) {
@@ -312,6 +324,8 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     // 全部被限流时降级为使用全部源(不能完全无结果)
     if (activeAdapters.length === 0) {
       activeAdapters = selectedAdapters;
+      // P2-2:降级时清空 rateLimited,因为实际已搜索这些源(否则输出会误导 AI 以为这些源被跳过)
+      rateLimited.length = 0;
     }
 
     const searchOpts = {
@@ -461,7 +475,12 @@ export function createFindWheelTool(opts: CreateToolOpts) {
           }
           // 合并后只 sort(按 match.score 降序),不重新 score/dedupe
           merged.sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0));
-          rankedWithMatch = merged.slice(0, limit);
+          // P2-4:在 slice 前应用 feedback,避免 feedback 偏好的项目被未加权 score 截断
+          let mergedForSlice = merged;
+          if (opts.feedbackStore) {
+            mergedForSlice = await applyFeedback(merged);
+          }
+          rankedWithMatch = mergedForSlice.slice(0, limit);
         }
         // 无论扩展是否带来新结果,都标记为已扩展(避免下次重复扩展,也避免误报 skippedSources)
         expandedFallback = true;

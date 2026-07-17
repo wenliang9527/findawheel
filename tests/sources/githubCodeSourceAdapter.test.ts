@@ -87,7 +87,7 @@ describe('GitHubCodeSourceAdapter', () => {
     const calledUrl = new URL(fetchMock.mock.calls[0][0] as string);
     expect(calledUrl.pathname).toBe('/search/code');
     expect(calledUrl.searchParams.get('q')).toBe('parse');
-    expect(calledUrl.searchParams.get('per_page')).toBe('20');
+    expect(calledUrl.searchParams.get('per_page')).toBe('100');
     const callOpts = fetchMock.mock.calls[0][1] as RequestInit;
     const headers = callOpts.headers as Record<string, string>;
     expect(headers['accept']).toBe('application/vnd.github.text-match+json');

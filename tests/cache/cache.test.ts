@@ -109,5 +109,28 @@ describe('createCache', () => {
       await cache.dedupe('k1', fn);
       expect(fn).toHaveBeenCalledTimes(2);
     });
+
+    it('dedupe cleans up inFlight when fn rejects', async () => {
+      const cache = createCache({ dir: tmpDir, ttlMs: 60000, enabled: true });
+      const fn = vi.fn().mockRejectedValueOnce(new Error('boom'));
+      await expect(cache.dedupe('reject-key', fn)).rejects.toThrow('boom');
+      // 第二次调用应正常执行(inFlight 已清理)
+      const fn2 = vi.fn().mockResolvedValue('ok');
+      const result = await cache.dedupe('reject-key', fn2);
+      expect(result).toBe('ok');
+      expect(fn2).toHaveBeenCalledTimes(1);
+    });
+
+    it('dedupe propagates rejection to all concurrent callers', async () => {
+      const cache = createCache({ dir: tmpDir, ttlMs: 60000, enabled: true });
+      const fn = vi.fn().mockRejectedValue(new Error('shared-fail'));
+      await Promise.all([
+        expect(cache.dedupe('shared-key', fn)).rejects.toThrow('shared-fail'),
+        expect(cache.dedupe('shared-key', fn)).rejects.toThrow('shared-fail'),
+        expect(cache.dedupe('shared-key', fn)).rejects.toThrow('shared-fail'),
+      ]);
+      // 仍只执行一次(去重生效)
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
   });
 });

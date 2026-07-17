@@ -81,8 +81,8 @@ export class MavenSourceAdapter implements SourceAdapter {
         url: d.g && d.a
           ? `https://central.sonatype.com/artifact/${d.g}/${d.a}`
           : `https://central.sonatype.com/artifact/${d.id}`,
-        // 搜索 API 不返回描述,留空(避免二次请求翻倍延迟)
-        description: '',
+        // 搜索 API 不返回描述,用 artifactId 兜底生成(避免二次请求翻倍延迟)
+        description: d.a ? `Maven artifact: ${d.a}` : '',
         version: d.latestVersion ?? '',
         // timestamp 为毫秒级,转 ISO;缺失则不填(留 undefined)
         lastUpdated: d.timestamp ? new Date(d.timestamp).toISOString() : undefined,

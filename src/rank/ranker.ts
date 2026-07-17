@@ -54,6 +54,10 @@ function isAggregateRepo(name: string, description: string): boolean {
  * N7 修复:原规则 `(!description && stars < 10)` 会误杀 Maven/Gopkg 等无 stars 数据的源
  * (Maven description 常为空,stars undefined → 0 < 10 → 被过滤)。
  * 改为:无描述时,只有当 stars/downloads/lastUpdated 三个热度信号都缺失才过滤。
+ *
+ * P1-2 修复:PyPI 源豁免上述"无描述+无热度信号"规则。PyPI normalizer 只在 enrich
+ * 成功时设 stars,不设 lastUpdated/downloads(HTML 搜索 API 不返回这些字段),
+ * 导致无描述且 enrich 失败(无 githubToken 或非 GitHub 项目)的 PyPI 包被静默误杀。
  */
 export function filterOut(wheel: Wheel): boolean {
   const m = wheel.metrics;
@@ -64,10 +68,16 @@ export function filterOut(wheel: Wheel): boolean {
   }
   // N7:无描述时,只有当所有热度信号都缺失才过滤(避免误杀 Maven/Gopkg 等无 stars 的源)
   if (!wheel.description || wheel.description.trim() === '') {
-    const hasStars = (m.stars ?? 0) >= 10;
-    const hasDownloads = (m.downloads ?? 0) >= 100;
-    const hasLastUpdated = Boolean(m.lastUpdated);
-    if (!hasStars && !hasDownloads && !hasLastUpdated) return true;
+    // P1-2:PyPI 源豁免——PyPI normalizer 只在 enrich 成功时设 stars,
+    // 不设 lastUpdated/downloads(HTML 搜索 API 不返回上传时间/下载量),
+    // 导致无描述且 enrich 失败(无 githubToken 或非 GitHub 项目)的包被静默误杀。
+    // 与 Maven/Gopkg 同理:PyPI 搜索结果本身已通过 PyPI 排序,默认信任。
+    if (wheel.source !== 'pypi') {
+      const hasStars = (m.stars ?? 0) >= 10;
+      const hasDownloads = (m.downloads ?? 0) >= 100;
+      const hasLastUpdated = Boolean(m.lastUpdated);
+      if (!hasStars && !hasDownloads && !hasLastUpdated) return true;
+    }
   }
 
   // 过滤聚合类仓库(awesome-xxx、public-apis 等)

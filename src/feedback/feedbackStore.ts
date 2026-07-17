@@ -99,6 +99,29 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
   let feedbackCacheTime = 0;
   const FEEDBACK_MEM_CACHE_TTL_MS = 60_000;
 
+  // P2-1: per-name 锁,保证同一 wheel 的 recordFeedback 串行执行,
+  // 避免并发"读-改-写"导致计数丢失(两次并发 like 只记录一次)。
+  // key 用 name.toLowerCase() 与 feedback 文件名一致性对齐(虽然 sha1 已是确定性的,
+  // 这里只是统一大小写归并,避免 'A/B' 与 'a/b' 并行写同一文件)。
+  const nameLocks = new Map<string, Promise<unknown>>();
+
+  async function withNameLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
+    const key = name.toLowerCase();
+    const prev = nameLocks.get(key) ?? Promise.resolve();
+    let releaseLock!: () => void;
+    const current = new Promise<void>(resolve => { releaseLock = resolve; });
+    nameLocks.set(key, prev.then(() => current));
+    try {
+      await prev;
+      return await fn();
+    } finally {
+      releaseLock();
+    }
+  }
+
+  // P2-3: getAllFeedback in-flight 去重,避免缓存过期时多个并发调用都触发全量读盘。
+  let getAllInFlight: Promise<FeedbackRecord[]> | null = null;
+
   function filePath(name: string): string {
     return path.join(opts.dir, `${feedbackFileKey(name)}.json`);
   }
@@ -133,51 +156,55 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
     source: string = 'github',
   ): Promise<FeedbackRecord | null> {
     if (!enabled) return null;
-    const existing = await getFeedback(name);
-    const now = Date.now();
-    // 显式构造新对象,避免 existing 非空时 record 与 existing 共享引用导致 mutation 污染
-    const record: FeedbackRecord = { ...(existing ?? {
-      name,
-      source,
-      likes: 0,
-      hides: 0,
-      clicks: 0,
-      lastUpdated: now,
-      lastAction: action,
-    }) };
-    // 累加计数
-    if (action === 'like') record.likes += 1;
-    else if (action === 'hide') record.hides += 1;
-    else if (action === 'click') record.clicks += 1;
-    record.lastUpdated = now;
-    record.lastAction = action;
-    // 确保 source 字段正确(可能之前存的 source 与现在不同)
-    record.source = source;
+    // P2-1:用 per-name 锁串行化"读-改-写",避免并发调用丢失计数。
+    // 不同 name 之间互不阻塞,只对同一 name 串行。
+    return withNameLock(name, async () => {
+      const existing = await getFeedback(name);
+      const now = Date.now();
+      // 显式构造新对象,避免 existing 非空时 record 与 existing 共享引用导致 mutation 污染
+      const record: FeedbackRecord = { ...(existing ?? {
+        name,
+        source,
+        likes: 0,
+        hides: 0,
+        clicks: 0,
+        lastUpdated: now,
+        lastAction: action,
+      }) };
+      // 累加计数
+      if (action === 'like') record.likes += 1;
+      else if (action === 'hide') record.hides += 1;
+      else if (action === 'click') record.clicks += 1;
+      record.lastUpdated = now;
+      record.lastAction = action;
+      // 确保 source 字段正确(可能之前存的 source 与现在不同)
+      record.source = source;
 
-    try {
-      await fs.promises.mkdir(opts.dir, { recursive: true });
-      await fs.promises.writeFile(filePath(name), JSON.stringify(record), 'utf8');
-      logInfo(`feedback recorded: ${name} ${action} (likes=${record.likes} hides=${record.hides} clicks=${record.clicks})`);
-      // write-through 增量更新:缓存有效则合并新记录,避免下次 getAllFeedback 全量读盘;
-      // 缓存不存在或已过期则置 null,下次 getAllFeedback 全量同步(60s TTL 防止增量漂移)。
-      // 写入成功后才更新缓存,保证缓存与磁盘一致。
-      if (feedbackCache && Date.now() - feedbackCacheTime < FEEDBACK_MEM_CACHE_TTL_MS) {
-        const idx = feedbackCache.findIndex(r => r.name === record.name);
-        if (idx >= 0) {
-          feedbackCache[idx] = record;
+      try {
+        await fs.promises.mkdir(opts.dir, { recursive: true });
+        await fs.promises.writeFile(filePath(name), JSON.stringify(record), 'utf8');
+        logInfo(`feedback recorded: ${name} ${action} (likes=${record.likes} hides=${record.hides} clicks=${record.clicks})`);
+        // write-through 增量更新:缓存有效则合并新记录,避免下次 getAllFeedback 全量读盘;
+        // 缓存不存在或已过期则置 null,下次 getAllFeedback 全量同步(60s TTL 防止增量漂移)。
+        // 写入成功后才更新缓存,保证缓存与磁盘一致。
+        if (feedbackCache && Date.now() - feedbackCacheTime < FEEDBACK_MEM_CACHE_TTL_MS) {
+          const idx = feedbackCache.findIndex(r => r.name === record.name);
+          if (idx >= 0) {
+            feedbackCache[idx] = record;
+          } else {
+            feedbackCache.push(record);
+          }
         } else {
-          feedbackCache.push(record);
+          feedbackCache = null;
         }
-      } else {
-        feedbackCache = null;
+      } catch (err) {
+        logError('feedback write failed', err);
+        // 写入失败不阻断, 返回 null 提示调用方
+        // 不更新 feedbackCache(保持旧值,与磁盘一致)
+        return null;
       }
-    } catch (err) {
-      logError('feedback write failed', err);
-      // 写入失败不阻断, 返回 null 提示调用方
-      // 不更新 feedbackCache(保持旧值,与磁盘一致)
-      return null;
-    }
-    return record;
+      return record;
+    });
   }
 
   /**
@@ -193,6 +220,27 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
     if (feedbackCache && Date.now() - feedbackCacheTime < FEEDBACK_MEM_CACHE_TTL_MS) {
       return feedbackCache;
     }
+    // P2-3:in-flight 去重,缓存过期时多个并发调用只触发一次全量读盘,
+    // 共享同一个 Promise 返回结果,避免 readdir+readFile 风暴。
+    if (getAllInFlight) return getAllInFlight;
+    getAllInFlight = (async () => {
+      try {
+        const records = await readAllFromDisk();
+        feedbackCache = records;
+        feedbackCacheTime = Date.now();
+        return records;
+      } finally {
+        getAllInFlight = null;
+      }
+    })();
+    return getAllInFlight;
+  }
+
+  /**
+   * 全量读盘:readdir + 分批读取所有 feedback-*.json 文件。
+   * 读取失败返回空数组,不抛异常。
+   */
+  async function readAllFromDisk(): Promise<FeedbackRecord[]> {
     let files: string[];
     try {
       files = await fs.promises.readdir(opts.dir);
@@ -219,9 +267,6 @@ export function createFeedbackStore(opts: FeedbackStoreOpts) {
         }
       }
     }
-    // 写入内存缓存
-    feedbackCache = records;
-    feedbackCacheTime = Date.now();
     return records;
   }
 

@@ -18,6 +18,10 @@ import { searchKnowledge, type SearchKnowledgeInput } from './tools/searchKnowle
 import type { KnowledgeItem } from './knowledge/knowledgeBase.js';
 import { readEnv } from './util/env.js';
 
+// 可用工具列表(与 ListToolsRequestSchema handler 中保持一致)
+// 用于 unknown tool 错误消息,帮助调用方快速定位问题
+const AVAILABLE_TOOLS = ['suggest_queries', 'find_wheel', 'get_wheel_details', 'record_feedback', 'search_knowledge'];
+
 const FindWheelSchema = z.object({
   query: z.string(),
   intent: z.enum(['feature', 'project', 'auto']).optional(),
@@ -206,7 +210,10 @@ export function createServer() {
         isError: false,
       };
     }
-    return { content: [{ type: 'text', text: `unknown tool: ${name}` }], isError: true };
+    return {
+      content: [{ type: 'text', text: `unknown tool: ${name}. Available tools: ${AVAILABLE_TOOLS.join(', ')}` }],
+      isError: true,
+    };
   });
 
   return server;

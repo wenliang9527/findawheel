@@ -54,7 +54,7 @@ describe('MavenSourceAdapter', () => {
       'https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-web',
     );
     expect(results[0].version).toBe('3.2.0');
-    expect(results[0].description).toBe('');
+    expect(results[0].description).toBe('Maven artifact: spring-boot-starter-web');
     expect((results[0] as any).repository).toBe('central');
     // timestamp 1701234567890ms → ISO
     expect((results[0] as any).lastUpdated).toBe(new Date(1701234567890).toISOString());

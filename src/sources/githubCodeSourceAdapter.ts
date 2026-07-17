@@ -16,6 +16,8 @@ import { ECOSYSTEM_LANG } from './ecosystemMapping.js';
 import { toSourceError } from './sourceError.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 
+const GITHUB_CODE_PER_PAGE = 100;  // 充分利用单次请求配额(上限 100),减少总请求数
+
 /**
  * 构造 GitHub Code Search 查询表达式。
  *
@@ -85,8 +87,8 @@ export class GitHubCodeSourceAdapter implements SourceAdapter {
     url.searchParams.set('q', q);
     url.searchParams.set('sort', 'indexed');
     url.searchParams.set('order', 'desc');
-    // Code Search per_page 上限 100,这里保守用 20 控制流量(限流 10 req/min)
-    url.searchParams.set('per_page', '20');
+    // Code Search per_page 上限 100,用满以减少总请求数(限流 10 req/min,配合磁盘缓存)
+    url.searchParams.set('per_page', String(GITHUB_CODE_PER_PAGE));
 
     try {
       const data = await httpGet<GitHubCodeSearchResponse>(url.toString(), {
