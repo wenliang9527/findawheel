@@ -110,7 +110,7 @@ export function createServer() {
       {
         name: 'find_wheel',
         description:
-          'Search 14 data sources for existing wheels (libraries/packages/SDKs/models) BEFORE writing new code. Call suggest_queries first. findawheel does NOT filter by relevance — YOU judge and skip irrelevant results (e.g., "remove watermark" when user wants ADD). Use "exclude" to filter on re-call without re-querying APIs.',
+          'Search 15 data sources for existing wheels (libraries/packages/SDKs/models) BEFORE writing new code. Call suggest_queries first. findawheel does NOT filter by relevance — YOU judge and skip irrelevant results (e.g., "remove watermark" when user wants ADD). Use "exclude" to filter on re-call without re-querying APIs.',
         inputSchema: {
           type: 'object',
           properties: {

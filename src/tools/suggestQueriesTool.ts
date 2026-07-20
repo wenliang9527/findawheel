@@ -76,6 +76,22 @@ function detectHardwareEcosystem(translatedQuery: string): string | undefined {
   return undefined;
 }
 
+/**
+ * 优化22:去重 recommended 中的重复词(如 "upload upload" → "upload")。
+ * 场景:词级翻译后生成变体时,相同词可能重复出现,导致 recommended 是 "upload upload"。
+ * 按大小写不敏感去重,保留首次出现的大小写形态。
+ */
+function dedupRecommended(s: string): string {
+  const words = s.split(/\s+/);
+  const seen = new Set<string>();
+  return words.filter(w => {
+    const lw = w.toLowerCase();
+    if (seen.has(lw)) return false;
+    seen.add(lw);
+    return true;
+  }).join(' ');
+}
+
 export function createSuggestQueriesTool() {
   async function handle(input: SuggestQueriesInput): Promise<McpToolResult> {
     if (!input.query || input.query.trim() === '') {
@@ -120,9 +136,12 @@ export function createSuggestQueriesTool() {
 
     // 推荐:动作导向通常最精准(动词表达意图)
     // P2-4:用 angle 字段查找替代硬编码索引 [1],避免 suggestions 顺序调整后取错
-    const recommended = suggestions.find(s => s.angle === 'action_oriented')?.query
+    // 优化22:去重重复词(如 "upload upload" → "upload")
+    let recommended = dedupRecommended(
+      suggestions.find(s => s.angle === 'action_oriented')?.query
       ?? suggestions[0]?.query
-      ?? '';
+      ?? '',
+    );
     let reason = `动作导向搜索词"${recommended}"优先使用了动词(${parsed.coreWords.join('/')}),最能表达用户意图,推荐作为 find_wheel 的 query 参数`;
 
     // 硬件类 ecosystem 推荐:检测到硬件关键词时建议用 arduino/cpp 搜索

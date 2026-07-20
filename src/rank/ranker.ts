@@ -249,6 +249,26 @@ function isZeroHit(wheel: Wheel, queryKeywords: string[]): boolean {
   return !queryKeywords.some(kw => matchesKeyword(text, kw.toLowerCase()));
 }
 
+/**
+ * 低命中率检测:query 关键词命中率 < 50% 时返回 true。
+ * 场景:用户搜 "html to pdf"(4 个关键词),apify/crawlee 只命中 "html"(1/4=25%),
+ * 即使 stars=24821 也不应靠 star 霸榜。
+ * 与 isZeroHit 的区别:isZeroHit 是 0% 命中,isLowHitRate 是 < 50% 命中(更宽松)。
+ */
+function isLowHitRate(wheel: Wheel, queryKeywords: string[]): boolean {
+  if (queryKeywords.length === 0) return false;
+  const desc = (wheel.description || '').toLowerCase();
+  const name = wheel.name.toLowerCase();
+  let hitCount = 0;
+  for (const kw of queryKeywords) {
+    const kwLower = kw.toLowerCase();
+    if (desc.includes(kwLower) || name.includes(kwLower)) {
+      hitCount++;
+    }
+  }
+  return hitCount / queryKeywords.length < 0.5;
+}
+
 function normalize(v: number | undefined, max: number): number {
   if (v === undefined || v <= 0) return 0;
   return Math.min(v / max, 1);
@@ -314,6 +334,12 @@ export function score(wheel: Wheel, intent: Intent, queryKeywords: string[] = []
   // 场景:voicebox(⭐37k)搜 "AI coding monitor" 时零命中,不应靠 star 霸榜
   if (isZeroHit(wheel, queryKeywords)) {
     stars *= 0.3;
+  }
+  // 优化20:低命中率降权 — 命中率 < 50% 时,stars 权重 *0.2(强降权)
+  // 场景:apify/crawlee(24821★)搜 "html to pdf" 只命中 1/4,不应靠 star 霸榜
+  // 系数从 0.5 调整为 0.2:测试发现 0.5 仍让 crawlee 排第一,需要更强降权
+  if (isLowHitRate(wheel, queryKeywords)) {
+    stars *= 0.2;
   }
 
   if (intent === 'feature') {

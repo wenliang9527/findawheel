@@ -73,6 +73,7 @@ function getStarsDenominator(source: WheelSource): number {
 export function computeMatch(
   wheel: Wheel,
   queryKeywords: string[],
+  query: string = '',
 ): WheelMatch {
   const text = `${wheel.name} ${wheel.description}`.toLowerCase();
   // 命中的关键词
@@ -88,6 +89,17 @@ export function computeMatch(
     ? matchedKeywords.length / queryKeywords.length
     : 0;
   let relevanceScore = hitRate * 0.5;
+
+  // 优化24:转换模式 bonus —— query 是 "X to Y" 模式时,description 含转换短语加分。
+  // 场景:query="html to pdf",crawlee desc="Download HTML, PDF, JPG..."(命中但语义不对),
+  // html2pdf.js desc="Client-side HTML-to-PDF rendering"(命中且语义对)。
+  // 规则:desc 含 "X to Y" / "X-to-Y" / "X2Y" / "X to Y converter/convert" 加 0.15 bonus。
+  // 反向模式("Y to X")由 ranker.ts 的 isReverseToIntent 已处理(软降权)。
+  // 注:bonus 独立于 relevanceScore 上限(0.6),不受钳制影响 —— 真正的转换工具应获得额外优势。
+  let convBonus = 0;
+  if (query) {
+    convBonus = conversionPatternBonus(query, wheel.description || '', wheel.name || '');
+  }
 
   // R1:topics 命中额外加分(最多 +0.1)
   // N8:短关键词(≤3 字符如 js/ts/ai/c/go)用子串匹配会误匹配(如 js 匹配 vue-js、ai 匹配 raid)
@@ -116,7 +128,20 @@ export function computeMatch(
   // 2. 热度(0~0.3):stars 归一化(N6:按 source 差异化分母)
   const stars = wheel.metrics.stars ?? 0;
   const denominator = getStarsDenominator(wheel.source);
-  const popularityScore = Math.min(stars / denominator, 1) * 0.3;
+  let popularityScore = Math.min(stars / denominator, 1) * 0.3;
+
+  // 优化23:低命中率降权(与 ranker.ts isLowHitRate 保持一致)
+  // 场景:apify/crawlee(24821★)搜 "html to pdf" 只命中 1/2=50% 关键词("html"),
+  // 不应靠高 stars 在 popularity 上压制 html2pdf.js(1222★,100% 命中)。
+  // 注:ranker.ts 的 score() 已应用此降权,但 enrichWithMatch 用 computeMatch 独立计算
+  // match.score,applyIntentBoost 又按 match.score 重新排序,会覆盖 rank() 的正确顺序。
+  // 此处同步应用降权,确保 score 计算路径一致。
+  if (queryKeywords.length > 0) {
+    const hitRate = matchedKeywords.length / queryKeywords.length;
+    if (hitRate < 0.5) {
+      popularityScore *= 0.2;
+    }
+  }
 
   // 3. 活跃度(0~0.2):基于 metrics.activity(P1-9:统一由 metricsEnricher.inferActivity 计算)
   // 注:enrich 阶段保证 activity 字段已填充(默认 'low'),不再二次估算
@@ -126,7 +151,7 @@ export function computeMatch(
   else if (activity === 'medium') activityScore = 0.1;
   else if (activity === 'low') activityScore = 0.05;
 
-  const score = relevanceScore + popularityScore + activityScore;
+  const score = relevanceScore + popularityScore + activityScore + convBonus;
   let recommendation = gradeRecommendation(score, stars, wheel.source);
 
   // 优化4:关键词命中率阈值 —— 避免"高 star 但低相关"项目拿到 highly_recommended。
@@ -249,12 +274,62 @@ function formatStars(stars: number): string {
 }
 
 /**
+ * 转换模式 bonus(优化24)。
+ *
+ * query 是 "X to Y" 模式时,检测 description/name 是否含转换短语:
+ * - "X to Y" (空格分隔,如 "html to pdf")
+ * - "X-to-Y" (kebab-case,如 "html-to-pdf")
+ * - "X2Y" (无分隔,如 "html2pdf")
+ * - "X to Y converter" / "X to Y conversion"
+ *
+ * 场景:query="html to pdf"
+ * - html2pdf.js:desc="Client-side HTML-to-PDF rendering" → 含 "html-to-pdf" ✓ +0.15
+ * - crawlee:desc="Download HTML, PDF, JPG, PNG" → 不含转换模式 ✗ +0
+ *
+ * 这解决"关键词命中但语义不对"问题:crawlee 含 "HTML" 和 "PDF" 但语义是"下载文件",
+ * 不是"HTML 转 PDF",转换模式 bonus 让真正的转换工具获得额外加分。
+ *
+ * 注:反向模式("Y to X")由 ranker.ts 的 isReverseToIntent 处理(软降权),
+ * 此处不重复检测。
+ */
+function conversionPatternBonus(query: string, description: string, name: string): number {
+  // 提取 query 中的 "X to Y" 模式
+  const m = query.match(/(\w+)\s+to\s+(\w+)/i);
+  if (!m) return 0;
+  const [, from, to] = m;
+  const fromL = from.toLowerCase();
+  const toL = to.toLowerCase();
+  const text = `${description} ${name}`.toLowerCase();
+
+  // 检测转换模式:from-to-to / from2to / "from to to" / "from to to converter"
+  const patterns = [
+    `${fromL}-${toL}`,           // html-to-pdf
+    `${fromL} to ${toL}`,        // html to pdf
+    `${fromL}2${toL}`,           // html2pdf
+    `${fromL}2${toL[0]?.toUpperCase() || ''}${toL.slice(1)}`, // html2Pdf(CamelCase 变体)
+  ];
+  for (const p of patterns) {
+    if (text.includes(p)) return 0.25;
+  }
+  // 检测 "convert X to Y" / "X to Y converter" / "X to Y conversion"
+  const convertPatterns = [
+    new RegExp(`\\bconvert.*${fromL}.*${toL}\\b`, 'i'),
+    new RegExp(`\\b${fromL}\\s+to\\s+${toL}\\s+(?:converter|conversion|rendering|renderer)\\b`, 'i'),
+  ];
+  for (const p of convertPatterns) {
+    if (p.test(text)) return 0.25;
+  }
+  return 0;
+}
+
+/**
  * 批量给 Wheel 列表填充 match 字段。
  * 输入是已排好序的 Wheel 列表(来自 rank()),原地填充 match 字段。
  */
 export function enrichWithMatch(
   wheels: Wheel[],
   queryKeywords: string[],
+  query: string = '',
 ): Wheel[] {
-  return wheels.map(w => ({ ...w, match: computeMatch(w, queryKeywords) }));
+  return wheels.map(w => ({ ...w, match: computeMatch(w, queryKeywords, query) }));
 }

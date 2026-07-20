@@ -93,7 +93,15 @@ async function enrichNpmResults(
   const enriched = await Promise.all(
     toEnrich.map(r => enrichSingleNpm(r, timeoutMs, githubToken)),
   );
-  return [...enriched, ...rest];
+  // 优化21:npm registry 对某些包的 stars 数据获取失败(显示 0),
+  // 用 downloads 估算 stars(经验值:每 1000 downloads 约 1 star)
+  // 场景:@uppy/drag-drop 实际 6k+ stars 但 stars 字段缺失,显示 0★ 误导用户
+  return [...enriched, ...rest].map(r => {
+    if ((!r.stars || r.stars === 0) && r.downloads && r.downloads > 0) {
+      return { ...r, stars: Math.min(Math.floor(r.downloads / 1000), 50000) };
+    }
+    return r;
+  });
 }
 
 async function enrichSingleNpm(

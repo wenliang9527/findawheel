@@ -521,7 +521,7 @@ function collectAndRank(
   query: string,
 ): Wheel[] {
   const ranked = rank(wheels, intent, limit, queryKeywords, query);
-  const enriched = enrichWithMatch(ranked, queryKeywords);
+  const enriched = enrichWithMatch(ranked, queryKeywords, query);
   // 优化5:applyIntentBoost 在 enrichWithMatch 之后调用(依赖 match.score 调整源权重)。
   // project 意图:GitHub/Gitee/GitLab 加成 ×1.15,包管理器降权 ×0.85;
   // feature 意图:反之。重新按 match.score 降序排序。
