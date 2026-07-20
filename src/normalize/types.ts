@@ -164,7 +164,14 @@ export interface FindWheelOutput {
      */
     warning?: string;
   };
-  degradedSources?: string[];
+  /**
+   * 降级的源(可选)。这些源在本次搜索中主搜索失败,结果可能不完整。
+   * 优化6:结构化为 {name, reason},reason 取值:
+   *   - 'rate_limited': 该源本次触达 403/429 被限流
+   *   - 'no_api_key': 该源所需 API key 未配置
+   *   - 'error': 其他错误(网络/解析/5xx 等)
+   */
+  degradedSources?: Array<{ name: string; reason: string }>;
   /**
    * 被限流的源(可选)。这些源因触达 403/429 被进程内熔断器在恢复时间前跳过,
    * 或本次搜索时返回限流错误。AI 可据此判断召回是否因限流而缺失某些源。

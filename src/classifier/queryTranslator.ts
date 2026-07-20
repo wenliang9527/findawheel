@@ -282,6 +282,28 @@ const ZH_TO_EN: Record<string, string[]> = {
   '熔断': ['circuit-breaker'],
   '重试': ['retry'],
   '降级': ['degrade', 'fallback'],
+
+  // C. 补漏:常见技术词(2026-07-20)
+  // 修复 issue:用户输入"我想做一个实时监控电脑状态的可爱宠物"时,suggest_queries
+  // 4 个变体全是中文原文。根因是 ZH_TO_EN 表里有"监视"/"监控告警"却没有独立的
+  // "监控",以及"实时"/"状态"/"电脑"等常见技术词完全缺失,导致整段中文未翻译。
+  // 这里补全实战高频但前面 5 段遗漏的常见技术词。
+  '监控': ['monitor', 'monitoring'],
+  '实时': ['realtime', 'real-time'],
+  '状态': ['status', 'state'],
+  '电脑': ['computer'],
+  '桌面': ['desktop'],
+  '程序': ['program', 'application'],
+  '软件': ['software'],
+  '硬件': ['hardware'],
+  '网络': ['network'],
+  '浏览器': ['browser'],
+  '服务器': ['server'],
+  '客户端': ['client'],
+  '游戏': ['game'],
+  '小工具': ['widget', 'gadget'],
+  '可爱': ['cute'],
+  '宠物': ['pet'],
 };
 
 /**
@@ -330,21 +352,122 @@ function findZhMappings(query: string): Map<string, string[]> {
 }
 
 /**
+ * 意图前缀正则:剥离后让 translateQuery 能更专注于实词翻译。
+ *
+ * 场景:用户常输入"我想做一个 X"/"帮我写一个 Y"等自然语言句子,
+ * parseQuery 按空格拆词时整段中文(无空格)会被当作 1 个 token,
+ * 导致 suggestions 4 个变体全是同一串中文。
+ * 剥离意图前缀后,中文 token 缩短,降低噪声,翻译英文词仍能命中。
+ *
+ * 排序:长前缀在前(配合 break 只剥离一次,避免短前缀先匹配留下残字)。
+ * 只在 query 开头匹配(^),不破坏内部实词。
+ */
+const INTENT_PREFIXES: readonly RegExp[] = [
+  /^我想做一个[\s]*/,
+  /^我想要一个[\s]*/,
+  /^帮我写一个[\s]*/,
+  /^帮我做一个[\s]*/,
+  /^请帮我写[\s]*/,
+  /^请帮我做[\s]*/,
+  /^如何实现[\s]*/,
+  /^想要一个[\s]*/,
+  /^我想做[\s]*/,
+  /^我想要[\s]*/,
+  /^我需要[\s]*/,
+  /^帮我写[\s]*/,
+  /^帮我做[\s]*/,
+  /^请帮我[\s]*/,
+  /^如何[\s]*/,
+  /^帮我[\s]*/,
+  /^请帮[\s]*/,
+  /^想要[\s]*/,
+];
+
+function stripIntentPrefix(query: string): string {
+  for (const re of INTENT_PREFIXES) {
+    if (re.test(query)) {
+      return query.replace(re, '').trim();
+    }
+  }
+  return query.trim();
+}
+
+/**
+ * 兜底翻译映射:只在 ZH_TO_EN 完全未命中时启用。
+ *
+ * 设计动机:ZH_TO_EN 的 200+ 词映射表不可能覆盖所有中文,
+ * 当用户输入以非技术词为主的 query(如"我想做一个可爱宠物")时,
+ * 主表完全未命中,此时启用兜底做简单逐词替换,至少能剥离意图前缀
+ * 并保留有意义的实词,让英文搜索词变体不至于全是中文原文。
+ *
+ * 与 ZH_TO_EN 的区别:
+ * - ZH_TO_EN 收录技术词,保留原中文并追加英文
+ * - FALLBACK_ZH_EN 收录意图前缀(替换为空)+ 助词(替换为空格),做替换式翻译
+ *
+ * 注意:不加 ZH_TO_EN 已覆盖的技术词,避免重复维护。
+ */
+const FALLBACK_ZH_EN: ReadonlyArray<readonly [RegExp, string]> = [
+  // 意图前缀:剥离(替换为空)
+  [/我想做一个/g, ''],
+  [/我想要一个/g, ''],
+  [/帮我写一个/g, ''],
+  [/帮我做一个/g, ''],
+  [/如何实现/g, ''],
+  [/我想做/g, ''],
+  [/我想要/g, ''],
+  [/我需要/g, ''],
+  [/帮我写/g, ''],
+  [/帮我做/g, ''],
+  [/请帮我/g, ''],
+  [/帮我/g, ''],
+  [/如何/g, ''],
+  [/想要/g, ''],
+  // 助词/量词:替换为空格,让中文实词能被空格分割
+  [/一个/g, ' '],
+  [/的/g, ' '],
+];
+
+function applyFallback(query: string): string {
+  let result = query;
+  for (const [re, en] of FALLBACK_ZH_EN) {
+    result = result.replace(re, en);
+  }
+  return result.trim().replace(/\s+/g, ' ');
+}
+
+/**
  * 把 query 中的中文关键词翻译成英文,与原 query 合并。
  * 保留原中文(用于命中中文 README 的仓库),追加英文(扩大覆盖)。
+ *
+ * 修复(2026-07-20):加意图前缀剥离 + 兜底翻译分支,解决"用户输入自然语言
+ * 句子时 suggest_queries 4 个变体全是中文原文"的问题。
+ * - 主分支:ZH_TO_EN 命中 → 返回 stripped + 英文(stripped 已剥离意图前缀)
+ * - 兜底分支:ZH_TO_EN 完全未命中 → 用 FALLBACK_ZH_EN 做替换式翻译
+ * - 都失败:返回原文(不破坏下游)
  *
  * @example
  * translateQuery('图片水印') // '图片水印 image watermark'
  * translateQuery('markdown 解析') // 'markdown 解析 parser'
+ * translateQuery('我想做一个实时监控电脑状态的可爱宠物')
+ *   // '实时监控电脑状态的可爱宠物 realtime real-time monitor monitoring computer status state'
  */
 export function translateQuery(query: string): string {
-  const mappings = findZhMappings(query);
+  // 1. 剥离意图前缀("我想做一个 X" → "X"),降低噪声
+  const stripped = stripIntentPrefix(query);
+  // 2. 在 stripped 上做映射表翻译
+  const mappings = findZhMappings(stripped);
   const enWords = new Set<string>();
   for (const enList of mappings.values()) {
     for (const en of enList) enWords.add(en);
   }
-  if (enWords.size === 0) return query;
-  return `${query} ${[...enWords].join(' ')}`;
+  // 3. 主分支:有翻译 → 返回 stripped + 英文(stripped 已去掉意图前缀,但保留命中词的中文原文)
+  if (enWords.size > 0) {
+    return `${stripped} ${[...enWords].join(' ')}`;
+  }
+  // 4. 兜底分支:ZH_TO_EN 完全未命中,做通用词替换(剥离意图前缀 + 替换助词)
+  const fallback = applyFallback(stripped);
+  // 兜底也无效(用户输入全是意图前缀)则返回原文(保留原 query 不破坏下游)
+  return fallback || query;
 }
 
 /**

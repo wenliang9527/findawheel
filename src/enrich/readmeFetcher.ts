@@ -2,6 +2,7 @@
 import { httpGet, HttpError } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
 import { toSourceError } from '../util/sourceError.js';
+import { htmlToText } from '../util/html.js';
 
 export interface FetchReadmeOpts {
   timeoutMs: number;
@@ -30,7 +31,10 @@ export async function fetchReadme(
       retry: DEFAULT_RETRY,
     });
     const maxLines = opts.maxLines ?? 30;
-    return content.split('\n').slice(0, maxLines).join('\n');
+    const snippet = content.split('\n').slice(0, maxLines).join('\n');
+    // README 顶部常含 HTML banner/badge 块,清理为简洁 markdown 再喂给 AI 上下文。
+    // 对纯 markdown 幂等,不会破坏正文。
+    return htmlToText(snippet);
   } catch (err) {
     // 404 = 仓库无 README,返回空(不报错)
     if (err instanceof HttpError && err.status === 404) return '';

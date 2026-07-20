@@ -7,8 +7,11 @@
 //
 // 删除的机制:
 // - isMissingCoreConcept:核心词必命中 → 误杀 description 不含泛词的主流库
-// - isReverseIntent:反义词过滤 → AI 完全可以自己识别"remove watermark"
 // - coreWords/formatWords/antonymExcludes 参数 → 不再需要
+//
+// 保留的机制(软降权,非硬过滤):
+// - isReverseIntent:反向意图检测 → 在 score 阶段 *= 0.3 软降权,
+//   避免硬过滤误杀,但仍能让"add watermark" query 不被"remove watermark"结果霸榜
 
 import type { Wheel, Intent } from '../normalize/types.js';
 import { GITHUB_CODE_PATH_SEP } from '../normalize/types.js';
@@ -39,6 +42,45 @@ function isAggregateRepo(name: string, description: string): boolean {
   if (AGGREGATE_NAME_PATTERNS.some(p => text.includes(p))) return true;
   const descLower = (description ?? '').toLowerCase();
   return AGGREGATE_DESC_PATTERNS.some(p => descLower.includes(p));
+}
+
+/**
+ * 反向动词映射:如果 query 含某动词,结果含相反动词则可能是反向意图。
+ * 场景:搜 "add watermark" 时,"remove watermark" 工具是反向意图,应降权。
+ * 只覆盖常见开发场景动词,避免过度映射误伤。
+ */
+const REVERSE_VERBS: Record<string, string[]> = {
+  'add': ['remove', 'delete', 'strip', 'clear'],
+  'remove': ['add', 'insert', 'append'],
+  'install': ['uninstall', 'remove'],
+  'uninstall': ['install'],
+  'create': ['destroy', 'delete'],
+  'delete': ['create'],
+  'encrypt': ['decrypt'],
+  'decrypt': ['encrypt'],
+  'enable': ['disable'],
+  'disable': ['enable'],
+  'start': ['stop', 'kill'],
+  'stop': ['start'],
+};
+
+/**
+ * 检测反向意图:如果 query 含"add",description 含"remove"等反向动词,返回 true。
+ * 仅当 query 关键词命中 REVERSE_VERBS 的 key 时才触发检测,
+ * 避免对普通关键词(如 image/watermark)产生误判。
+ */
+function isReverseIntent(queryKeywords: string[], description: string): boolean {
+  if (queryKeywords.length === 0 || !description) return false;
+  const descLower = description.toLowerCase();
+  for (const kw of queryKeywords) {
+    const reverse = REVERSE_VERBS[kw.toLowerCase()];
+    if (reverse) {
+      for (const r of reverse) {
+        if (descLower.includes(r)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -243,7 +285,14 @@ export function score(wheel: Wheel, intent: Intent, queryKeywords: string[] = []
   }
 
   // 总分 = 基础分(<=1.0)+ bonus(<=0.5),上限 1.5
-  return stars + recency + coverage + downloads + license + bonusTotal;
+  let total = stars + recency + coverage + downloads + license + bonusTotal;
+  // 反向意图软降权:query 含"add",description 含"remove"等反向动词时,score *= 0.3
+  // 软降权(非硬过滤),避免"add watermark"被"remove watermark"结果霸榜,
+  // 同时保留 AI 调用方对边界情况的判断空间(结果仍出现在候选列表,只是排位靠后)。
+  if (wheel.description && isReverseIntent(queryKeywords, wheel.description)) {
+    total *= 0.3;
+  }
+  return total;
 }
 
 export function dedupe(wheels: Wheel[]): Wheel[] {
@@ -357,4 +406,64 @@ function applySourceDiversity(scored: { w: Wheel; s: number }[]): { w: Wheel; s:
   // 重新排序(惩罚后顺序可能变化)
   result.sort((a, b) => b.s - a.s);
   return result;
+}
+
+/**
+ * 优化5:intent 感知的源权重调整。
+ *
+ * 问题:用户传 intent="project" 时,期望优先看到 GitHub/Gitee/GitLab 完整项目,
+ * 但默认排序里 npm/crates/PyPI 包(因 downloads 高)经常压过 GitHub 项目。
+ *
+ * 规则:
+ * - project 意图:GitHub/Gitee/GitLab 仓库级 source 加成 ×1.15,
+ *   包管理器(npm/crates/pypi/rubygems/maven/gopkg)降权 ×0.85。
+ *   其他源(web/github-code/librariesio/paperswithcode/huggingface/vscode-marketplace)不变。
+ * - feature 意图:包管理器(npm/crates/pypi/rubygems/maven/gopkg)加成 ×1.15,
+ *   GitHub/Gitee/GitLab 仓库级降权 ×0.85。
+ *   feature 通常对应"某个功能用什么库实现",包管理器结果(含版本/下载量)更直接。
+ *
+ * 实现说明:作用于 enrichWithMatch 之后的 wheels(match.score 已填充),
+ * 调整 match.score 并重新降序排序。不 mutate 原数组,返回新数组。
+ *
+ * 不改 sourceRouter.ts:router 决定"搜哪些源",applyIntentBoost 决定"已搜到的怎么排序",
+ * 两者职责正交。即使 project 意图下包管理器源被路由选中(场景:npm 上有同名包),
+ * 这里通过 score 降权让 GitHub 项目排前面。
+ */
+export function applyIntentBoost(wheels: Wheel[], intent: Intent): Wheel[] {
+  if (wheels.length === 0) return wheels;
+
+  // 包管理器源集合(feature 意图加成,project 意图降权)
+  const PACKAGE_SOURCES = new Set(['npm', 'crates', 'pypi', 'rubygems', 'maven', 'gopkg']);
+  // 仓库源集合(project 意图加成,feature 意图降权)
+  const REPO_SOURCES = new Set(['github', 'gitee', 'gitlab']);
+
+  let boostFactor: (source: Wheel['source']) => number;
+  if (intent === 'project') {
+    boostFactor = (src) => {
+      if (REPO_SOURCES.has(src)) return 1.15;
+      if (PACKAGE_SOURCES.has(src)) return 0.85;
+      return 1.0;
+    };
+  } else if (intent === 'feature') {
+    boostFactor = (src) => {
+      if (PACKAGE_SOURCES.has(src)) return 1.15;
+      if (REPO_SOURCES.has(src)) return 0.85;
+      return 1.0;
+    };
+  } else {
+    return wheels;  // 兜底:未知 intent 不调整
+  }
+
+  const boosted = wheels.map(w => {
+    const factor = boostFactor(w.source);
+    if (factor === 1.0 || !w.match) return w;
+    return {
+      ...w,
+      match: { ...w.match, score: w.match.score * factor },
+    };
+  });
+
+  // 重新按 match.score 降序排序(boost 后顺序可能变化)
+  boosted.sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0));
+  return boosted;
 }

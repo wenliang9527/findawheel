@@ -127,7 +127,21 @@ export function computeMatch(
   else if (activity === 'low') activityScore = 0.05;
 
   const score = relevanceScore + popularityScore + activityScore;
-  const recommendation = gradeRecommendation(score, stars, wheel.source);
+  let recommendation = gradeRecommendation(score, stars, wheel.source);
+
+  // 优化4:关键词命中率阈值 —— 避免"高 star 但低相关"项目拿到 highly_recommended。
+  // 场景:@n8n/design-system 搜 "design system components vue" 时只命中 1/4 关键词("system"),
+  // 但因 stars 高 + activity high 总分 > 0.6 → 误判为 highly_recommended。
+  // 规则:命中率 < 50% 时,recommendation 最高降级到 optional(无论 stars 多高)。
+  // 注:hitRate=0 的项目走原有 gradeRecommendation 即可(not_recommended/optional),
+  //     此处只压制"有部分命中但不到一半"的高 star 项目。
+  if (queryKeywords.length > 0) {
+    const hitRate = matchedKeywords.length / queryKeywords.length;
+    if (hitRate < 0.5 && recommendation === 'highly_recommended') {
+      recommendation = 'optional';
+    }
+  }
+
   const reason = buildReason(wheel, matchedKeywords, queryKeywords);
   const recallReason = buildRecallReason(matchedKeywords, stars, activity);
 

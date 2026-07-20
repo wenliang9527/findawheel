@@ -11,7 +11,7 @@ import { translateQuery } from '../classifier/queryTranslator.js';
 import { routeSources, type RoutingResult } from '../classifier/sourceRouter.js';
 import { normalize } from '../normalize/normalizer.js';
 import { enrich } from '../enrich/metricsEnricher.js';
-import { rank } from '../rank/ranker.js';
+import { rank, applyIntentBoost } from '../rank/ranker.js';
 import { enrichWithMatch, REC_LABELS, REC_ORDER } from '../rank/recommender.js';
 import { readEnv } from '../util/env.js';
 import { logError, logInfo } from '../util/logger.js';
@@ -191,7 +191,8 @@ export function createFindWheelTool(opts: CreateToolOpts) {
         intent,
         total: filtered.length,
         wheels: filtered,
-        summary: buildSummary(filtered),
+        // 优化8:cache 命中路径无 degraded 信息(不缓存),instruction 不含降级提示
+        summary: buildSummary(filtered, []),
         cached: true,
         // 修复2:恢复缓存写入时的路由信息(若为旧格式缓存则无此字段,行为不变)
         ...(cachedRouting ?? {}),
@@ -217,8 +218,9 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     // 修复:exclude 不计入 cacheKey,若把过滤后的子集写入缓存,后续不传 exclude 的请求
     // 会命中缓存拿到缺失结果。改为缓存存全量,exclude 过滤在 cache.set 之后执行。
     let finalWheels = result.wheels;
-    // 混合呈现:enrichOpts 配置时对 top 10 预抓取详情,top 3 内联,4-10 加 hasDetails 标记
-    // 预抓取失败不阻断主流程(容错);缓存里存的是已内联 details 的 wheels,命中时直接返回
+    // 优化2+7:enrichOpts 配置时对 top 10 预抓取详情写缓存,所有命中 wheel 统一标记 hasDetails=true。
+    // 不再内联 details 到返回值(避免 limit=8 时返回 12.8KB),AI 按需调 get_wheel_details 懒加载。
+    // 预抓取失败不阻断主流程(容错);缓存里存的是带 hasDetails 标记的 wheels,命中时直接返回
     if (opts.enrichOpts) {
       finalWheels = await enrichTopWheels(finalWheels, opts.enrichOpts, opts.detailsCache);
     }
@@ -262,6 +264,12 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       finalWheels = finalWheels.filter(w => !shouldExclude(w, excludeSet));
     }
 
+    // 优化6:degradedSources 结构化为 {name, reason},reason 区分 rate_limited/no_api_key/error
+    const structuredDegraded = result.degraded.map(name => ({
+      name,
+      reason: getDegradedReason(name, result.rateLimited ?? []),
+    }));
+
     const output: FindWheelOutput = {
       query: input.query,
       // N12:暴露翻译后的 query,让 AI 知道实际搜了什么英文词(中文 query 翻译后可能不同)
@@ -269,8 +277,9 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       intent,
       total: finalWheels.length,
       wheels: finalWheels,
-      summary: buildSummary(finalWheels),
-      ...(result.degraded.length > 0 ? { degradedSources: result.degraded } : {}),
+      // 优化8:动态 instruction 基于 total + degraded 生成(含降级提示和反向意图提醒)
+      summary: buildSummary(finalWheels, structuredDegraded),
+      ...(structuredDegraded.length > 0 ? { degradedSources: structuredDegraded } : {}),
       ...(result.rateLimited && result.rateLimited.length > 0 ? { rateLimitedSources: result.rateLimited } : {}),
       ...routingInfo,
     };
@@ -511,18 +520,28 @@ function collectAndRank(
   queryKeywords: string[],
 ): Wheel[] {
   const ranked = rank(wheels, intent, limit, queryKeywords);
-  return enrichWithMatch(ranked, queryKeywords);
+  const enriched = enrichWithMatch(ranked, queryKeywords);
+  // 优化5:applyIntentBoost 在 enrichWithMatch 之后调用(依赖 match.score 调整源权重)。
+  // project 意图:GitHub/Gitee/GitLab 加成 ×1.15,包管理器降权 ×0.85;
+  // feature 意图:反之。重新按 match.score 降序排序。
+  return applyIntentBoost(enriched, intent);
 }
 
-/** 混合呈现:对 top 10 预抓取详情,top 3 内联 details,4-10 加 hasDetails 标记 */
-const TOP_INLINE = 3;   // top 3 内联 WheelDetails
+/**
+ * 优化2+7:不再内联 details 到返回值,所有结果统一用 hasDetails 标记。
+ * - top 10 预抓取详情写 detailsCache(供 get_wheel_details 懒加载复用,预热缓存)
+ * - top 3 仍抓 README + release(信息完整,缓存里供 get_wheel_details 返回完整信息)
+ * - top 4-10 只抓 README(减少 7 个 GitHub API 请求,N16 优化保留)
+ * - 所有命中详情的 wheel 统一标记 hasDetails=true,都不内联 details 字段
+ */
+const TOP_INLINE = 3;   // 优化2+7:不再内联,但 top 3 仍抓 release(信息完整),4-10 只抓 README
 const TOP_PREFETCH = 10; // top 10 预抓取写 details 缓存
 
 /**
- * 对排名靠前的 wheels 预抓取详情,实现混合呈现:
- * - top 3:内联 wheel.details = WheelDetails(AI 直接拿到 README 摘要/代码示例/release/license)
- * - top 4-10:加 wheel.hasDetails = true(提示 AI 可调 get_wheel_details 懒加载)
- * - 成功抓取的详情写入 detailsCache(若提供),供 get_wheel_details 工具复用,避免重复抓取
+ * 对排名靠前的 wheels 预抓取详情,实现懒加载呈现:
+ * - top 10:预抓取详情写入 detailsCache(AI 调 get_wheel_details 时秒回)
+ * - 命中详情的 wheel 标记 hasDetails=true,提示 AI 可调 get_wheel_details 懒加载
+ * - 不再把 details 内联到返回值(优化2:避免 limit=8 时返回 12.8KB;优化7:统一 hasDetails 标记)
  *
  * 容错:enrichDetails 失败或返回 null(非 GitHub 源)时,该 wheel 不加任何标记,不影响主流程。
  * 并行抓取 top 10,任一失败不阻断其他。
@@ -564,12 +583,8 @@ async function enrichTopWheels(
       }
     }
 
-    // top 3 内联 details;其余加 hasDetails 标记
-    if (i < TOP_INLINE) {
-      enriched[i] = { ...enriched[i], details };
-    } else {
-      enriched[i] = { ...enriched[i], hasDetails: true };
-    }
+    // 优化2+7:统一只标记 hasDetails=true,不内联 details(AI 按需调 get_wheel_details 懒加载)
+    enriched[i] = { ...enriched[i], hasDetails: true };
   }
   return enriched;
 }
@@ -586,8 +601,15 @@ async function enrichTopWheels(
  * 提示 AI 建议用户换更宽泛的 query 或调用 suggest_queries 工具。
  * 场景:小众领域 query 命中的全是个人项目,参考价值低,
  * 与其让用户误以为"这就是最好的",不如明确提示召回质量不高。
+ *
+ * 优化8:instruction 动态生成,基于 total + degraded 给 AI 不同的提示:
+ * - 含降级源时提示"结果可能不完整"
+ * - 始终提示"findawheel 不做相关性过滤,自行判断反向意图"
  */
-function buildSummary(wheels: Wheel[]): FindWheelOutput['summary'] {
+function buildSummary(
+  wheels: Wheel[],
+  degraded: Array<{ name: string; reason: string }> = [],
+): FindWheelOutput['summary'] {
   // 按推荐等级分组(P1-13:用 ?? [] 替代非空断言 !)
   const byLevel = new Map<string, string[]>();
   for (const w of wheels) {
@@ -621,8 +643,53 @@ function buildSummary(wheels: Wheel[]): FindWheelOutput['summary'] {
   }
 
   return {
-    instruction: `共找到 ${totalCount} 个结果。请对比 top 5 结果的 stars/lastUpdated/description,选最适合用户场景的 2-3 个推荐给用户,说明选择理由。不要只推荐 1 个,让用户有选择权。同时注意:结果可能含不相关项目(如反向意图"remove watermark"),需自行识别并跳过。`,
+    instruction: buildInstruction(totalCount, degraded),
     groups,
     ...(warning ? { warning } : {}),
   };
+}
+
+/**
+ * 优化8:基于结果数量和降级源动态生成 instruction。
+ * - 始终提示"对比 top 5 选 2-3 个,让用户有选择权"
+ * - 降级时提示"X 个源降级,结果可能不完整"
+ * - 始终提示"findawheel 不做相关性过滤,自行判断反向意图"
+ */
+function buildInstruction(
+  total: number,
+  degraded: Array<{ name: string; reason: string }>,
+): string {
+  const parts: string[] = [`共找到 ${total} 个结果`];
+
+  if (degraded.length > 0) {
+    parts.push(`${degraded.length} 个源降级(${degraded.map(d => d.name).join(', ')}),结果可能不完整`);
+  }
+
+  parts.push('请对比 top 5 的 stars/lastUpdated/description,选最适合用户场景的 2-3 个推荐给用户,说明选择理由。不要只推荐 1 个,让用户有选择权');
+  parts.push('注意:findawheel 不做相关性过滤,请自行判断是否匹配用户意图(特别是反向意图如 add/remove,需识别并跳过)');
+
+  return parts.join('。') + '。';
+}
+
+/**
+ * 优化6:推断源降级原因。
+ * - rate_limited: 该源本次请求触发了 403/429(出现在 rateLimitedSources 列表中)
+ * - no_api_key: 该源所需 API key 未配置(librariesio/web 这类必需 key 的源)
+ * - error: 其他错误(网络/解析/5xx 等,默认值)
+ *
+ * 注:github/gitlab/gitee 的 token 是可选的(匿名也可用),缺失不算 no_api_key。
+ *     librariesio 缺 key 时适配器返回空(不算 degraded),web 缺 key 时也返回空;
+ *     但若适配器实现异常抛错,此分支作为兜底诊断。
+ */
+function getDegradedReason(name: string, rateLimitedSources: string[] = []): string {
+  // 优先:本次请求内被限流(403/429)的源
+  if (rateLimitedSources.includes(name)) return 'rate_limited';
+  // 次选:必需 API key 的源且未配置
+  const requiredApiKeys: Record<string, string[]> = {
+    librariesio: ['LIBRARIES_IO_API_KEY'],
+    web: ['TAVILY_API_KEY', 'EXA_API_KEY'],
+  };
+  const envVars = requiredApiKeys[name];
+  if (envVars && !envVars.some(v => process.env[v])) return 'no_api_key';
+  return 'error';
 }

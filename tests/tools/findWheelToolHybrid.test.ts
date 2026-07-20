@@ -1,5 +1,5 @@
 // tests/tools/findWheelToolHybrid.test.ts
-// Task 7: 验证 findWheelTool 的混合呈现(top3 内联 details + top4-10 hasDetails 标记 + top10 预抓取写缓存)
+// Task 7: 验证 findWheelTool 的懒加载呈现(优化2+7:top10 预抓取写缓存 + 所有命中 wheel 统一 hasDetails 标记,不内联 details)
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 
@@ -63,8 +63,8 @@ describe('findWheelTool 混合呈现 (Task 7)', () => {
     expect(enrichDetailsMock).not.toHaveBeenCalled();
   });
 
-  it('enrichOpts 配置时 top 3 内联 details, top 4-10 加 hasDetails', async () => {
-    // 12 个结果: top3 内联, 4-10 hasDetails, 11-12 无标记
+  it('enrichOpts 配置时 top 10 都加 hasDetails, 不内联 details (优化2+7)', async () => {
+    // 12 个结果: top 1-10 hasDetails=true(预抓取成功), 11-12 无标记
     const results = ghResults(12);
     // mock enrichDetails 对每个 wheel 返回对应 details
     enrichDetailsMock.mockImplementation(async (wheel: Wheel) => fakeDetails(wheel.name));
@@ -78,18 +78,12 @@ describe('findWheelTool 混合呈现 (Task 7)', () => {
     const payload = JSON.parse(res.content[0].text);
     expect(payload.wheels).toHaveLength(12);
 
-    // top 3 应有 details
-    for (let i = 0; i < 3; i++) {
-      expect(payload.wheels[i].details).toBeDefined();
-      expect(payload.wheels[i].details.name).toBe(payload.wheels[i].name);
-      expect(payload.wheels[i].hasDetails).toBeUndefined();
-    }
-    // top 4-10 应有 hasDetails=true, 无 details
-    for (let i = 3; i < 10; i++) {
+    // 优化2+7:top 1-10 应有 hasDetails=true, 无 details(不再内联)
+    for (let i = 0; i < 10; i++) {
       expect(payload.wheels[i].hasDetails).toBe(true);
       expect(payload.wheels[i].details).toBeUndefined();
     }
-    // top 11-12 无标记
+    // top 11-12 无标记(超出 TOP_PREFETCH=10)
     for (let i = 10; i < 12; i++) {
       expect(payload.wheels[i].details).toBeUndefined();
       expect(payload.wheels[i].hasDetails).toBeUndefined();
@@ -109,12 +103,10 @@ describe('findWheelTool 混合呈现 (Task 7)', () => {
     const res = await tool.handle({ query: 'markdown editor' });
     const payload = JSON.parse(res.content[0].text);
     expect(payload.wheels).toHaveLength(5);
-    // top 3 内联, top 4-5 hasDetails
-    for (let i = 0; i < 3; i++) {
-      expect(payload.wheels[i].details).toBeDefined();
-    }
-    for (let i = 3; i < 5; i++) {
+    // 优化2+7:5 个全部 hasDetails=true, 无 details
+    for (let i = 0; i < 5; i++) {
       expect(payload.wheels[i].hasDetails).toBe(true);
+      expect(payload.wheels[i].details).toBeUndefined();
     }
     expect(enrichDetailsMock).toHaveBeenCalledTimes(5);
   });
@@ -191,18 +183,21 @@ describe('findWheelTool 混合呈现 (Task 7)', () => {
     const payload = JSON.parse(res.content[0].text);
     expect(payload.wheels).toHaveLength(5);
 
-    // index=1(c/d)失败:不加标记
+    // 优化2+7:index=1(c/d)失败:不加标记
     expect(payload.wheels[1].details).toBeUndefined();
     expect(payload.wheels[1].hasDetails).toBeUndefined();
-    // index=0,2 正常内联 details(top3 范围内)
-    expect(payload.wheels[0].details).toBeDefined();
-    expect(payload.wheels[2].details).toBeDefined();
-    // index=3,4 加 hasDetails(top4-10 范围)
+    // index=0,2,3,4 预抓取成功:hasDetails=true, 无 details
+    expect(payload.wheels[0].hasDetails).toBe(true);
+    expect(payload.wheels[0].details).toBeUndefined();
+    expect(payload.wheels[2].hasDetails).toBe(true);
+    expect(payload.wheels[2].details).toBeUndefined();
     expect(payload.wheels[3].hasDetails).toBe(true);
+    expect(payload.wheels[3].details).toBeUndefined();
     expect(payload.wheels[4].hasDetails).toBe(true);
+    expect(payload.wheels[4].details).toBeUndefined();
   });
 
-  it('缓存命中时返回带 details 的 wheels, 不重新抓取', async () => {
+  it('缓存命中时返回带 hasDetails 的 wheels, 不重新抓取', async () => {
     const dir = makeTmpDir('fw-hybrid');
     const searchCache = createCache({ dir, ttlMs: 3600000, enabled: true });
     const results = ghResults(5);
@@ -216,7 +211,9 @@ describe('findWheelTool 混合呈现 (Task 7)', () => {
     });
     const first = await tool.handle({ query: 'markdown editor' });
     const firstPayload = JSON.parse(first.content[0].text);
-    expect(firstPayload.wheels[0].details).toBeDefined();
+    // 优化2+7:第一次返回 hasDetails=true, 无 details
+    expect(firstPayload.wheels[0].hasDetails).toBe(true);
+    expect(firstPayload.wheels[0].details).toBeUndefined();
     expect(enrichDetailsMock).toHaveBeenCalledTimes(5);
 
     // 第二次调用:应命中搜索缓存,不调 enrichDetails
@@ -224,9 +221,9 @@ describe('findWheelTool 混合呈现 (Task 7)', () => {
     const second = await tool.handle({ query: 'markdown editor' });
     const secondPayload = JSON.parse(second.content[0].text);
     expect(secondPayload.cached).toBe(true);
-    // 缓存的 wheels 应保留 details 字段
-    expect(secondPayload.wheels[0].details).toBeDefined();
-    expect(secondPayload.wheels[0].details.name).toBe(firstPayload.wheels[0].details.name);
+    // 缓存的 wheels 应保留 hasDetails 标记
+    expect(secondPayload.wheels[0].hasDetails).toBe(true);
+    expect(secondPayload.wheels[0].details).toBeUndefined();
     // 不应再次调 enrichDetails
     expect(enrichDetailsMock).not.toHaveBeenCalled();
 

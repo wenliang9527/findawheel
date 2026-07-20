@@ -59,7 +59,8 @@ describe('findWheelTool.handle', () => {
     expect(res.isError).toBeFalsy();
     const payload = JSON.parse(res.content[0].text);
     expect(payload.wheels).toHaveLength(1);
-    expect(payload.degradedSources).toEqual(['registry']);
+    // 优化6:degradedSources 是 {name, reason} 结构,registry 失败原因默认 'error'
+    expect(payload.degradedSources).toEqual([{ name: 'registry', reason: 'error' }]);
   });
 
   it('returns isError when all adapters fail', async () => {
@@ -205,7 +206,8 @@ describe('findWheelTool.handle', () => {
     const res = await tool.handle({ query: 'markdown editor' });
     expect(res.isError).toBeFalsy();
     const output = JSON.parse(res.content[0].text);
-    expect(output.degradedSources).toContain('gitee');
+    // 优化6:degradedSources 是 {name, reason} 结构,gitee 失败原因默认 'error'
+    expect(output.degradedSources.find((d: { name: string }) => d.name === 'gitee')).toBeDefined();
     expect(output.wheels.length).toBeGreaterThan(0);
   });
 

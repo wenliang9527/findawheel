@@ -85,9 +85,10 @@ export function createSuggestQueriesTool() {
       };
     }
 
-    const parsed = parseQuery(input.query);
-    const intent = classify(input.query, 'auto');
     const translated = translateQuery(input.query);
+    const intent = classify(input.query, 'auto');
+    // parseQuery 解析翻译后的英文(空格分词),而非原始中文(无空格,token 不准)
+    const parsed = parseQuery(translated);
 
     // 生成 4 个角度的搜索词
     const suggestions: QuerySuggestion[] = [

@@ -210,7 +210,8 @@ describe('G 阶段:实战验证', () => {
       expect(res.isError).toBeFalsy();
       expect(payload.wheels).toHaveLength(1);
       expect(payload.wheels[0].name).toBe('a/ml-lib');
-      expect(payload.degradedSources).toContain('huggingface');
+      // 优化6:degradedSources 是 {name, reason} 数组,检查 name 字段包含 'huggingface'
+      expect(payload.degradedSources.map((d: { name: string }) => d.name)).toContain('huggingface');
     });
   });
 });

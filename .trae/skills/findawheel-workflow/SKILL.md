@@ -33,6 +33,7 @@ Four failure modes when AI skips the search:
 ## Standard Workflow
 
 ```
+Step 0: search_knowledge  →  (optional) Check local notes
 Step 1: suggest_queries  →  Generate 4 search-term variants (English)
 Step 2: find_wheel       →  Search with recommended variant
 Step 3: Compare top 5    →  Evaluate by stars/lastUpdated/description
@@ -40,6 +41,24 @@ Step 4: Recommend 2-3    →  Present options to user with reasons
 Step 5: record_feedback  →  Record user's like/hide/click
 Step 6: Code              →  Only after user picks or confirms reuse
 ```
+
+### Step 0: Check local knowledge (optional but recommended)
+
+Before searching the web, check if the user has a personal knowledge base configured:
+
+- If `FINDAWHEEL_KB_ENABLED=true` and `FINDAWHEEL_KB_ROOT` is set, call `search_knowledge` first
+- This searches the user's local Markdown notes (Obsidian/Logseq/plain .md folders)
+- If relevant notes found, incorporate them into your recommendations
+- If no KB configured or no results, proceed to Step 1
+
+**When to call search_knowledge:**
+- User says "查笔记里关于 X" / "team wiki about X" / "内部文档"
+- User mentions internal docs, team conventions, or personal notes
+- You want to cross-reference open-source options with internal practices
+
+**When NOT to call:**
+- User asks about public/open-source libraries (use `find_wheel` instead)
+- No FINDAWHEEL_KB_ENABLED or FINDAWHEEL_KB_ROOT configured
 
 ### Step 1: Generate search terms (suggest_queries)
 
