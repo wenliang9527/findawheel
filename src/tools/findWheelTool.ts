@@ -409,7 +409,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     // Phase 6 简化:删除领域泛词过滤和 coreWords 过滤。
     // 相关性判断交给 AI 调用方 —— AI 看到 top N 结果后自己挑最适合的。
     // 硬规则过滤(isMissingCoreConcept)容易误杀主流库,得不偿失。
-    let rankedWithMatch = collectAndRank(wheels, intent, limit, queryKeywords);
+    let rankedWithMatch = collectAndRank(wheels, intent, limit, queryKeywords, input.query);
 
     // ===== 兜底扩展:召回不足时搜索被跳过的源 =====
     // 严格阈值:top 1 stars < 阈值 或总结果 < 阈值 条 → 扩展到全源重搜
@@ -468,7 +468,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
           // 主结果 rankedWithMatch 保持不变,扩展结果独立 collectAndRank 得 extRanked,
           // 合并后只做轻量 dedupe(按 name toLowerCase)+ 一次 sort(按 match.score)。
           const extWheels = extRaw.map(w => enrich(normalize(w)));
-          const extRanked = collectAndRank(extWheels, intent, limit, queryKeywords);
+          const extRanked = collectAndRank(extWheels, intent, limit, queryKeywords, input.query);
           // 跨主+扩展的重复项处理:按 name toLowerCase 轻量 dedupe
           // (两边各自已过 ranker 的完整 dedupe,跨边界重复只可能是同名,如主搜 github 返回 a/b
           //  而扩展搜 gitee 也返回同名 a/b)
@@ -518,8 +518,9 @@ function collectAndRank(
   intent: Intent,
   limit: number,
   queryKeywords: string[],
+  query: string,
 ): Wheel[] {
-  const ranked = rank(wheels, intent, limit, queryKeywords);
+  const ranked = rank(wheels, intent, limit, queryKeywords, query);
   const enriched = enrichWithMatch(ranked, queryKeywords);
   // 优化5:applyIntentBoost 在 enrichWithMatch 之后调用(依赖 match.score 调整源权重)。
   // project 意图:GitHub/Gitee/GitLab 加成 ×1.15,包管理器降权 ×0.85;

@@ -136,15 +136,16 @@ Top 3 results already have `details` inlined — no need to call `get_wheel_deta
 
 ### Match Score Components
 
-findawheel's ranking (total ≤ 1.5):
+findawheel's ranking (total ≤ 1.55):
 
 ```
-Base score (≤1.0):
-  coverage   × 0.3   ← description hits query keywords (highest weight, avoids high-star-but-irrelevant)
-  stars      × 0.3   ← community validation (normalized to 50000)
+Base score (≤1.05):
+  coverage   × 0.4   ← description hits query keywords (highest weight, avoids high-star-but-irrelevant)
+  stars      × 0.25  ← community validation (normalized to 50000)
   recency    × 0.2   ← continuous decay: 1yr=1.0, 1-3yr linear to 0.1
   downloads  × 0.1   ← popularity (per-source denominator)
   license    × 0.05  ← has license = 1.0
+  + downloads bonus 0.05 for packages with >100k downloads (downloads cap 0.15)
 
 Bonus (≤0.5):
   descBonus    × 0.15  ← description keyword hit rate
@@ -173,12 +174,12 @@ If user has previously given feedback, `match.feedbackDelta` shows the adjustmen
 | Tool | Purpose | When |
 |------|---------|------|
 | `suggest_queries` | Generate 4 English search-term variants | Before `find_wheel`, when unsure how to construct query |
-| `find_wheel` | Search 14 data sources for existing wheels | **First action** when user wants to build/create something |
+| `find_wheel` | Search 15 data sources for existing wheels | **First action** when user wants to build/create something |
 | `get_wheel_details` | Fetch README/code examples/release/license | When result has `hasDetails: true` (ranks 4-10) |
 | `record_feedback` | Record user's like/hide/click | After presenting results, based on user reaction |
 | `search_knowledge` | Search local Markdown knowledge base | When user asks about internal docs/notes (requires `FINDAWHEEL_KB_ENABLED=true`) |
 
-## Data Sources (14)
+## Data Sources (15)
 
 findawheel searches these in parallel (with intelligent routing to save API quota):
 

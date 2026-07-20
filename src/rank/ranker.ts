@@ -68,19 +68,40 @@ const REVERSE_VERBS: Record<string, string[]> = {
  * 检测反向意图:如果 query 含"add",description 含"remove"等反向动词,返回 true。
  * 仅当 query 关键词命中 REVERSE_VERBS 的 key 时才触发检测,
  * 避免对普通关键词(如 image/watermark)产生误判。
+ *
+ * 优化12:新增 "X to Y" 反向检测(见 isReverseToIntent),覆盖
+ * "html to pdf" 搜出 "Convert PDF to HTML" 这类反向场景。
  */
-function isReverseIntent(queryKeywords: string[], description: string): boolean {
-  if (queryKeywords.length === 0 || !description) return false;
+function isReverseIntent(queryKeywords: string[], description: string, query: string = ''): boolean {
+  if (!description) return false;
   const descLower = description.toLowerCase();
-  for (const kw of queryKeywords) {
-    const reverse = REVERSE_VERBS[kw.toLowerCase()];
-    if (reverse) {
-      for (const r of reverse) {
-        if (descLower.includes(r)) return true;
+  if (queryKeywords.length > 0) {
+    for (const kw of queryKeywords) {
+      const reverse = REVERSE_VERBS[kw.toLowerCase()];
+      if (reverse) {
+        for (const r of reverse) {
+          if (descLower.includes(r)) return true;
+        }
       }
     }
   }
+  // 优化12:X to Y 反向检测(用户要 "html to pdf",结果含 "pdf to html" 则反向)
+  if (query && isReverseToIntent(query, description)) return true;
   return false;
+}
+
+/**
+ * 检测 "X to Y" vs "Y to X" 的反向意图。
+ * 用户搜 "html to pdf",结果描述含 "pdf to html" / "pdf2html" / "pdf→html" 则是反向。
+ * 仅当 query 含明确的 "X to Y" 模式时才触发,避免误判普通 "to" 介词。
+ */
+function isReverseToIntent(query: string, description: string): boolean {
+  const queryToMatch = query.match(/(\w+)\s+to\s+(\w+)/i);
+  if (!queryToMatch) return false;
+  const [, from, to] = queryToMatch;
+  // description 含 "Y to X" / "Y2X" / "Y→X" 即视为反向
+  const reversePattern = new RegExp(`\\b${to}\\s*(?:to|2|→)\\s*${from}\\b`, 'i');
+  return reversePattern.test(description);
 }
 
 /**
@@ -89,6 +110,8 @@ function isReverseIntent(queryKeywords: string[], description: string): boolean 
  * - 超过 3 年未更新
  * - 无描述且无任何热度信号(stars/downloads/lastUpdated 都缺)
  * - 聚合类仓库(awesome-xxx、public-apis 等)
+ * - TypeScript 类型定义包(@types/*)——不是运行时库,
+ *   且 npm registry 的 stars 数据常从主包复制(假数据),不应作为主推荐
  *
  * 注:时间取值用 Date.now() 调用时取值,不用模块级常量 ——
  * MCP server 是长期运行的 stdio 进程,模块加载时固定的 NOW 会随运行时间漂移。
@@ -124,6 +147,11 @@ export function filterOut(wheel: Wheel): boolean {
 
   // 过滤聚合类仓库(awesome-xxx、public-apis 等)
   if (isAggregateRepo(wheel.name, wheel.description)) return true;
+
+  // 过滤 TypeScript 类型定义包(@types/*):不是运行时库,
+  // 且 npm registry 的 stars 数据常从主包复制(不可靠,如 @types/html-pdf-node stars=51352 与主包一致)。
+  // 类型定义包对用户选库决策没有帮助,直接剔除。
+  if (wheel.name.startsWith('@types/')) return true;
 
   return false;
 }
@@ -246,12 +274,14 @@ function recencyScore(lastUpdated?: string): number {
 // 原本 activity 和 recency 都基于 lastUpdated,存在重复计分。
 // 现在统一用 recency 的连续衰减函数,不再需要 activity 的阶梯式映射。
 
-export function score(wheel: Wheel, intent: Intent, queryKeywords: string[] = []): number {
+export function score(wheel: Wheel, intent: Intent, queryKeywords: string[] = [], query: string = ''): number {
   const m = wheel.metrics;
 
   // ===== P0-2:基础分(归一化到 1.0)+ bonus(上限 0.5)结构 =====
   // 基础分:项目质量与活跃度信号,各项相加 = 1.0
   //   stars 0.25 + recency 0.2 + coverage 0.4 + downloads 0.1 + license 0.05
+  //   + downloads bonus 0.05(高 downloads 包,>100k 时触发,cap 0.15)
+  //   即基础分上限 = 1.05(downloads 满分场景下)
   // bonus:query 相关性加分,独立叠加,合并上限 0.5
   //   descBonus(0.15)+ nameBonus(0.15)+ phraseBonus(0.1)+ topicsBonus(0.1)
 
@@ -259,6 +289,13 @@ export function score(wheel: Wheel, intent: Intent, queryKeywords: string[] = []
   const recency = recencyScore(m.lastUpdated) * 0.2;
   // R4:downloads 分母从 100000 提到 1000000(覆盖百万级周下载量包)
   let downloads = normalize(m.downloads, 1000000) * 0.1;
+  // 优化18:高 downloads bonus —— 超过 100k downloads 的包加额外 0.05 分(cap 0.15)。
+  // 场景:npm 包 downloads 达百万级时,normalize 后已是 0.1 满分,无法体现"极流行"优势;
+  // 加 0.05 bonus 让 100k+ 包在排序里略胜 50k 包,避免中量级包与极流行包同分。
+  // 系数保守(0.05),避免 npm 包刷分压制 GitHub 项目。
+  if (m.downloads && m.downloads > 100000) {
+    downloads += 0.05;  // 额外 bonus,downloads 总上限 0.15
+  }
   const license = m.license ? 0.05 : 0;
   // coverage 是基础分里的相关性信号(描述全词覆盖率)
   const coverage = queryCoverage(wheel, queryKeywords) * 0.4;
@@ -289,7 +326,7 @@ export function score(wheel: Wheel, intent: Intent, queryKeywords: string[] = []
   // 反向意图软降权:query 含"add",description 含"remove"等反向动词时,score *= 0.3
   // 软降权(非硬过滤),避免"add watermark"被"remove watermark"结果霸榜,
   // 同时保留 AI 调用方对边界情况的判断空间(结果仍出现在候选列表,只是排位靠后)。
-  if (wheel.description && isReverseIntent(queryKeywords, wheel.description)) {
+  if (wheel.description && isReverseIntent(queryKeywords, wheel.description, query)) {
     total *= 0.3;
   }
   return total;
@@ -366,11 +403,12 @@ export function rank(
   intent: Intent,
   limit: number,
   queryKeywords: string[] = [],
+  query: string = '',
 ): Wheel[] {
   const filtered = wheels.filter(w => !filterOut(w));
   const deduped = dedupe(filtered);
   const scored = deduped
-    .map(w => ({ w, s: score(w, intent, queryKeywords) }))
+    .map(w => ({ w, s: score(w, intent, queryKeywords, query) }))
     .sort((a, b) => b.s - a.s);
   // P1-1:同源多样性惩罚(连续 4+ 同源后,第 4 次起 score*=0.9),避免单一源霸榜
   const diversified = applySourceDiversity(scored);
@@ -419,8 +457,11 @@ function applySourceDiversity(scored: { w: Wheel; s: number }[]): { w: Wheel; s:
  *   包管理器(npm/crates/pypi/rubygems/maven/gopkg)降权 ×0.85。
  *   其他源(web/github-code/librariesio/paperswithcode/huggingface/vscode-marketplace)不变。
  * - feature 意图:包管理器(npm/crates/pypi/rubygems/maven/gopkg)加成 ×1.15,
- *   GitHub/Gitee/GitLab 仓库级降权 ×0.85。
- *   feature 通常对应"某个功能用什么库实现",包管理器结果(含版本/下载量)更直接。
+ *   GitHub/Gitee/GitLab 仓库级按 stars 分级处理:
+ *   - 高 stars(>1000):不降权(保留 1.0),让流行 GitHub 库仍能出现在 feature 结果里
+ *   - 低 stars(≤1000):降权 ×0.85,避免低质量 GitHub 项目压制包管理器结果
+ *   feature 通常对应"某个功能用什么库实现",包管理器结果(含版本/下载量)更直接,
+ *   但高 stars GitHub 项目(如 5k+ stars 流行库)本身也是可靠的 feature 候选。
  *
  * 实现说明:作用于 enrichWithMatch 之后的 wheels(match.score 已填充),
  * 调整 match.score 并重新降序排序。不 mutate 原数组,返回新数组。
@@ -437,25 +478,28 @@ export function applyIntentBoost(wheels: Wheel[], intent: Intent): Wheel[] {
   // 仓库源集合(project 意图加成,feature 意图降权)
   const REPO_SOURCES = new Set(['github', 'gitee', 'gitlab']);
 
-  let boostFactor: (source: Wheel['source']) => number;
-  if (intent === 'project') {
-    boostFactor = (src) => {
-      if (REPO_SOURCES.has(src)) return 1.15;
-      if (PACKAGE_SOURCES.has(src)) return 0.85;
-      return 1.0;
-    };
-  } else if (intent === 'feature') {
-    boostFactor = (src) => {
-      if (PACKAGE_SOURCES.has(src)) return 1.15;
-      if (REPO_SOURCES.has(src)) return 0.85;
-      return 1.0;
-    };
-  } else {
-    return wheels;  // 兜底:未知 intent 不调整
-  }
+  // 优化19:feature 意图下高 stars 仓库源的阈值,超过此值不降权
+  const FEATURE_REPO_HIGH_STARS_THRESHOLD = 1000;
 
   const boosted = wheels.map(w => {
-    const factor = boostFactor(w.source);
+    let factor = 1.0;
+    if (intent === 'project') {
+      if (REPO_SOURCES.has(w.source)) {
+        factor = 1.15;
+      } else if (PACKAGE_SOURCES.has(w.source)) {
+        factor = 0.85;
+      }
+    } else if (intent === 'feature') {
+      if (PACKAGE_SOURCES.has(w.source)) {
+        factor = 1.15;
+      } else if (REPO_SOURCES.has(w.source)) {
+        // 优化19:高 stars GitHub/Gitee/GitLab 项目不降权(流行库也是 feature 候选)
+        const stars = w.metrics.stars ?? 0;
+        factor = stars > FEATURE_REPO_HIGH_STARS_THRESHOLD ? 1.0 : 0.85;
+      }
+    } else {
+      return w;  // 兜底:未知 intent 不调整
+    }
     if (factor === 1.0 || !w.match) return w;
     return {
       ...w,

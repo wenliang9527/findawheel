@@ -217,8 +217,9 @@ describe('score', () => {
     expect(s).toBeLessThanOrEqual(1.0);
   });
 
-  it('P0-2: total score never exceeds 1.5 (base 1.0 + bonus 0.5)', () => {
+  it('P0-2: total score never exceeds 1.55 (base 1.05 + bonus 0.5)', () => {
     // 极端情况:stars 满 + recency 满 + coverage 满 + downloads 满 + license 满 + 所有 bonus 满
+    // 优化18:downloads > 100k 触发 +0.05 bonus,downloads 总上限 0.15,基础分上限 1.05
     const w = makeWheel({
       name: 'ai-coding-monitor-assistant',
       description: 'ai coding monitor assistant status tracking dashboard observer watcher tracker',
@@ -227,15 +228,15 @@ describe('score', () => {
     });
     const keywords = ['ai', 'coding', 'monitor', 'assistant', 'status', 'tracking'];
     const s = score(w, 'project', keywords);
-    // 总分上限 = 基础分 1.0 + bonus 0.5 = 1.5
-    expect(s).toBeLessThanOrEqual(1.5);
+    // 总分上限 = 基础分 1.05(含 downloads bonus)+ bonus 0.5 = 1.55
+    expect(s).toBeLessThanOrEqual(1.55);
     expect(s).toBeGreaterThan(1.0); // 有命中,bonus > 0
   });
 
   it('P0-2: bonus is capped at 0.5 even when all bonus items hit max', () => {
-    // 验证方式:让所有 bonus 项都能命中,总分不应超过 1.5(基础分 1.0 + bonus 上限 0.5)
+    // 验证方式:让所有 bonus 项都能命中,总分不应超过 1.55(基础分 1.05 + bonus 上限 0.5)
     // 如果 bonus 没有上限,descBonus(0.15)+ nameBonus(0.15)+ phraseBonus(0.1)+ topicsBonus(0.1)= 0.5
-    // 加上基础分 1.0 = 1.5,刚好等于上限
+    // 加上基础分 1.05(含 downloads bonus)= 1.55,刚好等于上限
     const w = makeWheel({
       name: 'lodash-parser',
       description: 'lodash parser snippet example implementation function',
@@ -244,8 +245,8 @@ describe('score', () => {
     });
     const keywords = ['lodash', 'parser', 'snippet', 'example', 'function'];
     const s = score(w, 'project', keywords);
-    // 总分应 <= 1.5(bonus 上限 0.5 + 基础分上限 1.0)
-    expect(s).toBeLessThanOrEqual(1.5 + 0.001); // 允许浮点误差
+    // 总分应 <= 1.55(bonus 上限 0.5 + 基础分上限 1.05,含 downloads bonus)
+    expect(s).toBeLessThanOrEqual(1.55 + 0.001); // 允许浮点误差
     expect(s).toBeGreaterThan(1.0); // 有命中,bonus > 0
   });
 

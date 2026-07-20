@@ -363,20 +363,41 @@ function findZhMappings(query: string): Map<string, string[]> {
  * 只在 query 开头匹配(^),不破坏内部实词。
  */
 const INTENT_PREFIXES: readonly RegExp[] = [
+  // 优化 14:扩展编程场景前缀(加功能/添加/实现/集成/接入)。
+  // 长前缀优先(配合 break 只剥离一次,避免短前缀先匹配留下残字)。
+  // 7 字符:"我想在项目里加"/"我想在代码里加"
+  /^我想在项目里加[\s]*/,
+  /^我想在代码里加[\s]*/,
+  // 6 字符通配:兜底匹配"我想在 X 里加"(如"我想在工程里加"/"我想在仓库里加")
+  // 放在具体模式之后,具体模式优先命中
+  /^我想在.*里加[\s]*/,
+  // 5 字符
   /^我想做一个[\s]*/,
   /^我想要一个[\s]*/,
   /^帮我写一个[\s]*/,
   /^帮我做一个[\s]*/,
+  /^我想加一个[\s]*/,
+  /^帮我加一个[\s]*/,
+  // 4 字符
   /^请帮我写[\s]*/,
   /^请帮我做[\s]*/,
   /^如何实现[\s]*/,
   /^想要一个[\s]*/,
+  /^请帮我加[\s]*/,
+  /^我想实现[\s]*/,
+  /^帮我实现[\s]*/,
+  /^我想集成[\s]*/,
+  /^帮我集成[\s]*/,
+  /^我想接入[\s]*/,
+  /^帮我添加[\s]*/,
+  // 3 字符
   /^我想做[\s]*/,
   /^我想要[\s]*/,
   /^我需要[\s]*/,
   /^帮我写[\s]*/,
   /^帮我做[\s]*/,
   /^请帮我[\s]*/,
+  // 2 字符
   /^如何[\s]*/,
   /^帮我[\s]*/,
   /^请帮[\s]*/,
@@ -436,6 +457,28 @@ function applyFallback(query: string): string {
 }
 
 /**
+ * 优化15:句式翻译 —— 把 "X转成Y" / "X转Y" / "X转换Y" / "X转换为Y" / "把X变成Y"
+ * 翻译成英文 "X to Y" 句式,覆盖中文描述转换场景的常见说法。
+ *
+ * 场景:用户搜 "HTML转成PDF" 时,只做词级翻译会得到 "HTML 转成 PDF",
+ * 没有产生 "to" 句式,英文生态(GitHub/Stack Overflow)里 "html to pdf" 才是高频说法。
+ *
+ * 实现:\w 只匹配 [A-Za-z0-9_],所以 X/Y 限定为英文/数字技术词
+ * (如 HTML/PDF/JSON/CSV),不处理中文 X/Y(避免与 ZH_TO_EN 词级翻译冲突)。
+ *
+ * 顺序:更具体的(转换为/转换/转成)在前,最宽泛的(转)最后,
+ * 避免短模式先匹配导致长模式失配。
+ */
+function translateConversionPatterns(text: string): string {
+  return text
+    .replace(/(\w+)\s*转换为\s*(\w+)/g, '$1 to $2')
+    .replace(/(\w+)\s*转换\s*(\w+)/g, '$1 to $2')
+    .replace(/(\w+)\s*转成\s*(\w+)/g, '$1 to $2')
+    .replace(/(\w+)\s*转\s*(\w+)/g, '$1 to $2')
+    .replace(/把\s*(\w+)\s*变成\s*(\w+)/g, '$1 to $2');
+}
+
+/**
  * 把 query 中的中文关键词翻译成英文,与原 query 合并。
  * 保留原中文(用于命中中文 README 的仓库),追加英文(扩大覆盖)。
  *
@@ -453,7 +496,9 @@ function applyFallback(query: string): string {
  */
 export function translateQuery(query: string): string {
   // 1. 剥离意图前缀("我想做一个 X" → "X"),降低噪声
-  const stripped = stripIntentPrefix(query);
+  let stripped = stripIntentPrefix(query);
+  // 1.5 优化15:句式翻译 "X转成Y" → "X to Y"(覆盖英文技术词之间的中文转换表述)
+  stripped = translateConversionPatterns(stripped);
   // 2. 在 stripped 上做映射表翻译
   const mappings = findZhMappings(stripped);
   const enWords = new Set<string>();
