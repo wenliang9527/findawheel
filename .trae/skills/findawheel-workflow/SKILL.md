@@ -65,9 +65,10 @@ Before searching the web, check if the user has a personal knowledge base config
 **Critical**: Do NOT pass the user's original words directly to `find_wheel`. findawheel expects **English search terms**.
 
 - If user said "我想做一个图片去水印工具", call `suggest_queries` with the original query
-- findawheel translates Chinese to English internally (200+ word mapping table)
+- findawheel translates Chinese to English internally (250+ word mapping table, including Chinese internet platforms like 小红书→xiaohongshu/rednote and embedded motion-control terms like s型加减速→s-curve-acceleration)
+- Intent prefix auto-stripped: 我想要/我想做/我要在我的X中增加/帮我做... → only the substantive content remains
 - Pick the `recommended` variant from the output (usually `action_oriented`)
-- If output includes `recommendedEcosystem` (e.g., `arduino` for hardware queries), pass it to `find_wheel`'s `ecosystem` parameter
+- If output includes `recommendedEcosystem` (e.g., `arduino` for hardware queries, `cpp` for STM32/ESP32), pass it to `find_wheel`'s `ecosystem` parameter
 
 ### Step 2: Search (find_wheel)
 
@@ -93,7 +94,12 @@ Evaluate results by these signals (findawheel does NOT hard-filter, you must jud
 | `metrics.license` | MIT/Apache-2.0 = permissive; GPL = copyleft (may contaminate your project) |
 | `description` | Does it actually match the user's intent? Watch for reverse-intent (e.g., "remove watermark" when user wants to add watermark) |
 
-**Beware reverse intent**: findawheel does NOT filter by relevance. If user wants "add watermark", results may include "remove watermark" tools. You must identify and skip these.
+**Beware reverse intent**: findawheel does NOT filter by relevance. If user wants "add watermark", results may include "remove watermark" tools. You must identify and skip these. findawheel's ranker also soft-penalizes reverse-intent results (score × 0.3), but it does NOT hard-filter them — manual judgment is still required.
+
+**Reverse intent detection in findawheel** (soft penalty, not hard filter):
+- Verb-based: query has "add" → results with "remove/delete/strip" in description are soft-penalized
+- Conversion pattern: query "X to Y" (e.g., "html to pdf") → results with "Y to X" / "Y2X" (e.g., "pdf to html") are soft-penalized
+- Low hit rate: results matching <50% of query keywords have their stars weight ×0.2 (prevents high-star irrelevant items from dominating)
 
 ### Step 4: Recommend 2-3 options
 

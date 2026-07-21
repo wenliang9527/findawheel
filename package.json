@@ -2,6 +2,7 @@
   "name": "findawheel",
   "version": "0.1.0",
   "description": "MCP service that finds existing reusable wheels to avoid reinventing the wheel",
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

@@ -148,7 +148,11 @@ AI 客户端通过 MCP 协议发送 `tools/call` 请求：
 
 信号词多的一方胜出；打平或都没命中时默认 `project`（更安全的回退）。
 
-> 💡 **中文翻译**：QueryParser 内部调用 `queryTranslator`，内置 200+ 词的中英技术术语映射表（如"图片"→"image"、"水印"→"watermark"），中文 query 会被翻译成英文后再拆解。
+> 💡 **中文翻译**：QueryParser 内部调用 `queryTranslator`，内置 **250+ 词**的中英技术术语映射表（如"图片"→"image"、"水印"→"watermark"、"小红书"→"xiaohongshu/rednote"、"s型加减速"→"s-curve-acceleration"、"步进电机"→"stepper-motor"），中文 query 会被翻译成英文后再拆解。
+
+> 🔧 **意图前缀剥离**（优化 25/29/31）：`queryTranslator` 内置 40+ 个前缀正则模式，支持 `我想做`/`我想做个`/`我想做一个`/`我想要一个`/`我要在我的X中增加/添加/加`/`帮我做`/`如何实现` 等模式。其中 `我要在我的.+中(?:增加|添加|加)` 用通配匹配任意中间词（如 "我要在我的stm32单片机程序中增加"），不再枚举所有变体。剥离后只保留实词，避免中文整句污染搜索。
+
+**词边界匹配**（优化 25）：翻译表的英文大写缩写 key（如 `ORM`/`SPI`/`HTTP`）要求**词边界匹配**（前后字符非 `[a-z0-9]`），避免 `platform` 误匹配 `orm` 子串。中文 key 保持子串匹配（中文无词边界概念）。
 
 ### 步骤 2.5️⃣ 智能数据源路由（Source Router）
 
@@ -295,6 +299,9 @@ P0-2 重构后采用**基础分归一化 + bonus 叠加**结构，总分上限 1
 
 **额外调整**：
 - **高 star 零命中降权**：stars 高但 query 关键词一个都没命中，`stars` 权重 ×0.3（Phase 6 强化为更激进的下沉，原 0.7）
+- **低命中率降权**（优化 20/23）：query 关键词命中率 < 50% 时，`stars` 权重 ×0.2（强降权，避免高 star 低相关项目霸榜。场景：搜 "html to pdf" 时 `apify/crawlee` 24821★ 只命中 1/4 关键词，不应靠 star 霸榜）
+- **反向意图软降权**（优化 12）：query 含 `add`/`remove`/`encrypt`/`decrypt` 等反向动词对，或 query 是 `X to Y` 格式但结果描述含 `Y to X`/`Y2X` 时，总分 ×0.3（软降权，非硬过滤）
+- **转换模式 bonus**（优化 24）：query 是 "X to Y" 格式时，description 含 `X-to-Y`/`X2Y`/`X→Y` 加 0.25 分
 - **意图调整**：当 `intent=feature` 时，`stars` 权重 ×0.7、`downloads` 权重 ×1.5
 
 > ℹ️ **P0-3 简化**：删除了 `activityScore`（原 0.2 权重），因为它和 `recencyScore` 都基于 `lastUpdated`，存在重复计分。现在统一用 `recency` 的连续衰减函数（无阶梯跳跃）。
@@ -983,10 +990,10 @@ interface SuggestQueriesOutput {
 推荐规则优先级：
 1. 用户显式传 `ecosystem` 参数 → 用用户的（不覆盖）
 2. `parseQuery` 从 query 识别出 ecosystem（如 "python 库" → python）→ 用识别到的
-3. 硬件关键词检测：
-   - 含 `arduino` → `arduino`
-   - 含 `esp32`/`stm32`/`raspberry`/`microcontroller`/`mcu`/`embedded`/`hal`/`gpio` → `cpp`
-   - 含通用硬件词（`stepper`/`motor`/`servo`/`encoder`/`pwm`/`pulse`/`driver`）→ 默认 `arduino`（Arduino 生态库最丰富）
+3. 硬件关键词检测（**双 query 检测**,优化 32）：
+   - **优先用原始 query 检测**：识别平台关键词 `arduino` → `arduino`;`esp32`/`stm32`/`raspberry`/`microcontroller`/`mcu`/`embedded`/`hal`/`gpio` → `cpp`
+   - **失败则用 translated query 兜底检测**：识别翻译后的通用硬件词 `stepper`/`motor`/`servo`/`encoder`/`pwm`/`pulse`/`driver` → 默认 `arduino`（Arduino 生态库最丰富）
+   - 双检测原因：意图前缀剥离会丢失平台关键词（如 "我要在我的stm32程序中增加" → translated 丢失 `stm32`），需用原始 query 兜底识别；纯中文输入（如 "步进电机驱动器"）只在翻译后才出现 `stepper`/`motor`/`driver`，需用 translated 兜底识别
 
 > 💡 AI 应在用户表达模糊需求时先调 `suggest_queries`，选最合适的变体再调 `find_wheel`。若输出包含 `recommendedEcosystem`，必须传给 `find_wheel` 的 `ecosystem` 参数。
 
