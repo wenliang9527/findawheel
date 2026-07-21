@@ -304,6 +304,31 @@ const ZH_TO_EN: Record<string, string[]> = {
   '小工具': ['widget', 'gadget'],
   '可爱': ['cute'],
   '宠物': ['pet'],
+
+  // D. 中国互联网平台名(2026-07-20)
+  // 场景:用户想"搜索小红书/微博信息"时,需要把中文平台名翻译为英文搜索词。
+  // 这些平台在 GitHub 上通常用英文名作为仓库名或 topic。
+  '小红书': ['xiaohongshu', 'rednote', 'little-red-book'],
+  '微博': ['weibo'],
+  '抖音': ['douyin', 'tiktok'],
+  '快手': ['kuaishou', 'kuaishou-video'],
+  'B站': ['bilibili'],
+  '哔哩哔哩': ['bilibili'],
+  '知乎': ['zhihu'],
+  '豆瓣': ['douban'],
+  '贴吧': ['tieba'],
+  '头条': ['toutiao'],
+  '今日头条': ['toutiao'],
+  '微信公众号': ['wechat', 'wechat-official-account'],
+  '公众号': ['wechat-official-account'],
+  '朋友圈': ['wechat-moments'],
+  '小红书号': ['xiaohongshu-account'],
+  // 搜索类相关
+  '聚合': ['aggregator', 'aggregation'],
+  '多平台': ['multi-platform', 'cross-platform'],
+  '舆情': ['public-opinion', 'social-listening'],
+  '热搜': ['hot-search', 'trending'],
+  '热点': ['hotspot', 'trending'],
 };
 
 /**
@@ -317,14 +342,48 @@ const ZH_TO_EN: Record<string, string[]> = {
  * 实现:按 key 长度降序遍历,维护 consumed 数组标记 query 中已被消费的字符位置,
  * 后续 key 只在未消费字符范围内查找匹配,避免短词在已匹配长词范围内再次命中。
  */
+/**
+ * 判断 ZH_TO_EN 的 key 是否为英文(而非中文)。
+ *
+ * 英文 key(如 'ORM'/'SPI'/'HTTP'/'WebSocket'/'GraphQL')在 query 里是作为
+ * 独立单词出现的,需要词边界匹配,避免子串误匹配。
+ * 中文 key(如 '数据库'/'监控'/'搜索')在 query 里没有空格分词,
+ * 必须用子串匹配才能命中。
+ *
+ * 误匹配场景(修复前):
+ * - 'platform' 含子串 'orm' → 误匹配 'ORM' → 翻译为 'orm object-relational-mapping'
+ * - 'transformer' 含子串 'form' → 误匹配 'form'
+ * - 'history' 含子串 'story'? 不在表里,但原理相同
+ *
+ * 修复后:
+ * - 英文 key 要求前后是词边界(非 [a-z0-9])才匹配
+ * - 'platform' 里的 'orm' 前后是 'plat'/'-',触发词边界,不匹配
+ */
+function isEnglishKey(key: string): boolean {
+  // 英文 key:只含 [A-Za-z0-9-] 且至少有 1 个字母
+  return /^[A-Za-z0-9-]+$/.test(key) && /[A-Za-z]/.test(key);
+}
+
+/**
+ * 检查 queryLower 中位置 matchStart..matchStart+keyLen-1 是否构成词边界。
+ * 前/后字符必须是非字母数字字符(或字符串边界)。
+ */
+function isWordBoundary(queryLower: string, matchStart: number, keyLen: number): boolean {
+  const before = matchStart > 0 ? queryLower[matchStart - 1] : ' ';
+  const after = matchStart + keyLen < queryLower.length ? queryLower[matchStart + keyLen] : ' ';
+  // 词边界:前后字符非 [a-z0-9](英文/数字视为词的一部分,其他字符(空格/中文/标点)是边界)
+  const isBoundaryChar = (c: string) => !/[a-z0-9]/i.test(c);
+  return isBoundaryChar(before) && isBoundaryChar(after);
+}
+
 function findZhMappings(query: string): Map<string, string[]> {
   const queryLower = query.toLowerCase();
   const consumed = new Array<boolean>(query.length).fill(false);
   const entries = Object.entries(ZH_TO_EN)
-    .map(([zh, enList]) => ({ zh, zhLower: zh.toLowerCase(), enList }))
+    .map(([zh, enList]) => ({ zh, zhLower: zh.toLowerCase(), enList, isEnglish: isEnglishKey(zh) }))
     .sort((a, b) => b.zh.length - a.zh.length);
   const result = new Map<string, string[]>();
-  for (const { zh, zhLower, enList } of entries) {
+  for (const { zh, zhLower, enList, isEnglish } of entries) {
     let idx = 0;
     while (idx <= queryLower.length - zhLower.length) {
       // 在未消费区域查找 zhLower 的出现位置
@@ -343,6 +402,11 @@ function findZhMappings(query: string): Map<string, string[]> {
         }
       }
       if (matchStart === -1) break;
+      // 英文 key 额外要求词边界匹配(避免 'platform' 误匹配 'orm')
+      if (isEnglish && !isWordBoundary(queryLower, matchStart, zhLower.length)) {
+        idx = matchStart + 1;
+        continue;
+      }
       for (let i = matchStart; i < matchStart + zhLower.length; i++) consumed[i] = true;
       if (!result.has(zh)) result.set(zh, enList);
       idx = matchStart + zhLower.length;
@@ -379,6 +443,7 @@ const INTENT_PREFIXES: readonly RegExp[] = [
   /^我想加一个[\s]*/,
   /^帮我加一个[\s]*/,
   // 4 字符
+  /^我想做个[\s]*/,    // 优化25:补全 "我想做个"(之前只有 "我想做一个",导致 "我想做个搜索类mcp" 残留前缀)
   /^请帮我写[\s]*/,
   /^请帮我做[\s]*/,
   /^如何实现[\s]*/,
@@ -430,6 +495,7 @@ function stripIntentPrefix(query: string): string {
 const FALLBACK_ZH_EN: ReadonlyArray<readonly [RegExp, string]> = [
   // 意图前缀:剥离(替换为空)
   [/我想做一个/g, ''],
+  [/我想做个/g, ''],   // 优化25:补全 "我想做个"(与 INTENT_PREFIXES 同步)
   [/我想要一个/g, ''],
   [/帮我写一个/g, ''],
   [/帮我做一个/g, ''],
