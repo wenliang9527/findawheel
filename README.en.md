@@ -78,7 +78,7 @@ In the AI-coding era, everyone can quickly turn ideas into code. But many "new i
 | 🏆 | **Soft ranking signals** | Relevance + stars + activity + downloads + license + description match; **NO hard filtering** — relevance judgment left to the AI |
 | 🛡️ | **Basic filtering** | Only drops archived / stale / awesome-lists; reverse-intent / core-word-missing cases are identified by the AI itself |
 | ⚡ | **Graceful degradation** | Source failure doesn't block others; Web source falls back from Exa to Tavily |
-| 🌏 | **CJK friendly** | 250+ word Chinese↔English translation table (incl. Chinese internet platforms like 小红书→xiaohongshu/rednote and embedded motion-control terms like s型加减速→s-curve-acceleration); Chinese queries are auto-translated |
+| 🌏 | **CJK friendly** | 260+ word Chinese↔English translation table (incl. Chinese internet platforms like 小红书→xiaohongshu/rednote, embedded motion-control terms like s型加减速→s-curve-acceleration, 多个平台→multi-platform, 主题→theme); Chinese queries are auto-translated; intent prefix auto-stripped (40+ patterns); filler words auto-stripped (一个/等等/的工具); idempotent translation avoids duplicate append |
 | 📝 | **RAG workflow** | Tool descriptions specify "WHEN TO CALL / WHY SEARCH FIRST" — the AI must search before coding |
 
 ---

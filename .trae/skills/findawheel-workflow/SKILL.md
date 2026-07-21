@@ -65,10 +65,12 @@ Before searching the web, check if the user has a personal knowledge base config
 **Critical**: Do NOT pass the user's original words directly to `find_wheel`. findawheel expects **English search terms**.
 
 - If user said "我想做一个图片去水印工具", call `suggest_queries` with the original query
-- findawheel translates Chinese to English internally (250+ word mapping table, including Chinese internet platforms like 小红书→xiaohongshu/rednote and embedded motion-control terms like s型加减速→s-curve-acceleration)
+- findawheel translates Chinese to English internally (260+ word mapping table, including Chinese internet platforms like 小红书→xiaohongshu/rednote, embedded motion-control terms like s型加减速→s-curve-acceleration, 多个平台→multi-platform, 主题→theme)
 - Intent prefix auto-stripped: 我想要/我想做/我要在我的X中增加/帮我做... → only the substantive content remains
+- Filler words auto-stripped: 一个/等等/的工具/之类 → removed before translation
+- Translation is idempotent: calling translateQuery twice produces the same result (no duplicate translation words)
 - Pick the `recommended` variant from the output (usually `action_oriented`)
-- If output includes `recommendedEcosystem` (e.g., `arduino` for hardware queries, `cpp` for STM32/ESP32), pass it to `find_wheel`'s `ecosystem` parameter
+- If output includes `recommendedEcosystem` (e.g., `arduino` for hardware queries, `cpp` for STM32/ESP32, `js` for MCP server queries), pass it to `find_wheel`'s `ecosystem` parameter
 
 ### Step 2: Search (find_wheel)
 

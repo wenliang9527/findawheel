@@ -326,9 +326,17 @@ const ZH_TO_EN: Record<string, string[]> = {
   // 搜索类相关
   '聚合': ['aggregator', 'aggregation'],
   '多平台': ['multi-platform', 'cross-platform'],
+  '多个平台': ['multi-platform', 'cross-platform'],
   '舆情': ['public-opinion', 'social-listening'],
   '热搜': ['hot-search', 'trending'],
   '热点': ['hotspot', 'trending'],
+  // 优化35:通用搜索/聚合类补充(2026-07-21)
+  // 场景:用户说"我想做个搜索类的mcp"时,"搜索类"未被翻译
+  '搜索类': ['search-tool', 'search-class'],
+  '搜索信息': ['information-search'],
+  '信息搜索': ['information-search'],
+  '主题': ['theme', 'skin'],
+  '皮肤': ['skin', 'theme'],
 
   // E. 运动控制/步进电机加减速专业术语(2026-07-20)
   // 场景:用户搜 "s型加减速" 时,需要翻译为 s-curve/s-curve acceleration
@@ -562,6 +570,30 @@ function applyFallback(query: string): string {
 }
 
 /**
+ * 优化36:剥离中文虚词/填充词,避免污染搜索词。
+ *
+ * 与 FALLBACK_ZH_EN 不同,这是在主分支也启用的通用剥离,
+ * 确保无论 ZH_TO_EN 是否命中,虚词都被剥离。
+ *
+ * 剥离规则:
+ * - "一个"(句首数量词,不表达搜索意图,如 "一个步进电机驱动程序" → "步进电机驱动程序")
+ * - "等等" / "之类"(列举尾部填充词)
+ * - "的工具"(后缀,剥离为空格,如 "搜索类的工具" → "搜索类")
+ *
+ * 注意:不剥离 "的"(因为 "的" 出现在很多技术词里,如 "内存的监控")。
+ * 只剥离明确的虚词,保守起见。
+ */
+function stripFillerWords(s: string): string {
+  return s
+    .replace(/一个/g, ' ')
+    .replace(/等等/g, ' ')
+    .replace(/之类/g, ' ')
+    .replace(/的工具/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * 优化15:句式翻译 —— 把 "X转成Y" / "X转Y" / "X转换Y" / "X转换为Y" / "把X变成Y"
  * 翻译成英文 "X to Y" 句式,覆盖中文描述转换场景的常见说法。
  *
@@ -599,20 +631,53 @@ function translateConversionPatterns(text: string): string {
  * translateQuery('我想做一个实时监控电脑状态的可爱宠物')
  *   // '实时监控电脑状态的可爱宠物 realtime real-time monitor monitoring computer status state'
  */
+/**
+ * 把字符串标准化为词集合(连字符 → 空格,小写,split)。
+ * 用于 translateQuery 的幂等检查。
+ *
+ * 场景:suggestQueriesTool 先调 translateQuery(input.query) 得到 translated,
+ * 再调 parseQuery(translated)。parseQuery 内部又调 translateQuery(translated),
+ * 导致翻译词被追加 2 次(xiaohongshu rednote ... 出现 2 次)。
+ *
+ * 幂等检查:把 stripped 标准化为词集合(连字符 → 空格),检查 enWords 是否
+ * 都已在 stripped 里。如果都在,不追加,直接返回 stripped。
+ */
+function toWordSet(s: string): Set<string> {
+  return new Set(
+    s.toLowerCase()
+      .replace(/-/g, ' ')
+      .split(/[\s,，。、;；!！?？]+/)
+      .filter(w => w.length > 0)
+  );
+}
+
 export function translateQuery(query: string): string {
   // 1. 剥离意图前缀("我想做一个 X" → "X"),降低噪声
   let stripped = stripIntentPrefix(query);
   // 1.5 优化15:句式翻译 "X转成Y" → "X to Y"(覆盖英文技术词之间的中文转换表述)
   stripped = translateConversionPatterns(stripped);
+  // 1.6 优化36:剥离中文虚词/填充词(一个/等等/之类),避免污染搜索词
+  stripped = stripFillerWords(stripped);
   // 2. 在 stripped 上做映射表翻译
   const mappings = findZhMappings(stripped);
   const enWords = new Set<string>();
   for (const enList of mappings.values()) {
     for (const en of enList) enWords.add(en);
   }
-  // 3. 主分支:有翻译 → 返回 stripped + 英文(stripped 已去掉意图前缀,但保留命中词的中文原文)
+  // 3. 主分支:有翻译 → 返回 stripped + 新增的英文词
+  //    优化34:幂等检查 — stripped 已包含所有翻译词时不再追加
+  //    避免 suggestQueriesTool → parseQuery 链式调用导致的翻译词重复
   if (enWords.size > 0) {
-    return `${stripped} ${[...enWords].join(' ')}`;
+    const strippedWords = toWordSet(stripped);
+    const newWords = [...enWords].filter(en => {
+      // 把 en 标准化为词集合(连字符 → 空格),检查所有词是否都在 strippedWords
+      const enWordsNormalized = en.toLowerCase().replace(/-/g, ' ').split(' ');
+      return !enWordsNormalized.every(w => strippedWords.has(w));
+    });
+    if (newWords.length === 0) {
+      return stripped;
+    }
+    return `${stripped} ${newWords.join(' ')}`;
   }
   // 4. 兜底分支:ZH_TO_EN 完全未命中,做通用词替换(剥离意图前缀 + 替换助词)
   const fallback = applyFallback(stripped);

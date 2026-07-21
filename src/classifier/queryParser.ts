@@ -131,6 +131,10 @@ const ACTION_VERBS: ReadonlySet<string> = new Set([
   'position', 'move', 'moving',
   // 串口/调试类(补串口调试助手场景)
   'scan', 'sniff', 'terminal', 'console', 'bridge', 'tunnel',
+  // 优化38:工具/插件/扩展类(2026-07-21)
+  // 场景:用户说"vscode 主题插件"时,action_oriented 应优先选 plugin/extension,
+  // 而不是把中文整段 "vscode主题插件" 当 coreWord。这些词表达用户想"做什么"。
+  'plugin', 'extension', 'theme', 'sdk', 'server', 'mcp',
 ]);
 
 /**
@@ -278,6 +282,9 @@ const ECOSYSTEM_PATTERNS: Array<{ pattern: RegExp; ecosystem: string }> = [
   // arduino:arduino 本身就是明确的生态信号(arduino library/arduino sketch/arduino framework),
   // 不需 LANG_RES 后缀。补齐与 suggestQueriesTool 的 arduino 检测能力对齐。
   { pattern: /\barduino\b/i, ecosystem: 'arduino' },
+  // 优化37:MCP server → js(MCP SDK @modelcontextprotocol/sdk 主要是 TypeScript/JavaScript 包,
+  // 主流 MCP server 实现都在 JS/TS 生态。用户说"我想做个 mcp"时,推荐 ecosystem=js 避免搜 python/rust)
+  { pattern: /\bmcp\b/i, ecosystem: 'js' },
 ];
 
 function detectEcosystem(query: string): string | undefined {

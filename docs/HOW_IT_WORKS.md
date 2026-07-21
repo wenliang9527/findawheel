@@ -152,7 +152,11 @@ AI 客户端通过 MCP 协议发送 `tools/call` 请求：
 
 > 🔧 **意图前缀剥离**（优化 25/29/31）：`queryTranslator` 内置 40+ 个前缀正则模式，支持 `我想做`/`我想做个`/`我想做一个`/`我想要一个`/`我要在我的X中增加/添加/加`/`帮我做`/`如何实现` 等模式。其中 `我要在我的.+中(?:增加|添加|加)` 用通配匹配任意中间词（如 "我要在我的stm32单片机程序中增加"），不再枚举所有变体。剥离后只保留实词，避免中文整句污染搜索。
 
+> 🧹 **虚词剥离**（优化 36）：`stripFillerWords` 在 `translateQuery` 入口剥离中文虚词/填充词（`一个`/`等等`/`之类`/`的工具`），确保无论 ZH_TO_EN 是否命中，虚词都被剥离。避免 "一个步进电机驱动程序" 残留 "一个" 污染搜索词。
+
 **词边界匹配**（优化 25）：翻译表的英文大写缩写 key（如 `ORM`/`SPI`/`HTTP`）要求**词边界匹配**（前后字符非 `[a-z0-9]`），避免 `platform` 误匹配 `orm` 子串。中文 key 保持子串匹配（中文无词边界概念）。
+
+**幂等性**（优化 34）：`translateQuery` 在主分支返回前做幂等检查 — 把 stripped 标准化为词集合（连字符 → 空格），检查 enWords 是否都已存在于 stripped。如果都在，不追加，直接返回 stripped。避免 `suggestQueriesTool → parseQuery` 链式调用导致的翻译词重复（`xiaohongshu rednote ...` 出现 2 次）。
 
 ### 步骤 2.5️⃣ 智能数据源路由（Source Router）
 
@@ -176,6 +180,8 @@ AI 客户端通过 MCP 协议发送 `tools/call` 请求：
 | 12 | `code-snippet` | query 含 `snippet/example/function/片段/示例/函数/源码` | GitHub-Code/GitHub/Web |
 | 13 | `frontend-ui` | query 含 `react/vue/component/前端/组件/表格/图表` | npm/GitHub/Libraries.io/Web |
 | 兜底 | `fallback-all` | 无强信号匹配 | 全搜（15 个源，保持召回完整）|
+
+> 💡 **MCP 自动识别 ecosystem**（优化 37）：query 含 `mcp` 关键词时自动推荐 `ecosystem=js`（MCP SDK `@modelcontextprotocol/sdk` 主要是 TypeScript/JavaScript 包，主流 MCP server 实现都在 JS/TS 生态）。
 
 > 💡 **中文正则限制**：`\b` 是英文词边界，中文上下文不生效。中文关键词（如"插件/论文/算法"）单独用 `/(插件|扩展)/` 形式的不带 `\b` 正则匹配。
 
@@ -986,6 +992,10 @@ interface SuggestQueriesOutput {
 #### 硬件类 ecosystem 自动推荐
 
 当 query 包含硬件类关键词(stepper/motor/servo/encoder/pwm/esp32/stm32/raspberry 等)时，`suggest_queries` 自动推荐 `recommendedEcosystem` 字段，AI 应把它传给 `find_wheel` 的 `ecosystem` 参数。原因是这类库主要分布在 C++/Arduino 生态（如 AccelStepper、Marlin、GRBL），用 python/js 搜会漏掉主流库。
+
+**MCP 类 query 自动识别**（优化 37）：query 含 `mcp` 时自动推荐 `ecosystem=js`（MCP SDK 主要是 TypeScript 包）。
+
+**Plugin/Extension 类 query 自动识别**（优化 38）：`ACTION_VERBS` 已包含 `plugin`/`extension`/`theme`/`sdk`/`server`/`mcp`，`suggest_queries` 的 `action_oriented` 变体会优先选这些动词作为 coreWords，避免把中文整段（如 "vscode主题插件"）当 coreWord。
 
 推荐规则优先级：
 1. 用户显式传 `ecosystem` 参数 → 用用户的（不覆盖）
