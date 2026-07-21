@@ -110,7 +110,7 @@ const ZH_TO_EN: Record<string, string[]> = {
   '微处理器': ['microprocessor'],
   '嵌入式': ['embedded'],
   '脉冲': ['pulse', 'pwm'],
-  '加减速': ['acceleration', 'accelstepper'],
+  '加减速': ['acceleration', 'accelstepper', 'accel-decel', 'ramp'],
   '加速': ['acceleration'],
   '减速': ['deceleration'],
   '编码器': ['encoder'],
@@ -329,6 +329,24 @@ const ZH_TO_EN: Record<string, string[]> = {
   '舆情': ['public-opinion', 'social-listening'],
   '热搜': ['hot-search', 'trending'],
   '热点': ['hotspot', 'trending'],
+
+  // E. 运动控制/步进电机加减速专业术语(2026-07-20)
+  // 场景:用户搜 "s型加减速" 时,需要翻译为 s-curve/s-curve acceleration
+  // 这些是步进电机运动控制的专业术语,GitHub 上常用英文表述
+  's型': ['s-curve', 's-shaped', 's-type'],
+  's曲线': ['s-curve', 's-curve-profile'],
+  '梯形加减速': ['trapezoidal-acceleration', 'trapezoidal'],
+  's型加减速': ['s-curve-acceleration', 's-curve'],
+  // 注:'加减速' 在第 113 行已定义为 ['acceleration', 'accelstepper'],这里不重复定义
+  '运动控制': ['motion-control'],
+  '步进脉冲': ['step-pulse', 'pulse-train'],
+  '脉冲发生器': ['pulse-generator'],
+  '插补': ['interpolation'],
+  '点位运动': ['point-to-point-motion', 'ptp'],
+  '恒速': ['constant-speed', 'constant-velocity'],
+  '位置控制': ['position-control'],
+  '速度控制': ['velocity-control', 'speed-control'],
+  '扭矩控制': ['torque-control'],
 };
 
 /**
@@ -430,8 +448,13 @@ const INTENT_PREFIXES: readonly RegExp[] = [
   // 优化 14:扩展编程场景前缀(加功能/添加/实现/集成/接入)。
   // 长前缀优先(配合 break 只剥离一次,避免短前缀先匹配留下残字)。
   // 优化29(2026-07-20):补全 "我要在...增加/添加" 等变体
-  // 场景:用户输入 "我要在我的代码中增加一个步进电机驱动程序" 时,
-  // 原表只匹配 "我想在...加",不匹配 "我要在...增加",导致整句中文残留。
+  // 优化31(2026-07-20):改为通用 "我要在我的 X 中增加/添加/加" 模式
+  //   原来枚举 "我要在我的代码中增加"/"我要在我的项目里加" 无法覆盖新场景
+  //   (如 "我要在我的stm32单片机程序中增加" / "我要在我的工程里添加"),
+  //   改用 .* 通配,X 可为任何中文/英文/数字
+  // 9+ 字符通配:"我要在我的 X 中/里 增加/添加/加"
+  /^我要在我的.+中(?:增加|添加|加)[\s]*/,
+  /^我要在我的.+里(?:增加|添加|加)[\s]*/,
   // 8 字符:"我要在我的代码中增加"/"我要在我的项目里加"
   /^我要在我的代码中增加[\s]*/,
   /^我要在我的代码中添加[\s]*/,
@@ -442,9 +465,9 @@ const INTENT_PREFIXES: readonly RegExp[] = [
   /^我想在代码里加[\s]*/,
   // 6 字符通配:兜底匹配"我想在 X 里加"(如"我想在工程里加"/"我想在仓库里加")
   // 放在具体模式之后,具体模式优先命中
-  /^我想在.*里加[\s]*/,
-  /^我要在.*里加[\s]*/,
-  /^我要在.*中加[\s]*/,
+  /^我想在.+里加[\s]*/,
+  /^我要在.+里加[\s]*/,
+  /^我要在.+中加[\s]*/,
   // 5 字符
   /^我想做一个[\s]*/,
   /^我想要一个[\s]*/,

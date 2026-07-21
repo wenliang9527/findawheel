@@ -148,7 +148,16 @@ export function createSuggestQueriesTool() {
     // 优先级:用户显式传 > parseQuery 识别 > 硬件关键词检测
     // 用户已传 input.ecosystem 时不覆盖(用用户的)
     const detectedEcosystem = input.ecosystem ?? parsed.ecosystem;
-    const recommendedEcosystem = detectedEcosystem ?? detectHardwareEcosystem(translated);
+    // 优化32:同时检测原始 query 和 translated query
+    // - 原始 query:用于识别平台关键词(stm32/esp32/arduino),这些词在翻译时不会被改变
+    //   但意图前缀剥离会丢失它们(如 "我要在我的stm32程序中增加" → "stm32" 被剥掉)
+    //   所以这里用原始 query 兜底检测
+    // - translated query:用于识别翻译后的通用硬件词(stepper/motor/servo/driver)
+    //   纯中文输入如 "步进电机驱动器" 只在翻译后才出现 stepper/motor/driver
+    // 优先用原始 query 检测(平台关键词优先),失败则用 translated 检测(通用硬件词)
+    const recommendedEcosystem = detectedEcosystem
+      ?? detectHardwareEcosystem(input.query)
+      ?? detectHardwareEcosystem(translated);
     if (recommendedEcosystem && !input.ecosystem) {
       reason += `。检测到硬件类关键词,建议同时传 ecosystem="${recommendedEcosystem}" 给 find_wheel(stepper/motor/servo 等库主要在 C++/Arduino 生态,python/js 搜会漏主流库)`;
     }
