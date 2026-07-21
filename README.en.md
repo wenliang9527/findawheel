@@ -320,3 +320,26 @@ The feedback delta is added to `matchScore`, then results are re-sorted and re-g
 **[🌐 中文版本](./README.md)**
 
 </div>
+
+<!--
+SEO Keywords (hidden comment for search engine discoverability):
+
+Tool type:
+MCP server, Model Context Protocol, AI coding assistant, code search tool, library finder, package discovery tool, dependency finder
+
+Core features:
+avoid reinventing the wheel, find existing wheel, library search, code reuse, open-source discovery, package search, dependency discovery
+
+Use cases:
+AI coding, generative development, vibe coding, RAG, retrieval-augmented generation, Trae, Cursor, Claude Desktop, Claude Code, Windsurf, Cline, AI pair programming
+
+Data sources / ecosystem:
+GitHub search, npm search, PyPI search, crates.io search, Maven Central, RubyGems, pkg.go.dev, Gitee, GitLab, Libraries.io, GitHub Code Search, VS Code Marketplace, Papers with Code, HuggingFace, Exa, Tavily, multi-source search, 15 data sources
+
+Synonyms / long-tail:
+wheel finder, library finder, dependency discovery, avoid duplicating code, how to find existing library, AI coding search tool
+
+Multilingual:
+找轮子, 避免重复造轮子, AI 编程助手, 代码搜索工具, MCP 服务
+-->
+
