@@ -327,14 +327,18 @@ export function parseQuery(query: string): ParsedQuery {
   const nonVerbWords = allWords.filter(w => !ACTION_VERBS.has(w));
   let coreWords: string[];
   if (verbWords.length >= 2) {
-    // 有 >= 2 个动词:用前 2 个动词
-    coreWords = verbWords.slice(0, 2);
+    // 优化30:动词去重(stepper-motor 拆词后 "stepper motor stepper" 会产生重复 stepper)
+    // 去重后再取前 2 个,避免 coreWords = ['stepper', 'stepper']
+    const dedupedVerbs = [...new Set(verbWords)];
+    coreWords = dedupedVerbs.slice(0, 2);
   } else if (verbWords.length === 1) {
-    // 只有 1 个动词:动词 + 第一个非动词实义词
-    coreWords = [verbWords[0], nonVerbWords[0]].filter(Boolean);
+    // 只有 1 个动词:动词 + 第一个非动词实义词(避免重复)
+    const firstNonVerb = nonVerbWords.find(w => w !== verbWords[0]);
+    coreWords = firstNonVerb ? [verbWords[0], firstNonVerb] : [verbWords[0]];
   } else {
-    // 没有动词:回退到原逻辑(前 2 个实义词)
-    coreWords = phraseWords;
+    // 没有动词:回退到原逻辑(前 2 个实义词,去重)
+    const dedupedPhrase = [...new Set(phraseWords)];
+    coreWords = dedupedPhrase.slice(0, 2);
   }
   // modifiers = allWords 里不在 coreWords 的词
   const coreSet = new Set(coreWords);
