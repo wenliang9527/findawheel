@@ -24,7 +24,7 @@ import { translateQuery } from '../classifier/queryTranslator.js';
 import { httpPost } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
 import { logError } from '../util/logger.js';
-import { toSourceError } from './sourceError.js';
+import { toSourceError } from '../util/sourceError.js';
 
 interface ExaSearchResponse {
   results: Array<{

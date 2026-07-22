@@ -116,7 +116,8 @@ describe('GiteeSourceAdapter.search', () => {
     const calledUrl = new URL(vi.mocked(httpGet).mock.calls[0][0] as string);
     expect(calledUrl.pathname).toBe('/api/v5/search/repositories');
     expect(calledUrl.searchParams.get('q')).toBe('markdown editor');
-    expect(calledUrl.searchParams.get('sort')).toBe('stars');
+    // sort 用 Gitee API v5 合法值 stars_count(实测 sort=stars 返回 400,stars_count 返回 200)
+    expect(calledUrl.searchParams.get('sort')).toBe('stars_count');
     expect(calledUrl.searchParams.get('order')).toBe('desc');
     expect(calledUrl.searchParams.get('per_page')).toBe('20');
     // 默认不传 token

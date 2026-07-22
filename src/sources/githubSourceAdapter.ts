@@ -6,7 +6,7 @@ import { DEFAULT_RETRY } from '../util/retry.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 import type { ParsedQuery } from '../classifier/queryParser.js';
 import { ECOSYSTEM_LANG } from './ecosystemMapping.js';
-import { toSourceError } from './sourceError.js';
+import { toSourceError } from '../util/sourceError.js';
 
 /**
  * 移除 GitHub 搜索语法特殊字符,避免用户输入污染搜索语义。

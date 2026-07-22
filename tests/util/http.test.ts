@@ -185,3 +185,164 @@ describe('httpPost', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
+
+// M15: URL 脱敏测试 —— sanitizeUrl 为 http.ts 内部函数(不导出),
+// 通过 HttpError 构造函数间接验证:HttpError.url 字段必须为脱敏后的 URL。
+describe('sanitizeUrl (via HttpError)', () => {
+  it('脱敏 access_token 参数(Gitee 场景)', () => {
+    const err = new HttpError(
+      403,
+      'https://gitee.com/api/v5/search/repositories?access_token=secret_token&q=test',
+      'forbidden',
+    );
+    expect(err.url).not.toContain('access_token=secret_token');
+    expect(err.url).toContain('q=test');
+    expect(err.message).not.toContain('secret_token');
+  });
+
+  it('脱敏 api_key 参数(Libraries.io 场景)', () => {
+    const err = new HttpError(
+      500,
+      'https://libraries.io/api/search?api_key=lib_key&q=test',
+      'server error',
+    );
+    expect(err.url).not.toContain('api_key=lib_key');
+    expect(err.url).toContain('q=test');
+  });
+
+  it('脱敏 token 参数', () => {
+    const err = new HttpError(
+      401,
+      'https://example.com/api?token=tok123&foo=bar',
+      'unauthorized',
+    );
+    expect(err.url).not.toContain('token=tok123');
+    expect(err.url).toContain('foo=bar');
+  });
+
+  it('脱敏 private_token 参数(GitLab 场景)', () => {
+    const err = new HttpError(
+      403,
+      'https://gitlab.com/api/v4/projects?private_token=glpat-xxxx&search=foo',
+      'forbidden',
+    );
+    expect(err.url).not.toContain('private_token=glpat-xxxx');
+    expect(err.url).toContain('search=foo');
+  });
+
+  it('不含敏感参数的 URL 原样保留', () => {
+    const url = 'https://api.github.com/search/repositories?q=test&sort=stars';
+    const err = new HttpError(404, url, 'not found');
+    expect(err.url).toBe(url);
+  });
+
+  it('多个敏感参数同时脱敏', () => {
+    const err = new HttpError(
+      403,
+      'https://example.com/api?access_token=secret1&api_key=secret2&q=test',
+      'forbidden',
+    );
+    expect(err.url).not.toContain('access_token=secret1');
+    expect(err.url).not.toContain('api_key=secret2');
+    expect(err.url).toContain('q=test');
+  });
+
+  it('非法 URL 原样返回(sanitizeUrl 不抛错)', () => {
+    const badUrl = 'not-a-valid-url';
+    const err = new HttpError(500, badUrl, 'server error');
+    expect(err.url).toBe(badUrl);
+  });
+
+  it('HttpError.headers 字段透传', () => {
+    const headers = { 'x-ratelimit-remaining': '0', 'retry-after': '60' };
+    const err = new HttpError(429, 'https://example.com/api', 'rate limited', headers);
+    expect(err.headers).toEqual(headers);
+    expect(err.headers?.['retry-after']).toBe('60');
+  });
+});
+
+// M15: 超时行为测试 —— doFetch 用 AbortController + setTimeout 触发超时。
+// 验证:fetch 长时间不响应时,超时触发 abort 信号,错误被包装为 RetryableError。
+// 用真实定时器 + 短超时,避免 fake timers + 同步 reject 触发 PromiseRejectionHandledWarning。
+describe('超时行为 (AbortController)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('超时后 fetch 被 abort 并抛出错误', async () => {
+    // mock fetch:永不 resolve,只在 abort 事件触发时 reject
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => {
+          const err = new Error('The operation was aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(httpGet('https://example.com', { timeoutMs: 30 }))
+      .rejects.toThrow(/aborted/i);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    // 验证传给 fetch 的 signal 是 AbortSignal 实例
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('正常请求在超时前完成,不触发 abort', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ ok: true }),
+    } as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const data = await httpGet('https://example.com', { timeoutMs: 5000 });
+    expect(data).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('POST 请求同样支持超时 abort', async () => {
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => {
+          const err = new Error('The operation was aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(httpPost('https://api.exa.ai/search', {
+      timeoutMs: 30, headers: {}, body: '{}',
+    })).rejects.toThrow(/aborted/i);
+  });
+
+  it('AbortError 触发后,RetryableError 包装正确(可被 withRetry 捕获重试)', async () => {
+    // 首次 fetch 不响应 → 超时 abort → 包装为 RetryableError → withRetry 重试
+    // 第二次 fetch 立即成功
+    const fetchMock = vi.fn()
+      .mockImplementationOnce((_url: string, init: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => {
+            const err = new Error('The operation was aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ recovered: true }),
+      } as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const data = await httpGet('https://example.com', {
+      timeoutMs: 30,
+      retry: { retries: 2, baseMs: 10 },
+    });
+    expect(data).toEqual({ recovered: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});

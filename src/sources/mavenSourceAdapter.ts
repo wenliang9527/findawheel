@@ -16,7 +16,7 @@ import type { MavenRawResult, RawResult } from '../normalize/types.js';
 import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
-import { toSourceError } from './sourceError.js';
+import { toSourceError } from '../util/sourceError.js';
 
 const API_BASE = 'https://search.maven.org/solrsearch/select';
 const DEFAULT_ROWS = 20;

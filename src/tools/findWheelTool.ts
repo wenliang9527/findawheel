@@ -1,12 +1,12 @@
 // src/tools/findWheelTool.ts
-import type { SourceAdapter } from '../sources/sourceAdapter.js';
+import type { SourceAdapter, SearchOpts } from '../sources/sourceAdapter.js';
 import type {
   FindWheelInput, FindWheelOutput, Intent, RawResult, Wheel,
 } from '../normalize/types.js';
 import { GITHUB_CODE_PATH_SEP } from '../normalize/types.js';
 import { classify } from '../classifier/queryClassifier.js';
 import { extractKeywords } from '../classifier/queryTranslator.js';
-import { parseQuery } from '../classifier/queryParser.js';
+import { parseQuery, type ParsedQuery } from '../classifier/queryParser.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 import { routeSources, type RoutingResult } from '../classifier/sourceRouter.js';
 import { normalize } from '../normalize/normalizer.js';
@@ -167,37 +167,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
     const key = cacheKey(input.query, intent, input.ecosystem, limit);
     const cached = await cache.get(key);
     if (cached) {
-      // 修复2:向后兼容检测 —— 旧缓存是纯 Wheel[],新缓存是 { wheels, routing }。
-      // 新格式命中时恢复 routingInfo(skippedSources/routingReason/fallbackExpansion)到 output,
-      // 避免 AI 调试召回偏差时丢失路由上下文。
-      // P2-1/P3-2:cache 泛型为 CachedSearchResult | Wheel[],用 Array.isArray 类型守卫收窄,
-      // 替代 as unknown as 双重断言与 cachedEntry!.wheels 非空断言 —— 类型系统可直接保证一致性。
-      let cachedWheels = Array.isArray(cached) ? cached : cached.wheels;
-      const cachedRouting = Array.isArray(cached) ? undefined : cached.routing;
-      logInfo(`cache hit: query="${input.query}" intent=${intent} ${cachedWheels.length} wheels`);
-      // P1-1:缓存命中也应用 feedback(缓存存 pre-feedback wheels,每次读取重新应用),
-      // 避免用户记录 hide/like 后在 TTL 内命中缓存返回旧排序。
-      if (opts.feedbackStore) {
-        cachedWheels = await applyFeedback(cachedWheels);
-      }
-      // 缓存命中后也应用 exclude 过滤(让 AI 能用 exclude 二次筛选缓存结果)
-      // N11:用 shouldExclude helper,支持 github-code 的 owner/repo#path 格式
-      // P1-1:exclude 过滤在 applyFeedback 之后(用户隐藏的项目应该被过滤)
-      const filtered = excludeSet.size > 0
-        ? cachedWheels.filter(w => !shouldExclude(w, excludeSet))
-        : cachedWheels;
-      const output: FindWheelOutput = {
-        query: input.query,
-        intent,
-        total: filtered.length,
-        wheels: filtered,
-        // 优化8:cache 命中路径无 degraded 信息(不缓存),instruction 不含降级提示
-        summary: buildSummary(filtered, []),
-        cached: true,
-        // 修复2:恢复缓存写入时的路由信息(若为旧格式缓存则无此字段,行为不变)
-        ...(cachedRouting ?? {}),
-      };
-      return { content: [{ type: 'text', text: JSON.stringify(output) }] };
+      return handleCacheHit(cached, input, intent, excludeSet);
     }
 
     // 未命中:用 dedupe 包裹搜索流程,同 key 并发只执行一次
@@ -210,6 +180,81 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       };
     }
 
+    return buildOutputFromSearch(result, key, input, intent, excludeSet);
+  }
+
+  /**
+   * 缓存命中路径(H2 重构:从 handle 提取,执行顺序与注释原样保留):
+   * 恢复 cachedWheels/cachedRouting → applyFeedback → exclude 过滤 → 构造 output。
+   *
+   * 关键正确性约束:
+   * - P1-1:缓存存 pre-feedback wheels,命中时重新应用 feedback(用户记录 hide/like 后
+   *   即使 TTL 内命中缓存也会返回最新排序)
+   * - P1-1:exclude 过滤在 applyFeedback 之后(用户隐藏的项目应该被过滤)
+   * - 修复2:向后兼容旧格式缓存(纯 Wheel[]),新格式恢复 routingInfo 到 output
+   *
+   * @param cached 缓存原始值(新格式 CachedSearchResult 或旧格式 Wheel[])
+   * @returns 缓存命中的 McpToolResult
+   */
+  async function handleCacheHit(
+    cached: CachedSearchResult | Wheel[],
+    input: FindWheelInput,
+    intent: Intent,
+    excludeSet: Set<string>,
+  ): Promise<McpToolResult> {
+    // 修复2:向后兼容检测 —— 旧缓存是纯 Wheel[],新缓存是 { wheels, routing }。
+    // 新格式命中时恢复 routingInfo(skippedSources/routingReason/fallbackExpansion)到 output,
+    // 避免 AI 调试召回偏差时丢失路由上下文。
+    // P2-1/P3-2:cache 泛型为 CachedSearchResult | Wheel[],用 Array.isArray 类型守卫收窄,
+    // 替代 as unknown as 双重断言与 cachedEntry!.wheels 非空断言 —— 类型系统可直接保证一致性。
+    let cachedWheels = Array.isArray(cached) ? cached : cached.wheels;
+    const cachedRouting = Array.isArray(cached) ? undefined : cached.routing;
+    logInfo(`cache hit: query="${input.query}" intent=${intent} ${cachedWheels.length} wheels`);
+    // P1-1:缓存命中也应用 feedback(缓存存 pre-feedback wheels,每次读取重新应用),
+    // 避免用户记录 hide/like 后在 TTL 内命中缓存返回旧排序。
+    if (opts.feedbackStore) {
+      cachedWheels = await applyFeedback(cachedWheels);
+    }
+    // 缓存命中后也应用 exclude 过滤(让 AI 能用 exclude 二次筛选缓存结果)
+    // N11:用 shouldExclude helper,支持 github-code 的 owner/repo#path 格式
+    // P1-1:exclude 过滤在 applyFeedback 之后(用户隐藏的项目应该被过滤)
+    const filtered = excludeSet.size > 0
+      ? cachedWheels.filter(w => !shouldExclude(w, excludeSet))
+      : cachedWheels;
+    const output: FindWheelOutput = {
+      query: input.query,
+      intent,
+      total: filtered.length,
+      wheels: filtered,
+      // 优化8:cache 命中路径无 degraded 信息(不缓存),instruction 不含降级提示
+      summary: buildSummary(filtered, []),
+      cached: true,
+      // 修复2:恢复缓存写入时的路由信息(若为旧格式缓存则无此字段,行为不变)
+      ...(cachedRouting ?? {}),
+    };
+    return { content: [{ type: 'text', text: JSON.stringify(output) }] };
+  }
+
+  /**
+   * 缓存未命中且非 allFailed 时的后处理(H2 重构:从 handle 提取,执行顺序与注释原样保留):
+   * enrichTopWheels → 构造 routingInfo → cache.set(pre-feedback 全量) → applyFeedback →
+   * exclude 过滤 → structuredDegraded → 构造 output。
+   *
+   * 关键正确性约束(顺序即语义,禁止调整):
+   * - P1-1 修复:缓存存 pre-feedback wheels;feedback 在 cache.set 之后应用,只影响本次返回
+   * - 修复:exclude 不计入 cacheKey,缓存存全量;exclude 过滤在 cache.set 之后(仅影响本次返回)
+   *
+   * @param result runSearch 的搜索结果(pre-feedback)
+   * @param key 缓存 key(与 handle 中 cache.get 使用同一 key)
+   * @returns 本次搜索的 McpToolResult
+   */
+  async function buildOutputFromSearch(
+    result: SearchResult,
+    key: string,
+    input: FindWheelInput,
+    intent: Intent,
+    excludeSet: Set<string>,
+  ): Promise<McpToolResult> {
     // 成功才写缓存(失败结果不缓存,避免下次命中错误响应)
     // P1-1 修复:缓存存 pre-feedback wheels(已 enrich),每次读取(命中或未命中)重新应用 feedback。
     //   原顺序:feedback → enrich → cache.set → exclude(缓存污染 feedback 结果,命中时返回旧排序)
@@ -358,6 +403,57 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       a => !RATE_LIMITED_SOURCES.has(a.name) && !FUZZY_NOISY_SOURCES.has(a.name),
     );
 
+    // H2 重构:主+副搜索并行执行与结果收集提取为 runMainAndFuzzySearch。
+    // rateLimited 以数组引用传入,子函数将搜索时触发 403/429 的源原地追加。
+    const { allRaw, degraded, allFailed } = await runMainAndFuzzySearch(
+      activeAdapters, fuzzyAdapters, input, searchOpts, fuzzyOpts, parsedQuery, rateLimited,
+    );
+
+    if (allFailed) {
+      return { wheels: [], degraded, allFailed: true, routing, translatedQuery: translated, rateLimited };
+    }
+
+    const wheels: Wheel[] = allRaw.map(w => enrich(normalize(w)));
+    // 提取 query 关键词(含中文翻译后的英文),用于排序时描述匹配加分
+    const queryKeywords = extractKeywords(input.query);
+    // Phase 6 简化:删除领域泛词过滤和 coreWords 过滤。
+    // 相关性判断交给 AI 调用方 —— AI 看到 top N 结果后自己挑最适合的。
+    // 硬规则过滤(isMissingCoreConcept)容易误杀主流库,得不偿失。
+    let rankedWithMatch = collectAndRank(wheels, intent, limit, queryKeywords, input.query);
+
+    // H2 重构:兜底扩展提取为 expandWithSkippedSources。
+    // degraded/rateLimited 以数组引用传入原地追加;返回更新后的 rankedWithMatch 与 expandedFallback。
+    const expansion = await expandWithSkippedSources(
+      routing, skippedAdapters, rankedWithMatch, input, intent, limit, queryKeywords,
+      searchOpts, fuzzyOpts, parsedQuery, degraded, rateLimited,
+    );
+    rankedWithMatch = expansion.rankedWithMatch;
+    const expandedFallback = expansion.expandedFallback;
+
+    return { wheels: rankedWithMatch, degraded, allFailed: false, routing, expandedFallback, translatedQuery: translated, rateLimited };
+  }
+
+  /**
+   * 主+副搜索 Promise.allSettled 并行执行 + 结果收集(H2 重构:从 runSearch 提取)。
+   *
+   * - 主搜索(全部 activeAdapters,精确 query)+ 副搜索(fuzzyAdapters,fuzzyQuery 同义词泛化)并行,
+   *   结果合并去重(由 rank() 的 dedupe 处理)
+   * - 主搜索 fulfilled 即视为该源可用(即使返回空数组);主失败标记 degraded ——
+   *   主搜索是用户 query 的精确召回,副搜索(同义词泛化)只能补充召回,不能替代主搜索的精确性
+   * - 副搜索失败不影响 allFailed 判定,仅记录错误日志
+   * - 限流熔断:RateLimitError 时 markRateLimited,并将源原地追加到 rateLimited 入参数组
+   *
+   * @returns 收集到的 allRaw(主+副原始结果)、degraded(主搜索失败的源)、allFailed
+   */
+  async function runMainAndFuzzySearch(
+    activeAdapters: SourceAdapter[],
+    fuzzyAdapters: SourceAdapter[],
+    input: FindWheelInput,
+    searchOpts: SearchOpts,
+    fuzzyOpts: Omit<SearchOpts, 'parsedQuery'>,
+    parsedQuery: ParsedQuery,
+    rateLimited: string[],
+  ): Promise<{ allRaw: RawResult[]; degraded: string[]; allFailed: boolean }> {
     // 主搜索(全量源)+ 副搜索(仅宽松源)并行,结果合并去重(由 rank() 的 dedupe 处理)
     const [mainSettled, fuzzySettled] = await Promise.all([
       Promise.allSettled(activeAdapters.map(a => a.search(input.query, searchOpts))),
@@ -390,118 +486,146 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       }
     }
     // 收集副搜索结果(追加到 allRaw,后续 dedupe 会按 name 去重)
-    for (const r of fuzzySettled) {
+    // L22 修复:副搜索失败也进入 degraded,与主搜索失败标记行为一致。
+    // 原因:副搜索虽是补充召回,但其失败也意味着部分召回能力丢失,
+    // AI 应知道哪些源本轮副搜索失败了,以便判断结果召回是否完整。
+    for (let i = 0; i < fuzzySettled.length; i++) {
+      const r = fuzzySettled[i];
       if (r.status === 'fulfilled') {
         allRaw.push(...r.value);
       } else {
-        // 副搜索失败不影响 allFailed 判定,但记录错误原因便于诊断
-        logError('fuzzy search failed', r.reason);
+        const name = fuzzyAdapters[i].name;
+        logError(`${name} fuzzy search failed`, r.reason);
+        // 避免重复 push(主搜索已失败时 degraded 已含该源)
+        if (!degraded.includes(name)) {
+          degraded.push(name);
+        }
       }
     }
 
-    if (allFailed) {
-      return { wheels: [], degraded, allFailed: true, routing, translatedQuery: translated, rateLimited };
-    }
+    return { allRaw, degraded, allFailed };
+  }
 
-    let wheels: Wheel[] = allRaw.map(w => enrich(normalize(w)));
-    // 提取 query 关键词(含中文翻译后的英文),用于排序时描述匹配加分
-    const queryKeywords = extractKeywords(input.query);
-    // Phase 6 简化:删除领域泛词过滤和 coreWords 过滤。
-    // 相关性判断交给 AI 调用方 —— AI 看到 top N 结果后自己挑最适合的。
-    // 硬规则过滤(isMissingCoreConcept)容易误杀主流库,得不偿失。
-    let rankedWithMatch = collectAndRank(wheels, intent, limit, queryKeywords, input.query);
-
+  /**
+   * 兜底扩展(H2 重构:从 runSearch 提取):召回不足时搜索被跳过的源,合并去重后返回。
+   *
+   * 触发条件:路由跳过了源(skipped.length > 0)且 (top 1 stars < 阈值 或总结果 < 阈值 条)。
+   *
+   * 关键正确性约束(原注释保留,禁止调整):
+   * - N4:小众领域(hardware/cpp-arduino/paper)用更宽松的阈值(NICHE 版本),
+   *   避免这些领域 top1 stars 普遍偏低导致几乎每次都触发全源扩展,消耗路由节省的配额
+   * - 修复1:扩展结果单独 rank(各自 filter+dedupe+score+sort+slice),
+   *   合并后只做轻量 dedupe(按 name toLowerCase)+ 一次 sort(按 match.score)
+   * - P0-2 修复:fallback expansion 内部不应用 feedback,由主流程(buildOutputFromSearch)统一应用一次
+   *   (否则 feedback double-apply,且缓存被 post-feedback wheels 污染)
+   * - 无论扩展是否带来新结果都标记 expandedFallback=true;扩展后不再二次扩展
+   *
+   * @returns 更新后的 rankedWithMatch 与 expandedFallback(degraded/rateLimited 原地追加)
+   */
+  async function expandWithSkippedSources(
+    routing: RoutingResult,
+    skippedAdapters: SourceAdapter[],
+    rankedWithMatch: Wheel[],
+    input: FindWheelInput,
+    intent: Intent,
+    limit: number,
+    queryKeywords: string[],
+    searchOpts: SearchOpts,
+    fuzzyOpts: Omit<SearchOpts, 'parsedQuery'>,
+    parsedQuery: ParsedQuery,
+    degraded: string[],
+    rateLimited: string[],
+  ): Promise<{ rankedWithMatch: Wheel[]; expandedFallback: boolean }> {
     // ===== 兜底扩展:召回不足时搜索被跳过的源 =====
     // 严格阈值:top 1 stars < 阈值 或总结果 < 阈值 条 → 扩展到全源重搜
     // 仅当本次路由跳过了源(skipped.length > 0)时才可能触发扩展
     // N4:小众领域(hardware/cpp-arduino/paper)用更宽松的阈值(NICHE 版本),
     // 避免这些领域 top1 stars 普遍偏低导致几乎每次都触发全源扩展,消耗路由节省的配额
-    let expandedFallback = false;
-    if (routing.skipped.length > 0 && skippedAdapters.length > 0) {
-      const topStars = rankedWithMatch[0]?.metrics.stars ?? 0;
-      const totalResults = rankedWithMatch.length;
-      // N4:按路由类型选择阈值 —— 小众领域用宽松阈值,其他用严格阈值
-      const isNicheRoute = NICHE_ROUTING_RULES.has(routing.ruleName);
-      const minResultsThreshold = isNicheRoute ? FALLBACK_MIN_RESULTS_NICHE : FALLBACK_MIN_RESULTS;
-      const topStarsThreshold = isNicheRoute ? FALLBACK_TOP_STARS_THRESHOLD_NICHE : FALLBACK_TOP_STARS_THRESHOLD;
-      const needsExpansion = totalResults < minResultsThreshold || topStars < topStarsThreshold;
-      if (needsExpansion) {
-        logInfo(`fallback expansion triggered: topStars=${topStars} results=${totalResults} → search ${skippedAdapters.length} skipped sources`);
-        // 限流熔断:兜底扩展也跳过仍处于限流期的源
-        let extSearchAdapters = skippedAdapters.filter(a => !isRateLimited(a.name));
-        // 全部被限流时降级为使用全部源(避免完全无扩展结果)
-        if (extSearchAdapters.length === 0) extSearchAdapters = skippedAdapters;
-        // O1+N2:兜底扩展也跳过限流源和全文噪声源的副搜索
-        const extFuzzyAdapters = extSearchAdapters.filter(
-          a => !RATE_LIMITED_SOURCES.has(a.name) && !FUZZY_NOISY_SOURCES.has(a.name),
-        );
-        // 搜索被跳过的源,合并结果后重新 rank
-        const [extMain, extFuzzy] = await Promise.all([
-          Promise.allSettled(extSearchAdapters.map(a => a.search(input.query, searchOpts))),
-          Promise.allSettled(extFuzzyAdapters.map(a => a.search(parsedQuery.fuzzyQuery, fuzzyOpts))),
-        ]);
-        // 收集扩展结果
-        const extRaw: RawResult[] = [];
-        for (let i = 0; i < extMain.length; i++) {
-          const r = extMain[i];
-          if (r.status === 'fulfilled') {
-            extRaw.push(...r.value);
-          } else {
-            // 扩展阶段失败的源也加入 degraded(让 AI 知道哪些源不可用)
-            const name = extSearchAdapters[i].name;
-            if (!degraded.includes(name)) degraded.push(name);
-            logError(`${name} fallback search failed`, r.reason);
-            // 限流熔断:记录扩展阶段被限流的源
-            if (r.reason instanceof RateLimitError) {
-              markRateLimited(name, r.reason.resetAt.getTime());
-              if (!rateLimited.includes(name)) rateLimited.push(name);
-            }
-          }
+    if (routing.skipped.length === 0 || skippedAdapters.length === 0) {
+      return { rankedWithMatch, expandedFallback: false };
+    }
+    const topStars = rankedWithMatch[0]?.metrics.stars ?? 0;
+    const totalResults = rankedWithMatch.length;
+    // N4:按路由类型选择阈值 —— 小众领域用宽松阈值,其他用严格阈值
+    const isNicheRoute = NICHE_ROUTING_RULES.has(routing.ruleName);
+    const minResultsThreshold = isNicheRoute ? FALLBACK_MIN_RESULTS_NICHE : FALLBACK_MIN_RESULTS;
+    const topStarsThreshold = isNicheRoute ? FALLBACK_TOP_STARS_THRESHOLD_NICHE : FALLBACK_TOP_STARS_THRESHOLD;
+    const needsExpansion = totalResults < minResultsThreshold || topStars < topStarsThreshold;
+    if (!needsExpansion) {
+      return { rankedWithMatch, expandedFallback: false };
+    }
+    logInfo(`fallback expansion triggered: topStars=${topStars} results=${totalResults} → search ${skippedAdapters.length} skipped sources`);
+    // 限流熔断:兜底扩展也跳过仍处于限流期的源
+    let extSearchAdapters = skippedAdapters.filter(a => !isRateLimited(a.name));
+    // 全部被限流时降级为使用全部源(避免完全无扩展结果)
+    if (extSearchAdapters.length === 0) extSearchAdapters = skippedAdapters;
+    // O1+N2:兜底扩展也跳过限流源和全文噪声源的副搜索
+    const extFuzzyAdapters = extSearchAdapters.filter(
+      a => !RATE_LIMITED_SOURCES.has(a.name) && !FUZZY_NOISY_SOURCES.has(a.name),
+    );
+    // 搜索被跳过的源,合并结果后重新 rank
+    const [extMain, extFuzzy] = await Promise.all([
+      Promise.allSettled(extSearchAdapters.map(a => a.search(input.query, searchOpts))),
+      Promise.allSettled(extFuzzyAdapters.map(a => a.search(parsedQuery.fuzzyQuery, fuzzyOpts))),
+    ]);
+    // 收集扩展结果
+    const extRaw: RawResult[] = [];
+    for (let i = 0; i < extMain.length; i++) {
+      const r = extMain[i];
+      if (r.status === 'fulfilled') {
+        extRaw.push(...r.value);
+      } else {
+        // 扩展阶段失败的源也加入 degraded(让 AI 知道哪些源不可用)
+        const name = extSearchAdapters[i].name;
+        if (!degraded.includes(name)) degraded.push(name);
+        logError(`${name} fallback search failed`, r.reason);
+        // 限流熔断:记录扩展阶段被限流的源
+        if (r.reason instanceof RateLimitError) {
+          markRateLimited(name, r.reason.resetAt.getTime());
+          if (!rateLimited.includes(name)) rateLimited.push(name);
         }
-        for (const r of extFuzzy) {
-          if (r.status === 'fulfilled') extRaw.push(...r.value);
-          else logError('fallback fuzzy search failed', r.reason);
-        }
-        if (extRaw.length > 0) {
-          // 修复1:扩展结果单独 rank(各自 filter+dedupe+score+sort+slice),
-          // 避免对主结果(已 rank 过一次)重新 score/dedupe。
-          // 主结果 rankedWithMatch 保持不变,扩展结果独立 collectAndRank 得 extRanked,
-          // 合并后只做轻量 dedupe(按 name toLowerCase)+ 一次 sort(按 match.score)。
-          const extWheels = extRaw.map(w => enrich(normalize(w)));
-          const extRanked = collectAndRank(extWheels, intent, limit, queryKeywords, input.query);
-          // 跨主+扩展的重复项处理:按 name toLowerCase 轻量 dedupe
-          // (两边各自已过 ranker 的完整 dedupe,跨边界重复只可能是同名,如主搜 github 返回 a/b
-          //  而扩展搜 gitee 也返回同名 a/b)
-          const seen = new Set<string>();
-          const merged: Wheel[] = [];
-          for (const w of rankedWithMatch) {
-            const k = w.name.toLowerCase();
-            if (!seen.has(k)) { seen.add(k); merged.push(w); }
-          }
-          for (const w of extRanked) {
-            const k = w.name.toLowerCase();
-            if (!seen.has(k)) { seen.add(k); merged.push(w); }
-          }
-          // 合并后只 sort(按 match.score 降序),不重新 score/dedupe
-          // P0-2 修复:fallback expansion 内部不应用 feedback,由主流程(line 257)统一应用一次。
-          // 原实现(mergedForSlice = await applyFeedback(merged))会导致 feedback 被应用两次:
-          //   1) 这里对 merged 应用一次 → 返回 result.wheels(已含 feedback)
-          //   2) 主流程 finalWheels = result.wheels → applyFeedback(finalWheels) 再应用一次
-          // 且缓存写入的是 post-feedback wheels(与"存 pre-feedback"注释不一致,污染缓存)。
-          // 删除此处 applyFeedback 后:runSearch 返回 pre-feedback → enrich → cache.set(pre-feedback)
-          //   → 主流程 applyFeedback 一次,既无 double-apply 也不污染缓存。
-          // 注意:放弃了 P2-4 的"slice 前应用 feedback 避免偏好项被截断"优化,
-          //   但 double-apply 是更严重的正确性 bug,优先修复。
-          merged.sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0));
-          rankedWithMatch = merged.slice(0, limit);
-        }
-        // 无论扩展是否带来新结果,都标记为已扩展(避免下次重复扩展,也避免误报 skippedSources)
-        expandedFallback = true;
-        // 扩展后即使仍不足,也不再二次扩展(避免无限循环)
       }
     }
-
-    return { wheels: rankedWithMatch, degraded, allFailed: false, routing, expandedFallback, translatedQuery: translated, rateLimited };
+    for (const r of extFuzzy) {
+      if (r.status === 'fulfilled') extRaw.push(...r.value);
+      else logError('fallback fuzzy search failed', r.reason);
+    }
+    if (extRaw.length > 0) {
+      // 修复1:扩展结果单独 rank(各自 filter+dedupe+score+sort+slice),
+      // 避免对主结果(已 rank 过一次)重新 score/dedupe。
+      // 主结果 rankedWithMatch 保持不变,扩展结果独立 collectAndRank 得 extRanked,
+      // 合并后只做轻量 dedupe(按 name toLowerCase)+ 一次 sort(按 match.score)。
+      const extWheels = extRaw.map(w => enrich(normalize(w)));
+      const extRanked = collectAndRank(extWheels, intent, limit, queryKeywords, input.query);
+      // 跨主+扩展的重复项处理:按 name toLowerCase 轻量 dedupe
+      // (两边各自已过 ranker 的完整 dedupe,跨边界重复只可能是同名,如主搜 github 返回 a/b
+      //  而扩展搜 gitee 也返回同名 a/b)
+      const seen = new Set<string>();
+      const merged: Wheel[] = [];
+      for (const w of rankedWithMatch) {
+        const k = w.name.toLowerCase();
+        if (!seen.has(k)) { seen.add(k); merged.push(w); }
+      }
+      for (const w of extRanked) {
+        const k = w.name.toLowerCase();
+        if (!seen.has(k)) { seen.add(k); merged.push(w); }
+      }
+      // 合并后只 sort(按 match.score 降序),不重新 score/dedupe
+      // P0-2 修复:fallback expansion 内部不应用 feedback,由主流程(buildOutputFromSearch)统一应用一次。
+      // 原实现(mergedForSlice = await applyFeedback(merged))会导致 feedback 被应用两次:
+      //   1) 这里对 merged 应用一次 → 返回 result.wheels(已含 feedback)
+      //   2) 主流程 finalWheels = result.wheels → applyFeedback(finalWheels) 再应用一次
+      // 且缓存写入的是 post-feedback wheels(与"存 pre-feedback"注释不一致,污染缓存)。
+      // 删除此处 applyFeedback 后:runSearch 返回 pre-feedback → enrich → cache.set(pre-feedback)
+      //   → 主流程 applyFeedback 一次,既无 double-apply 也不污染缓存。
+      // 注意:放弃了 P2-4 的"slice 前应用 feedback 避免偏好项被截断"优化,
+      //   但 double-apply 是更严重的正确性 bug,优先修复。
+      merged.sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0));
+      rankedWithMatch = merged.slice(0, limit);
+    }
+    // 无论扩展是否带来新结果,都标记为已扩展(避免下次重复扩展,也避免误报 skippedSources)
+    // 扩展后即使仍不足,也不再二次扩展(避免无限循环)
+    return { rankedWithMatch, expandedFallback: true };
   }
 
   return { handle };
@@ -564,6 +688,8 @@ async function enrichTopWheels(
 
   // 不修改入参:用浅拷贝构造新数组,仅对命中详情的元素构造新对象替换
   const enriched: Wheel[] = [...wheels];
+  // M12:收集缓存写入任务,循环后并行执行(避免循环内串行 await 造成最多 10 次磁盘 IO)
+  const cacheWrites: Promise<void>[] = [];
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
     if (r.status !== 'fulfilled') {
@@ -574,19 +700,21 @@ async function enrichTopWheels(
     const details = r.value;
     if (!details) continue; // 非 GitHub 源:跳过,不加标记
 
-    // 写 details 缓存(供 get_wheel_details 懒加载复用)
+    // 收集 details 缓存写入任务(供 get_wheel_details 懒加载复用),稍后并行执行
     if (detailsCache) {
-      try {
-        await detailsCache.set(detailsCacheKey(top[i].name), details);
-      } catch (err) {
-        logError('details prefetch failed', err);
-        // 缓存写入失败不阻断(磁盘满等极端情况)
-      }
+      cacheWrites.push(
+        detailsCache.set(detailsCacheKey(top[i].name), details).catch(err => {
+          logError('details prefetch failed', err);
+          // 缓存写入失败不阻断(磁盘满等极端情况)
+        }),
+      );
     }
 
     // 优化2+7:统一只标记 hasDetails=true,不内联 details(AI 按需调 get_wheel_details 懒加载)
     enriched[i] = { ...enriched[i], hasDetails: true };
   }
+  // M12:并行执行所有缓存写入(每个已单独 catch,Promise.all 不会 reject)
+  await Promise.all(cacheWrites);
   return enriched;
 }
 

@@ -18,6 +18,29 @@ import { GITHUB_CODE_PATH_SEP } from '../normalize/types.js';
 import { THREE_YEARS_MS, ONE_YEAR_MS } from '../util/time.js';
 import { matchesKeyword, topicMatches } from '../util/keywordMatch.js';
 
+// ===== 排序权重与阈值常量(M7:集中管理,便于调参) =====
+// 基础分归一化分母
+const STARS_NORMALIZE_MAX = 50000;       // stars 归一化分母:5w stars 视为满分
+const DOWNLOADS_NORMALIZE_MAX = 1000000; // downloads 归一化分母:100w 周下载视为满分
+// 基础分各信号权重(合计 = 1.0)
+const WEIGHT_STARS = 0.25;
+const WEIGHT_RECENCY = 0.2;
+const WEIGHT_DOWNLOADS = 0.1;
+const WEIGHT_LICENSE = 0.05;
+const WEIGHT_COVERAGE = 0.4;
+// downloads 高量 bonus(超过阈值额外加分,体现"极流行"优势)
+const DOWNLOADS_BONUS_THRESHOLD = 100000;
+const DOWNLOADS_BONUS = 0.05;
+// bonus(query 相关性)合并上限
+const BONUS_MAX = 0.5;
+// 降权系数
+const ZERO_HIT_PENALTY = 0.3;       // 零命中时 stars 降权
+const LOW_HIT_RATE_PENALTY = 0.2;   // 命中率<50% 时 stars 降权
+const REVERSE_INTENT_PENALTY = 0.3; // 反向意图总分降权
+// feature 意图下的权重调整
+const FEATURE_STARS_FACTOR = 0.7;
+const FEATURE_DOWNLOADS_FACTOR = 1.5;
+
 // ===== 聚合类仓库模式表(集中管理) =====
 // 这些是"资源列表",不是具体可用的轮子,在 filterOut 阶段统一剔除。
 // 之前分散在 githubSourceAdapter.ts(name 模式)和 ranker.ts(desc 模式)两处,
@@ -305,20 +328,20 @@ export function score(wheel: Wheel, intent: Intent, queryKeywords: string[] = []
   // bonus:query 相关性加分,独立叠加,合并上限 0.5
   //   descBonus(0.15)+ nameBonus(0.15)+ phraseBonus(0.1)+ topicsBonus(0.1)
 
-  let stars = normalize(m.stars, 50000) * 0.25;
-  const recency = recencyScore(m.lastUpdated) * 0.2;
+  let stars = normalize(m.stars, STARS_NORMALIZE_MAX) * WEIGHT_STARS;
+  const recency = recencyScore(m.lastUpdated) * WEIGHT_RECENCY;
   // R4:downloads 分母从 100000 提到 1000000(覆盖百万级周下载量包)
-  let downloads = normalize(m.downloads, 1000000) * 0.1;
+  let downloads = normalize(m.downloads, DOWNLOADS_NORMALIZE_MAX) * WEIGHT_DOWNLOADS;
   // 优化18:高 downloads bonus —— 超过 100k downloads 的包加额外 0.05 分(cap 0.15)。
   // 场景:npm 包 downloads 达百万级时,normalize 后已是 0.1 满分,无法体现"极流行"优势;
   // 加 0.05 bonus 让 100k+ 包在排序里略胜 50k 包,避免中量级包与极流行包同分。
   // 系数保守(0.05),避免 npm 包刷分压制 GitHub 项目。
-  if (m.downloads && m.downloads > 100000) {
-    downloads += 0.05;  // 额外 bonus,downloads 总上限 0.15
+  if (m.downloads && m.downloads > DOWNLOADS_BONUS_THRESHOLD) {
+    downloads += DOWNLOADS_BONUS;  // 额外 bonus,downloads 总上限 0.15
   }
-  const license = m.license ? 0.05 : 0;
+  const license = m.license ? WEIGHT_LICENSE : 0;
   // coverage 是基础分里的相关性信号(描述全词覆盖率)
-  const coverage = queryCoverage(wheel, queryKeywords) * 0.4;
+  const coverage = queryCoverage(wheel, queryKeywords) * WEIGHT_COVERAGE;
 
   // bonus 加分项(query 相关性,独立于基础分,合并上限 0.5)
   const descBonus = descriptionMatchBonus(wheel, queryKeywords);    // 上限 0.15
@@ -327,24 +350,24 @@ export function score(wheel: Wheel, intent: Intent, queryKeywords: string[] = []
   const topicsBonus = topicsMatchBonus(wheel, queryKeywords);        // 上限 0.1
   const bonusTotal = Math.min(
     descBonus + nameBonus + phraseBonus + topicsBonus,
-    0.5, // P0-2:bonus 统一上限 0.5
+    BONUS_MAX, // P0-2:bonus 统一上限 0.5
   );
 
   // 高 star 零命中降权:如果一个 query 关键词都不命中,stars 权重砍半
   // 场景:voicebox(⭐37k)搜 "AI coding monitor" 时零命中,不应靠 star 霸榜
   if (isZeroHit(wheel, queryKeywords)) {
-    stars *= 0.3;
+    stars *= ZERO_HIT_PENALTY;
   }
   // 优化20:低命中率降权 — 命中率 < 50% 时,stars 权重 *0.2(强降权)
   // 场景:apify/crawlee(24821★)搜 "html to pdf" 只命中 1/4,不应靠 star 霸榜
   // 系数从 0.5 调整为 0.2:测试发现 0.5 仍让 crawlee 排第一,需要更强降权
   if (isLowHitRate(wheel, queryKeywords)) {
-    stars *= 0.2;
+    stars *= LOW_HIT_RATE_PENALTY;
   }
 
   if (intent === 'feature') {
-    stars *= 0.7;
-    downloads *= 1.5;
+    stars *= FEATURE_STARS_FACTOR;
+    downloads *= FEATURE_DOWNLOADS_FACTOR;
   }
 
   // 总分 = 基础分(<=1.0)+ bonus(<=0.5),上限 1.5
@@ -353,7 +376,7 @@ export function score(wheel: Wheel, intent: Intent, queryKeywords: string[] = []
   // 软降权(非硬过滤),避免"add watermark"被"remove watermark"结果霸榜,
   // 同时保留 AI 调用方对边界情况的判断空间(结果仍出现在候选列表,只是排位靠后)。
   if (wheel.description && isReverseIntent(queryKeywords, wheel.description, query)) {
-    total *= 0.3;
+    total *= REVERSE_INTENT_PENALTY;
   }
   return total;
 }

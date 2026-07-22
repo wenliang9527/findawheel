@@ -6,7 +6,7 @@ import { DEFAULT_RETRY } from '../util/retry.js';
 import { SourceError } from '../errors.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 import { logError } from '../util/logger.js';
-import { toSourceError } from './sourceError.js';
+import { toSourceError } from '../util/sourceError.js';
 
 interface NpmSearchResponse {
   objects: Array<{

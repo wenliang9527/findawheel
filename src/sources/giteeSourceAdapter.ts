@@ -11,7 +11,7 @@ import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 import { ECOSYSTEM_LANG } from './ecosystemMapping.js';
-import { toSourceError } from './sourceError.js';
+import { toSourceError } from '../util/sourceError.js';
 
 interface GiteeSearchResponse {
   total_count?: number;
@@ -37,7 +37,8 @@ export class GiteeSourceAdapter implements SourceAdapter {
 
     const url = new URL('https://gitee.com/api/v5/search/repositories');
     url.searchParams.set('q', q);
-    url.searchParams.set('sort', 'stars');
+    // Gitee API v5 合法值是 stars_count(实测 sort=stars 返回 400)
+    url.searchParams.set('sort', 'stars_count');
     url.searchParams.set('order', 'desc');
     url.searchParams.set('per_page', '20');
 

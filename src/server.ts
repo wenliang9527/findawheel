@@ -14,20 +14,30 @@ import { createCache, cleanupExpired } from './cache/cache.js';
 import type { WheelDetails } from './enrich/wheelDetailsEnricher.js';
 import { createFeedbackStore } from './feedback/feedbackStore.js';
 import { createRecordFeedbackTool } from './tools/recordFeedbackTool.js';
-import { searchKnowledge, type SearchKnowledgeInput } from './tools/searchKnowledgeTool.js';
+import { searchKnowledge } from './tools/searchKnowledgeTool.js';
 import type { KnowledgeItem } from './knowledge/knowledgeBase.js';
 import { readEnv } from './util/env.js';
+import { logError } from './util/logger.js';
 
-// 可用工具列表(与 ListToolsRequestSchema handler 中保持一致)
-// 用于 unknown tool 错误消息,帮助调用方快速定位问题
-const AVAILABLE_TOOLS = ['suggest_queries', 'find_wheel', 'get_wheel_details', 'record_feedback', 'search_knowledge'];
+// N1 重构:工具注册表模式
+// 把 if-else 分支收敛为数据驱动的 Record<name, ToolRegistration>,
+// 新增工具只需追加一个条目,无需修改 CallToolRequestSchema handler。
+// handler 返回类型用 unknown(SDK 的 CallToolResult.content 是扩展联合类型,
+// 我们只返回 TextContent 变体,联合赋值时不兼容,用 unknown 由运行时校验兜底)。
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ToolHandler<T extends z.ZodTypeAny> = (data: z.infer<T>) => Promise<any> | any;
+
+interface ToolRegistration<S extends z.ZodTypeAny> {
+  schema: S;
+  handler: ToolHandler<S>;
+}
 
 const FindWheelSchema = z.object({
-  query: z.string(),
+  query: z.string().max(500),
   intent: z.enum(['feature', 'project', 'auto']).optional(),
-  ecosystem: z.string().optional(),
+  ecosystem: z.string().max(50).optional(),
   limit: z.number().int().positive().max(100).optional(),
-  exclude: z.array(z.string()).optional(),
+  exclude: z.array(z.string().max(200)).max(50).optional(),
 });
 
 const SuggestQueriesSchema = z.object({
@@ -92,130 +102,137 @@ export function createServer() {
     { capabilities: { tools: {} } },
   );
 
+  // N1:工具定义与 handler 注册表
+  const toolDefs = [
+    {
+      name: 'suggest_queries',
+      description:
+        'Generate 4 English search-term variants (precise/action-oriented/fuzzy/concise) from user\'s original request. CALL THIS FIRST before find_wheel — never pass raw user input to find_wheel. If output includes "recommendedEcosystem" (e.g., "arduino"/"cpp" for hardware), pass it to find_wheel\'s ecosystem param.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          query: { type: 'string', description: 'User\'s original request in any language (Chinese/English/...)' },
+          ecosystem: { type: 'string', description: 'js | ts | python | rust | go | java | cpp | arduino (optional)' },
+        },
+        required: ['query'],
+      },
+    },
+    {
+      name: 'find_wheel',
+      description:
+        'Search 15 data sources for existing wheels (libraries/packages/SDKs/models) BEFORE writing new code. Call suggest_queries first. findawheel does NOT filter by relevance — YOU judge and skip irrelevant results (e.g., "remove watermark" when user wants ADD). Use "exclude" to filter on re-call without re-querying APIs.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          query: { type: 'string', description: 'Precise English search query (NOT raw user input). Call suggest_queries first to generate this.' },
+          intent: { type: 'string', enum: ['feature', 'project', 'auto'], default: 'auto' },
+          ecosystem: { type: 'string', description: 'js | ts | python | rust | go | java | cpp | arduino' },
+          limit: { type: 'number', minimum: 1, maximum: 100, default: 50 },
+          exclude: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Wheel names to exclude (e.g., ["owner/repo", "package-name"]). Filter out irrelevant results from a previous call without re-querying APIs. Case-insensitive.',
+          },
+        },
+        required: ['query'],
+      },
+    },
+    {
+      name: 'get_wheel_details',
+      description:
+        'Retrieve detailed info (README snippet, code examples, latest release, license compatibility) for a single wheel. Call AFTER find_wheel when a result had "hasDetails": true (details pre-fetched and cached, so instant). Only works for GitHub-hosted wheels (owner/repo format).',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string', description: 'Wheel name in owner/repo format (e.g., facebook/react)' },
+        },
+        required: ['name'],
+      },
+    },
+    {
+      name: 'record_feedback',
+      description:
+        'Record user feedback on a wheel to improve future search ranking. Actions: "like" (user praised/selected — boosts), "hide" (user said irrelevant — demotes), "click" (user opened link — small boost). Call AFTER showing find_wheel results and observing user reaction. Persisted locally, accumulates across sessions.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string', description: 'Wheel name (e.g., facebook/react, lodash, serde) — supports multi-source name formats' },
+          action: { type: 'string', enum: ['like', 'hide', 'click'], description: 'Feedback action: like (boost), hide (demote), click (small boost)' },
+          source: { type: 'string', description: 'Wheel source (e.g., github/npm/pypi/crates). Optional but recommended for accurate feedback tracking.' },
+        },
+        required: ['name', 'action'],
+      },
+    },
+    {
+      name: 'search_knowledge',
+      description:
+        'Search user\'s personal knowledge base (local Markdown notes: Obsidian/Logseq/.md). Returns matching docs with snippets and file:// URLs. WHEN TO CALL: "team wiki about X" / "查笔记里关于 X" / "内部文档" / "团队规范". For open-source libraries, use find_wheel instead. Requires FINDAWHEEL_KB_ENABLED=true and FINDAWHEEL_KB_ROOT=<path>.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          query: { type: 'string', description: 'Search query in any language (Chinese/English). Will be split into keywords for matching.' },
+          limit: { type: 'number', minimum: 1, maximum: 100, description: 'Max results (default 10, max 100)' },
+        },
+        required: ['query'],
+      },
+    },
+  ];
+
+  // N1:工具 schema → handler 注册表
+  // 消除 if-else 分支,新增工具只需追加一个条目
+  const toolRegistry: Record<string, ToolRegistration<z.ZodTypeAny>> = {
+    find_wheel: {
+      schema: FindWheelSchema,
+      handler: (data) => findWheelTool.handle(data as z.infer<typeof FindWheelSchema>),
+    },
+    suggest_queries: {
+      schema: SuggestQueriesSchema,
+      handler: (data) => suggestQueriesTool.handle(data as z.infer<typeof SuggestQueriesSchema>),
+    },
+    get_wheel_details: {
+      schema: GetWheelDetailsSchema,
+      handler: (data) => getWheelDetailsTool.handle(data as z.infer<typeof GetWheelDetailsSchema>),
+    },
+    record_feedback: {
+      schema: RecordFeedbackSchema,
+      handler: (data) => recordFeedbackTool.handle(data as z.infer<typeof RecordFeedbackSchema>),
+    },
+    search_knowledge: {
+      schema: SearchKnowledgeSchema,
+      handler: async (data) => {
+        const result = await searchKnowledge(
+          data as z.infer<typeof SearchKnowledgeSchema>,
+          env,
+          { cache: kbCache },
+        );
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+          isError: false,
+        };
+      },
+    },
+  };
+
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [
-      {
-        name: 'suggest_queries',
-        description:
-          'Generate 4 English search-term variants (precise/action-oriented/fuzzy/concise) from user\'s original request. CALL THIS FIRST before find_wheel — never pass raw user input to find_wheel. If output includes "recommendedEcosystem" (e.g., "arduino"/"cpp" for hardware), pass it to find_wheel\'s ecosystem param.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            query: { type: 'string', description: 'User\'s original request in any language (Chinese/English/...)' },
-            ecosystem: { type: 'string', description: 'js | ts | python | rust | go | java | cpp | arduino (optional)' },
-          },
-          required: ['query'],
-        },
-      },
-      {
-        name: 'find_wheel',
-        description:
-          'Search 15 data sources for existing wheels (libraries/packages/SDKs/models) BEFORE writing new code. Call suggest_queries first. findawheel does NOT filter by relevance — YOU judge and skip irrelevant results (e.g., "remove watermark" when user wants ADD). Use "exclude" to filter on re-call without re-querying APIs.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            query: { type: 'string', description: 'Precise English search query (NOT raw user input). Call suggest_queries first to generate this.' },
-            intent: { type: 'string', enum: ['feature', 'project', 'auto'], default: 'auto' },
-            ecosystem: { type: 'string', description: 'js | ts | python | rust | go | java | cpp | arduino' },
-            limit: { type: 'number', minimum: 1, maximum: 100, default: 50 },
-            exclude: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Wheel names to exclude (e.g., ["owner/repo", "package-name"]). Filter out irrelevant results from a previous call without re-querying APIs. Case-insensitive.',
-            },
-          },
-          required: ['query'],
-        },
-      },
-      {
-        name: 'get_wheel_details',
-        description:
-          'Retrieve detailed info (README snippet, code examples, latest release, license compatibility) for a single wheel. Call AFTER find_wheel when a result had "hasDetails": true (details pre-fetched and cached, so instant). Only works for GitHub-hosted wheels (owner/repo format).',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            name: { type: 'string', description: 'Wheel name in owner/repo format (e.g., facebook/react)' },
-          },
-          required: ['name'],
-        },
-      },
-      {
-        name: 'record_feedback',
-        description:
-          'Record user feedback on a wheel to improve future search ranking. Actions: "like" (user praised/selected — boosts), "hide" (user said irrelevant — demotes), "click" (user opened link — small boost). Call AFTER showing find_wheel results and observing user reaction. Persisted locally, accumulates across sessions.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            name: { type: 'string', description: 'Wheel name (e.g., facebook/react, lodash, serde) — supports multi-source name formats' },
-            action: { type: 'string', enum: ['like', 'hide', 'click'], description: 'Feedback action: like (boost), hide (demote), click (small boost)' },
-            source: { type: 'string', description: 'Wheel source (e.g., github/npm/pypi/crates). Optional but recommended for accurate feedback tracking.' },
-          },
-          required: ['name', 'action'],
-        },
-      },
-      {
-        name: 'search_knowledge',
-        description:
-          'Search user\'s personal knowledge base (local Markdown notes: Obsidian/Logseq/.md). Returns matching docs with snippets and file:// URLs. WHEN TO CALL: "team wiki about X" / "查笔记里关于 X" / "内部文档" / "团队规范". For open-source libraries, use find_wheel instead. Requires FINDAWHEEL_KB_ENABLED=true and FINDAWHEEL_KB_ROOT=<path>.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            query: { type: 'string', description: 'Search query in any language (Chinese/English). Will be split into keywords for matching.' },
-            limit: { type: 'number', minimum: 1, maximum: 100, description: 'Max results (default 10, max 100)' },
-          },
-          required: ['query'],
-        },
-      },
-    ],
+    tools: toolDefs,
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const name = req.params.name;
-    if (name === 'find_wheel') {
-      const parsed = FindWheelSchema.safeParse(req.params.arguments);
-      if (!parsed.success) {
-        return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
-      }
-      return findWheelTool.handle(parsed.data);
-    }
-    if (name === 'suggest_queries') {
-      const parsed = SuggestQueriesSchema.safeParse(req.params.arguments);
-      if (!parsed.success) {
-        return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
-      }
-      return suggestQueriesTool.handle(parsed.data);
-    }
-    if (name === 'get_wheel_details') {
-      const parsed = GetWheelDetailsSchema.safeParse(req.params.arguments);
-      if (!parsed.success) {
-        return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
-      }
-      return getWheelDetailsTool.handle(parsed.data);
-    }
-    if (name === 'record_feedback') {
-      const parsed = RecordFeedbackSchema.safeParse(req.params.arguments);
-      if (!parsed.success) {
-        return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
-      }
-      return recordFeedbackTool.handle(parsed.data);
-    }
-    if (name === 'search_knowledge') {
-      const parsed = SearchKnowledgeSchema.safeParse(req.params.arguments);
-      if (!parsed.success) {
-        return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
-      }
-      // 使用 server 顶部创建的 kbCache(保留 inFlight 跨请求去重)
-      const result = await searchKnowledge(parsed.data as SearchKnowledgeInput, env, { cache: kbCache });
-      // JSON 格式与其他 tool 一致(无缩进,节省 token)
+    const entry = toolRegistry[name];
+    if (!entry) {
       return {
-        content: [{ type: 'text', text: JSON.stringify(result) }],
-        isError: false,
+        content: [{ type: 'text', text: `unknown tool: ${name}. Available tools: ${Object.keys(toolRegistry).join(', ')}` }],
+        isError: true,
       };
     }
-    return {
-      content: [{ type: 'text', text: `unknown tool: ${name}. Available tools: ${AVAILABLE_TOOLS.join(', ')}` }],
-      isError: true,
-    };
+    const parsed = entry.schema.safeParse(req.params.arguments);
+    if (!parsed.success) {
+      return { content: [{ type: 'text', text: parsed.error.message }], isError: true };
+    }
+    // SDK 1.29 CallToolResult.content 是 ReadonlyArray<TextContent | ImageContent | AudioContent | ...>,
+    // 我们只返回 TextContent 变体。handler 返回 any 由 SDK 运行时校验。
+    return entry.handler(parsed.data);
   });
 
   return server;
@@ -228,5 +245,5 @@ export async function runServer() {
   // 启动时清理过期缓存(避免长期运行后磁盘累积)
   // 复用 readEnv 派生 cacheDir/cacheTtlMs,与 createCache 取值逻辑一致
   const env = readEnv();
-  cleanupExpired(env.cacheDir, env.cacheTtlMs).catch(() => {});
+  cleanupExpired(env.cacheDir, env.cacheTtlMs).catch(err => logError('cache cleanup failed', err));
 }

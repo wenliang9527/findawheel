@@ -11,11 +11,25 @@ function inferTypeFromTopics(topics: string[]): WheelType | null {
 }
 
 /**
- * 单个 source 的归一化函数:把该 source 的 RawResult 转换为标准 Wheel。
- * 参数类型为 RawResult(判别联合),各 normalizer 内部用 `if (raw.source !== 'xxx') throw`
- * 收窄到具体的 XxxRawResult,从而获得编译期字段检查(字段名改错会直接 typecheck 失败)。
+ * N2 重构:用工厂函数消除每个 normalizer 重复的 `if (raw.source !== 'xxx') throw` 断言。
+ *
+ * 工厂接收 source 名,返回一个自动带运行时 source 断言的 normalizer。
+ * RawResult 是判别联合(discriminated union),在工厂内做一次窄化即可,
+ * 业务逻辑里直接访问 source-specific 字段,获得编译期字段检查。
  */
 type Normalizer = (raw: RawResult) => Wheel;
+
+function makeNormalizer<S extends WheelSource>(
+  source: S,
+  fn: (raw: Extract<RawResult, { source: S }>) => Wheel,
+): Normalizer {
+  return (raw: RawResult) => {
+    if (raw.source !== source) {
+      throw new Error(`expected ${source}, got ${raw.source}`);
+    }
+    return fn(raw as Extract<RawResult, { source: S }>);
+  };
+}
 
 /**
  * source → Normalizer 注册表。
@@ -24,8 +38,7 @@ type Normalizer = (raw: RawResult) => Wheel;
  * - 新增 source 只需在此处追加一个键值对,无需修改 normalize 函数(开闭原则)
  */
 const normalizers: Record<WheelSource, Normalizer> = {
-  github: (raw) => {
-    if (raw.source !== 'github') throw new Error(`expected github, got ${raw.source}`);
+  github: makeNormalizer('github', (raw) => {
     const type = inferTypeFromTopics(raw.topics) ?? 'project';
     return {
       name: raw.name,
@@ -41,40 +54,33 @@ const normalizers: Record<WheelSource, Normalizer> = {
       },
       topics: raw.topics,
     };
-  },
-  npm: (raw) => {
-    if (raw.source !== 'npm') throw new Error(`expected npm, got ${raw.source}`);
-    return {
-      name: raw.name,
-      source: 'npm',
-      url: raw.url,
-      description: raw.description,
-      type: 'package',
-      metrics: {
-        lastUpdated: raw.date,
-        ...(raw.stars !== undefined ? { stars: raw.stars } : {}),
-        ...(raw.downloads !== undefined ? { downloads: raw.downloads } : {}),
-      },
-      topics: raw.keywords,
-    };
-  },
-  crates: (raw) => {
-    if (raw.source !== 'crates') throw new Error(`expected crates, got ${raw.source}`);
-    return {
-      name: raw.name,
-      source: 'crates',
-      url: raw.url,
-      description: raw.description,
-      type: 'package',
-      metrics: {
-        lastUpdated: raw.updatedAt,
-        downloads: raw.downloads,
-        license: raw.license ?? undefined,
-      },
-    };
-  },
-  gitee: (raw) => {
-    if (raw.source !== 'gitee') throw new Error(`expected gitee, got ${raw.source}`);
+  }),
+  npm: makeNormalizer('npm', (raw) => ({
+    name: raw.name,
+    source: 'npm',
+    url: raw.url,
+    description: raw.description,
+    type: 'package',
+    metrics: {
+      lastUpdated: raw.date,
+      ...(raw.stars !== undefined ? { stars: raw.stars } : {}),
+      ...(raw.downloads !== undefined ? { downloads: raw.downloads } : {}),
+    },
+    topics: raw.keywords,
+  })),
+  crates: makeNormalizer('crates', (raw) => ({
+    name: raw.name,
+    source: 'crates',
+    url: raw.url,
+    description: raw.description,
+    type: 'package',
+    metrics: {
+      lastUpdated: raw.updatedAt,
+      downloads: raw.downloads,
+      license: raw.license ?? undefined,
+    },
+  })),
+  gitee: makeNormalizer('gitee', (raw) => {
     // humanName 拼到 description 前面,让 Ranker 能匹配项目的人类可读名(如 vue-element-admin)
     const desc = raw.humanName
       ? `${raw.humanName}: ${raw.description}`
@@ -91,9 +97,8 @@ const normalizers: Record<WheelSource, Normalizer> = {
         license: raw.license ?? undefined,
       },
     };
-  },
-  gitlab: (raw) => {
-    if (raw.source !== 'gitlab') throw new Error(`expected gitlab, got ${raw.source}`);
+  }),
+  gitlab: makeNormalizer('gitlab', (raw) => {
     const type = inferTypeFromTopics(raw.topics) ?? 'project';
     return {
       name: raw.name,
@@ -108,80 +113,64 @@ const normalizers: Record<WheelSource, Normalizer> = {
       },
       topics: raw.topics,
     };
-  },
-  pypi: (raw) => {
-    if (raw.source !== 'pypi') throw new Error(`expected pypi, got ${raw.source}`);
-    return {
-      name: raw.name,
-      source: 'pypi',
-      url: raw.url,
-      description: raw.description,
-      type: 'package',
-      metrics: {
-        ...(raw.stars !== undefined ? { stars: raw.stars } : {}),
-      },
-    };
-  },
-  librariesio: (raw) => {
-    if (raw.source !== 'librariesio') throw new Error(`expected librariesio, got ${raw.source}`);
-    return {
-      name: raw.name,
-      source: 'librariesio',
-      url: raw.url,
-      description: raw.description,
-      type: 'package',
-      metrics: {
-        stars: raw.stars,
-        ...(raw.lastUpdated ? { lastUpdated: raw.lastUpdated } : {}),
-      },
-    };
-  },
-  web: (raw) => {
-    if (raw.source !== 'web') throw new Error(`expected web, got ${raw.source}`);
-    return {
-      name: raw.name,
-      source: 'web',
-      url: raw.url,
-      description: raw.description,
-      type: 'project', // 网页结果默认归类为 project(可能是工具站/教程/博客)
-      metrics: {},
-    };
-  },
-  'github-code': (raw) => {
-    if (raw.source !== 'github-code') throw new Error(`expected github-code, got ${raw.source}`);
-    return {
-      // name 用 owner/repo#path 形式,既唯一又能体现归属
-      name: `${raw.name}${GITHUB_CODE_PATH_SEP}${raw.path}`,
-      source: 'github-code',
-      url: raw.url,
-      // description 拼接仓库描述 + 命中片段,便于 Ranker 关键词匹配
-      description: raw.textFragment
-        ? `${raw.description} ${raw.textFragment}`.trim()
-        : raw.description,
-      type: 'snippet',
-      metrics: {
-        stars: raw.stars,
-        lastUpdated: raw.pushedAt,
-      },
-    };
-  },
-  'vscode-marketplace': (raw) => {
-    if (raw.source !== 'vscode-marketplace') throw new Error(`expected vscode-marketplace, got ${raw.source}`);
-    return {
-      name: raw.name,
-      source: 'vscode-marketplace',
-      url: raw.url,
-      description: raw.description,
-      type: 'extension',
-      metrics: {
-        // 安装数映射到 downloads,复用现有评分逻辑
-        downloads: raw.installCount,
-        lastUpdated: raw.lastUpdated,
-      },
-    };
-  },
-  paperswithcode: (raw) => {
-    if (raw.source !== 'paperswithcode') throw new Error(`expected paperswithcode, got ${raw.source}`);
+  }),
+  pypi: makeNormalizer('pypi', (raw) => ({
+    name: raw.name,
+    source: 'pypi',
+    url: raw.url,
+    description: raw.description,
+    type: 'package',
+    metrics: {
+      ...(raw.stars !== undefined ? { stars: raw.stars } : {}),
+    },
+  })),
+  librariesio: makeNormalizer('librariesio', (raw) => ({
+    name: raw.name,
+    source: 'librariesio',
+    url: raw.url,
+    description: raw.description,
+    type: 'package',
+    metrics: {
+      stars: raw.stars,
+      ...(raw.lastUpdated ? { lastUpdated: raw.lastUpdated } : {}),
+    },
+  })),
+  web: makeNormalizer('web', (raw) => ({
+    name: raw.name,
+    source: 'web',
+    url: raw.url,
+    description: raw.description,
+    type: 'project', // 网页结果默认归类为 project(可能是工具站/教程/博客)
+    metrics: {},
+  })),
+  'github-code': makeNormalizer('github-code', (raw) => ({
+    // name 用 owner/repo#path 形式,既唯一又能体现归属
+    name: `${raw.name}${GITHUB_CODE_PATH_SEP}${raw.path}`,
+    source: 'github-code',
+    url: raw.url,
+    // description 拼接仓库描述 + 命中片段,便于 Ranker 关键词匹配
+    description: raw.textFragment
+      ? `${raw.description} ${raw.textFragment}`.trim()
+      : raw.description,
+    type: 'snippet',
+    metrics: {
+      stars: raw.stars,
+      lastUpdated: raw.pushedAt,
+    },
+  })),
+  'vscode-marketplace': makeNormalizer('vscode-marketplace', (raw) => ({
+    name: raw.name,
+    source: 'vscode-marketplace',
+    url: raw.url,
+    description: raw.description,
+    type: 'extension',
+    metrics: {
+      // 安装数映射到 downloads,复用现有评分逻辑
+      downloads: raw.installCount,
+      lastUpdated: raw.lastUpdated,
+    },
+  })),
+  paperswithcode: makeNormalizer('paperswithcode', (raw) => {
     // year 和 repoUrl 拼到 description(Wheel 接口保持稳定,不加新字段),
     // 让 Ranker 能命中发表年份和关联仓库链接
     let desc = raw.description || '';
@@ -203,63 +192,51 @@ const normalizers: Record<WheelSource, Normalizer> = {
         ...(raw.stars !== undefined ? { stars: raw.stars } : {}),
       },
     };
-  },
-  huggingface: (raw) => {
-    if (raw.source !== 'huggingface') throw new Error(`expected huggingface, got ${raw.source}`);
-    return {
-      name: raw.name,
-      source: 'huggingface',
-      url: raw.url,
-      description: raw.description,
-      type: 'model',
-      metrics: {
-        stars: raw.stars,
-        downloads: raw.downloads,
-        lastUpdated: raw.lastUpdated || undefined,
-      },
-    };
-  },
-  maven: (raw) => {
-    if (raw.source !== 'maven') throw new Error(`expected maven, got ${raw.source}`);
-    return {
-      name: raw.name,
-      source: 'maven',
-      url: raw.url,
-      description: raw.description,
-      type: 'package',
-      metrics: {
-        ...(raw.lastUpdated ? { lastUpdated: raw.lastUpdated } : {}),
-      },
-    };
-  },
-  rubygems: (raw) => {
-    if (raw.source !== 'rubygems') throw new Error(`expected rubygems, got ${raw.source}`);
-    return {
-      name: raw.name,
-      source: 'rubygems',
-      url: raw.url,
-      description: raw.description,
-      type: 'package',
-      metrics: {
-        downloads: raw.downloads,
-        lastUpdated: raw.updatedAt,
-        ...(raw.license ? { license: raw.license } : {}),
-      },
-    };
-  },
-  gopkg: (raw) => {
-    if (raw.source !== 'gopkg') throw new Error(`expected gopkg, got ${raw.source}`);
-    return {
-      name: raw.name,
-      source: 'gopkg',
-      url: raw.url,
-      description: raw.description,
-      type: 'package',
-      metrics: {
-        ...(raw.publishedAt ? { lastUpdated: raw.publishedAt } : {}),
-      },
-    };
-  },
+  }),
+  huggingface: makeNormalizer('huggingface', (raw) => ({
+    name: raw.name,
+    source: 'huggingface',
+    url: raw.url,
+    description: raw.description,
+    type: 'model',
+    metrics: {
+      stars: raw.stars,
+      downloads: raw.downloads,
+      lastUpdated: raw.lastUpdated || undefined,
+    },
+  })),
+  maven: makeNormalizer('maven', (raw) => ({
+    name: raw.name,
+    source: 'maven',
+    url: raw.url,
+    description: raw.description,
+    type: 'package',
+    metrics: {
+      ...(raw.lastUpdated ? { lastUpdated: raw.lastUpdated } : {}),
+    },
+  })),
+  rubygems: makeNormalizer('rubygems', (raw) => ({
+    name: raw.name,
+    source: 'rubygems',
+    url: raw.url,
+    description: raw.description,
+    type: 'package',
+    metrics: {
+      downloads: raw.downloads,
+      lastUpdated: raw.updatedAt,
+      ...(raw.license ? { license: raw.license } : {}),
+    },
+  })),
+  gopkg: makeNormalizer('gopkg', (raw) => ({
+    name: raw.name,
+    source: 'gopkg',
+    url: raw.url,
+    description: raw.description,
+    type: 'package',
+    metrics: {
+      ...(raw.publishedAt ? { lastUpdated: raw.publishedAt } : {}),
+    },
+  })),
 };
 
 export function normalize(raw: RawResult): Wheel {

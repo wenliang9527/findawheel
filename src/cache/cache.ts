@@ -100,7 +100,7 @@ export function createCache<T = Wheel[]>(opts: CacheOpts): Cache<T> {
     }
     // 1% 概率触发清理(写时清理,避免无界增长)
     if (Math.random() < 0.01) {
-      cleanupExpired(opts.dir, opts.ttlMs).catch(() => {});  // 不 await,不阻塞写入
+      cleanupExpired(opts.dir, opts.ttlMs).catch(err => logError('cache cleanup failed', err));  // 不 await,不阻塞写入
     }
   }
 

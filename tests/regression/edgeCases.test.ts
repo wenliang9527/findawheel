@@ -48,18 +48,18 @@ describe('K 阶段:边界场景覆盖', () => {
   describe('K1. HuggingFace 异常数据容错', () => {
     it('模型对象缺少 id 字段时容错(不崩溃)', async () => {
       // 异常:返回的对象没有 id 字段
+      // L23 修复:断言行为应与实现一致 —— id 缺失时 name 应为空字符串兜底,
+      // 而非 undefined(类型声明为 string)。测试用 makeWheel 工厂统一构造。
       vi.mocked(httpGet).mockResolvedValue([
         { downloads: 100, likes: 5 }, // 缺 id
       ]);
 
       const adapter = new HuggingfaceSourceAdapter();
-      // 不应抛错,应返回 name=undefined 的结果(由 normalizer 兜底)
+      // 不应抛错,应返回容错后的结果
       const results = await adapter.search('test', baseOpts);
       expect(results).toHaveLength(1);
-      // 明确断言 name 值,验证兜底行为:
-      // 实际实现 name: m.id,缺 id 时 m.id 为 undefined,直接透传给 name 字段。
-      // (类型声明为 string,但运行时为 undefined —— 这是实现侧的小瑕疵,测试断言反映实际行为)
-      expect(results[0].name).toBeUndefined();
+      // 实现层对 undefined id 做空字符串兜底,避免 name 字段类型不一致
+      expect(results[0].name).toBe('');
     });
 
     it('API 返回 null 时容错为空数组', async () => {

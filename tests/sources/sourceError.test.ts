@@ -1,6 +1,6 @@
 // tests/sources/sourceError.test.ts
 import { describe, it, expect } from 'vitest';
-import { toSourceError } from '../../src/sources/sourceError.js';
+import { toSourceError } from '../../src/util/sourceError.js';
 import { HttpError } from '../../src/util/http.js';
 import { SourceError, RateLimitError, ErrorCode } from '../../src/errors.js';
 

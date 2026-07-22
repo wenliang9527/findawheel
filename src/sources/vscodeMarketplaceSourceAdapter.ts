@@ -14,7 +14,7 @@ import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { VscodeExtensionRawResult, RawResult } from '../normalize/types.js';
 import { httpPost } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
-import { toSourceError } from './sourceError.js';
+import { toSourceError } from '../util/sourceError.js';
 
 const MARKETPLACE_URL = 'https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery';
 

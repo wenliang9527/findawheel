@@ -13,7 +13,7 @@ import type { GitHubCodeRawResult, RawResult } from '../normalize/types.js';
 import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
 import { ECOSYSTEM_LANG } from './ecosystemMapping.js';
-import { toSourceError } from './sourceError.js';
+import { toSourceError } from '../util/sourceError.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
 
 const GITHUB_CODE_PER_PAGE = 100;  // 充分利用单次请求配额(上限 100),减少总请求数

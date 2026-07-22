@@ -16,7 +16,7 @@ import type { SourceAdapter, SearchOpts } from './sourceAdapter.js';
 import type { RawResult, HuggingfaceRawResult } from '../normalize/types.js';
 import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
-import { toSourceError } from './sourceError.js';
+import { toSourceError } from '../util/sourceError.js';
 
 const API_BASE = 'https://huggingface.co/api';
 const DEFAULT_LIMIT = 20;
@@ -70,8 +70,9 @@ export class HuggingfaceSourceAdapter implements SourceAdapter {
 
       return models.map((m): HuggingfaceRawResult => ({
         source: 'huggingface',
-        name: m.id,
-        url: `https://huggingface.co/${m.id}`,
+        // L23 修复:id 缺失时空字符串兜底,避免 name 字段类型为 string 但运行时为 undefined
+        name: m.id ?? '',
+        url: m.id ? `https://huggingface.co/${m.id}` : '',
         // 描述:优先用 pipeline_tag + library_name 组合,没有就用 tags
         description: buildDescription(m),
         stars: m.likes ?? 0,

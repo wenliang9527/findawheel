@@ -4,7 +4,7 @@ import type { GitlabRawResult, RawResult } from '../normalize/types.js';
 import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
-import { toSourceError } from './sourceError.js';
+import { toSourceError } from '../util/sourceError.js';
 
 /** GitLab /api/v4/projects 返回的项目对象 */
 interface GitlabProject {

@@ -22,7 +22,7 @@ import type { RubyGemsRawResult, RawResult } from '../normalize/types.js';
 import { httpGet } from '../util/http.js';
 import { DEFAULT_RETRY } from '../util/retry.js';
 import { translateQuery } from '../classifier/queryTranslator.js';
-import { toSourceError } from './sourceError.js';
+import { toSourceError } from '../util/sourceError.js';
 
 const API_BASE = 'https://rubygems.org/api/v1';
 

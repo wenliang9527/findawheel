@@ -4,6 +4,10 @@
 //
 // 设计:输出到 stderr(MCP stdio 协议下 stdout 被占用)。
 // 简单开关式过滤,不引入 pino/winston 等依赖。
+//
+// M16:支持结构化输出。FINDAWHEEL_LOG_FORMAT=json 时输出 NDJSON(每行一个 JSON 对象,
+// 含 ts/level/msg/err 字段,便于生产环境采集与检索);默认 text 格式(带 ISO 时间戳,
+// 人读友好)。默认 text 模式下日志级别标签/[findawheel] 前缀/消息内容保持兼容。
 
 type LogLevel = 'error' | 'warn' | 'info' | 'debug';
 
@@ -30,29 +34,42 @@ function formatError(err?: unknown): string {
   return err instanceof Error ? `${err.name}: ${err.message}` : String(err);
 }
 
-function writeLog(level: string, message: string, err?: unknown): void {
+// M16:日志格式开关。json = NDJSON 结构化(生产采集);text = 带时间戳的可读文本(默认)。
+const LOG_FORMAT = (process.env.FINDAWHEEL_LOG_FORMAT ?? 'text').toLowerCase();
+
+function writeLog(level: LogLevel, message: string, err?: unknown): void {
+  const ts = new Date().toISOString();
+  if (LOG_FORMAT === 'json') {
+    const entry: Record<string, string> = { ts, level, msg: message };
+    const errStr = formatError(err);
+    if (errStr) entry.err = errStr;
+    process.stderr.write(JSON.stringify(entry) + '\n');
+    return;
+  }
   const errStr = formatError(err);
-  process.stderr.write(`[findawheel] ${level}: ${message}${errStr ? ` — ${errStr}` : ''}\n`);
+  process.stderr.write(
+    `${ts} [findawheel] ${level.toUpperCase()}: ${message}${errStr ? ` — ${errStr}` : ''}\n`,
+  );
 }
 
 export function logError(message: string, err?: unknown): void {
   if (!shouldLog('error')) return;
-  writeLog('ERROR', message, err);
+  writeLog('error', message, err);
 }
 
 export function logWarn(message: string, err?: unknown): void {
   if (!shouldLog('warn')) return;
-  writeLog('WARN', message, err);
+  writeLog('warn', message, err);
 }
 
 /** 信息日志:常规运行信息 */
 export function logInfo(message: string): void {
   if (!shouldLog('info')) return;
-  process.stderr.write(`[findawheel] INFO: ${message}\n`);
+  writeLog('info', message);
 }
 
 /** 调试日志:详细诊断信息 */
 export function logDebug(message: string): void {
   if (!shouldLog('debug')) return;
-  process.stderr.write(`[findawheel] DEBUG: ${message}\n`);
+  writeLog('debug', message);
 }

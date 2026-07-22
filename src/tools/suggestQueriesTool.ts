@@ -137,7 +137,7 @@ export function createSuggestQueriesTool() {
     // 推荐:动作导向通常最精准(动词表达意图)
     // P2-4:用 angle 字段查找替代硬编码索引 [1],避免 suggestions 顺序调整后取错
     // 优化22:去重重复词(如 "upload upload" → "upload")
-    let recommended = dedupRecommended(
+    const recommended = dedupRecommended(
       suggestions.find(s => s.angle === 'action_oriented')?.query
       ?? suggestions[0]?.query
       ?? '',
