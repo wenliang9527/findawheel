@@ -38,6 +38,7 @@ import { httpPost } from '../../src/util/http.js';
 import { WebSourceAdapter } from '../../src/sources/webSourceAdapter.js';
 import { SourceError } from '../../src/errors.js';
 import type { SearchOpts } from '../../src/sources/sourceAdapter.js';
+import type { ParsedQuery } from '../../src/classifier/queryParser.js';
 
 const baseOpts: SearchOpts = {
   intent: 'project',
@@ -148,7 +149,7 @@ describe('WebSourceAdapter', () => {
     await adapter.search('中文查询', {
       ...baseOpts,
       exaApiKey: 'exa-key',
-      parsedQuery: { expandedQuery: 'chinese query', fuzzyQuery: 'cn query' } as any,
+      parsedQuery: { expandedQuery: 'chinese query', fuzzyQuery: 'cn query' } as Partial<ParsedQuery> as ParsedQuery,
     });
 
     // httpPost 的第一个参数是 URL,第二个是 options。body 在 options.body 里

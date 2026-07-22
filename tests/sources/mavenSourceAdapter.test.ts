@@ -3,6 +3,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MavenSourceAdapter } from '../../src/sources/mavenSourceAdapter.js';
 import type { SearchOpts } from '../../src/sources/sourceAdapter.js';
+import type { RawResult, MavenRawResult } from '../../src/normalize/types.js';
+
+// 类型守卫:收窄 RawResult 联合类型到 MavenRawResult,替代 as any
+function asMvn(r: RawResult): MavenRawResult {
+  if (r.source !== 'maven') throw new Error(`expected maven, got ${r.source}`);
+  return r as MavenRawResult;
+}
 
 // mock httpGet(与 huggingfaceSourceAdapter.test.ts 同款模式)
 vi.mock('../../src/util/http.js', () => ({
@@ -55,9 +62,9 @@ describe('MavenSourceAdapter', () => {
     );
     expect(results[0].version).toBe('3.2.0');
     expect(results[0].description).toBe('Maven artifact: spring-boot-starter-web');
-    expect((results[0] as any).repository).toBe('central');
+    expect(asMvn(results[0]).repository).toBe('central');
     // timestamp 1701234567890ms → ISO
-    expect((results[0] as any).lastUpdated).toBe(new Date(1701234567890).toISOString());
+    expect(asMvn(results[0]).lastUpdated).toBe(new Date(1701234567890).toISOString());
   });
 
   it('多个结果时全部映射', async () => {
@@ -132,7 +139,7 @@ describe('MavenSourceAdapter', () => {
     const adapter = new MavenSourceAdapter();
     const results = await adapter.search('guava', baseOpts);
 
-    expect((results[0] as any).lastUpdated).toBeUndefined();
+    expect(asMvn(results[0]).lastUpdated).toBeUndefined();
   });
 
   it('HTTP 错误时抛 SourceError', async () => {

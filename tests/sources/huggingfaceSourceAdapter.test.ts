@@ -3,6 +3,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { HuggingfaceSourceAdapter } from '../../src/sources/huggingfaceSourceAdapter.js';
 import type { SearchOpts } from '../../src/sources/sourceAdapter.js';
+import type { RawResult, HuggingfaceRawResult } from '../../src/normalize/types.js';
+
+// 类型守卫:收窄 RawResult 联合类型到 HuggingfaceRawResult,替代 as any
+function asHf(r: RawResult): HuggingfaceRawResult {
+  if (r.source !== 'huggingface') throw new Error(`expected huggingface, got ${r.source}`);
+  return r as HuggingfaceRawResult;
+}
 
 // mock httpGet
 vi.mock('../../src/util/http.js', () => ({
@@ -49,8 +56,8 @@ describe('HuggingfaceSourceAdapter', () => {
     expect(results[0].name).toBe('bert-base-uncased');
     expect(results[0].url).toBe('https://huggingface.co/bert-base-uncased');
     expect(results[0].stars).toBe(1500);
-    expect((results[0] as any).downloads).toBe(50000000);
-    expect((results[0] as any).pipelineTag).toBe('fill-mask');
+    expect(asHf(results[0]).downloads).toBe(50000000);
+    expect(asHf(results[0]).pipelineTag).toBe('fill-mask');
   });
 
   it('description 含 pipeline_tag 和 library_name', async () => {
@@ -126,8 +133,8 @@ describe('HuggingfaceSourceAdapter', () => {
     const results = await adapter.search('minimal', baseOpts);
 
     expect(results[0].stars).toBe(0);
-    expect((results[0] as any).downloads).toBe(0);
-    expect((results[0] as any).lastUpdated).toBe('');
+    expect(asHf(results[0]).downloads).toBe(0);
+    expect(asHf(results[0]).lastUpdated).toBe('');
     // description 应有兜底值
     expect(results[0].description).toBe('HuggingFace model');
   });

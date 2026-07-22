@@ -9,7 +9,7 @@ import { computeMatch, enrichWithMatch } from '../../src/rank/recommender.js';
 import { HuggingfaceSourceAdapter } from '../../src/sources/huggingfaceSourceAdapter.js';
 import { createFindWheelTool } from '../../src/tools/findWheelTool.js';
 import type { SearchOpts } from '../../src/sources/sourceAdapter.js';
-import type { RawResult, Wheel } from '../../src/normalize/types.js';
+import type { RawResult, Wheel, HuggingfaceRawResult } from '../../src/normalize/types.js';
 import { makeMockAdapter, makeGhResult } from '../tools/helpers.js';
 
 vi.mock('../../src/util/http.js', () => ({
@@ -100,7 +100,9 @@ describe('K 阶段:边界场景覆盖', () => {
 
       const adapter = new HuggingfaceSourceAdapter();
       const results = await adapter.search('test', baseOpts);
-      expect((results[0] as any).lastUpdated).toBe('invalid-date');
+      // 类型守卫收窄到 HuggingfaceRawResult,替代 as any
+      const hf = results[0] as HuggingfaceRawResult;
+      expect(hf.lastUpdated).toBe('invalid-date');
       // 我们不强制校验日期格式,原样透传给 normalizer 处理
     });
   });

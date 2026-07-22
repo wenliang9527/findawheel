@@ -64,17 +64,26 @@ export function createGetWheelDetailsTool(opts: CreateGetWheelDetailsToolOpts) {
       metrics: {},
     };
 
-    const details = await enrichDetails(wheel, opts.enrichOpts);
+    // C2 修复:用 dedupe 包裹 enrichDetails + cache.set,避免并发同 key 请求各自
+    // 独立抓取(每个发 2 个 GitHub API 请求:readme + release)浪费配额。
+    // dedupe 在 cache.get 未命中后才执行,命中缓存路径不受影响。
+    const fetchAndCache = async (): Promise<WheelDetails | null> => {
+      const d = await enrichDetails(wheel, opts.enrichOpts);
+      if (d && cache) {
+        await cache.set(key, d);
+      }
+      return d;
+    };
+
+    const details = cache
+      ? await cache.dedupe(key, fetchAndCache)
+      : await fetchAndCache();
+
     if (!details) {
       return {
         content: [{ type: 'text', text: 'no details available (non-GitHub source or fetch failed)' }],
         isError: true,
       };
-    }
-
-    // 写缓存(成功才缓存,失败不缓存避免毒化)
-    if (cache) {
-      await cache.set(key, details);
     }
 
     return {

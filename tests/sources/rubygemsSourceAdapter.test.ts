@@ -3,6 +3,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RubyGemsSourceAdapter } from '../../src/sources/rubygemsSourceAdapter.js';
 import type { SearchOpts } from '../../src/sources/sourceAdapter.js';
+import type { RawResult, RubyGemsRawResult } from '../../src/normalize/types.js';
+
+// 类型守卫:收窄 RawResult 联合类型到 RubyGemsRawResult,替代 as any
+function asRb(r: RawResult): RubyGemsRawResult {
+  if (r.source !== 'rubygems') throw new Error(`expected rubygems, got ${r.source}`);
+  return r as RubyGemsRawResult;
+}
 
 // mock httpGet
 vi.mock('../../src/util/http.js', () => ({
@@ -56,10 +63,10 @@ describe('RubyGemsSourceAdapter', () => {
     expect(results[0].url).toBe('https://rubygems.org/gems/rails');
     expect(results[0].description).toBe('Full-stack web application framework.');
     expect(results[0].version).toBe('7.1.0');
-    expect((results[0] as any).downloads).toBe(100000000);
-    expect((results[0] as any).updatedAt).toBe('2023-10-01T00:00:00.000Z');
-    expect((results[0] as any).license).toBe('MIT');
-    expect((results[0] as any).sourceCodeUri).toBe('https://github.com/rails/rails');
+    expect(asRb(results[0]).downloads).toBe(100000000);
+    expect(asRb(results[0]).updatedAt).toBe('2023-10-01T00:00:00.000Z');
+    expect(asRb(results[0]).license).toBe('MIT');
+    expect(asRb(results[0]).sourceCodeUri).toBe('https://github.com/rails/rails');
   });
 
   it('空结果时返回空数组', async () => {
@@ -138,7 +145,7 @@ describe('RubyGemsSourceAdapter', () => {
     const adapter = new RubyGemsSourceAdapter();
     const results = await adapter.search('multi license', baseOpts);
 
-    expect((results[0] as any).license).toBe('MIT');
+    expect(asRb(results[0]).license).toBe('MIT');
   });
 
   it('license 数组为空时 license 为 undefined', async () => {
@@ -158,7 +165,7 @@ describe('RubyGemsSourceAdapter', () => {
     const adapter = new RubyGemsSourceAdapter();
     const results = await adapter.search('no license', baseOpts);
 
-    expect((results[0] as any).license).toBeUndefined();
+    expect(asRb(results[0]).license).toBeUndefined();
   });
 
   it('project_uri 缺失时 url 回退到 RubyGems 包页面', async () => {
@@ -214,9 +221,9 @@ describe('RubyGemsSourceAdapter', () => {
     const adapter = new RubyGemsSourceAdapter();
     const results = await adapter.search('minimal fields', baseOpts);
 
-    expect((results[0] as any).downloads).toBe(0);
-    expect((results[0] as any).updatedAt).toBe('');
-    expect((results[0] as any).license).toBeUndefined();
+    expect(asRb(results[0]).downloads).toBe(0);
+    expect(asRb(results[0]).updatedAt).toBe('');
+    expect(asRb(results[0]).license).toBeUndefined();
     expect(results[0].description).toBe('');
   });
 });

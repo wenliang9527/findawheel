@@ -173,6 +173,54 @@ describe('M14: server.ts MCP 协议层集成测试', () => {
       });
       expect(result.isError).toBe(true);
     });
+
+    // T2 修复:补充 find_wheel 有结果的 happy path 测试
+    // 验证搜索成功时返回 JSON 含 summary.groups 和 wheels[].match.recommendation 字段
+    it('happy path:返回含 summary 和 wheels 结构的搜索结果', async () => {
+      const { httpGet } = await import('../src/util/http.js');
+      // mock GitHub 返回 1 条结果
+      vi.mocked(httpGet).mockResolvedValue({
+        total_count: 1,
+        items: [
+          {
+            full_name: 'facebook/react',
+            html_url: 'https://github.com/facebook/react',
+            description: 'The library for web and native user interfaces.',
+            stargazers_count: 200000,
+            language: 'JavaScript',
+            license: { name: 'MIT' },
+            updated_at: '2025-06-01T00:00:00Z',
+            topics: ['react', 'ui', 'frontend'],
+          },
+        ],
+      });
+
+      const { client } = await connectClient();
+      const result = await client.callTool({
+        name: 'find_wheel',
+        arguments: { query: 'react ui', limit: 5 },
+      });
+
+      expect(result.isError).not.toBe(true);
+      const text = (result.content as Array<{ type: string; text?: string }>)[0]?.text ?? '';
+      const parsed = JSON.parse(text);
+      // 验证 summary 结构
+      expect(parsed.summary).toBeDefined();
+      expect(parsed.summary.groups).toBeDefined();
+      expect(Array.isArray(parsed.summary.groups)).toBe(true);
+      // 验证 wheels 结构
+      expect(parsed.wheels).toBeDefined();
+      expect(Array.isArray(parsed.wheels)).toBe(true);
+      expect(parsed.wheels.length).toBeGreaterThan(0);
+      // 验证 wheel 含 match.recommendation 字段
+      const wheel = parsed.wheels[0];
+      expect(wheel.name).toBe('facebook/react');
+      expect(wheel.match).toBeDefined();
+      expect(wheel.match.recommendation).toBeDefined();
+      // recommendation 是 4 个等级之一
+      expect(['highly_recommended', 'recommended', 'optional', 'not_recommended'])
+        .toContain(wheel.match.recommendation);
+    });
   });
 
   describe('CallTool: record_feedback 参数校验', () => {

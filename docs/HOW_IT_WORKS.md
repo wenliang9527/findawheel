@@ -284,14 +284,15 @@ HuggingfaceSourceAdapter.search()      ← HuggingFace Hub（/api/models,pretrai
 
 **6.3 评分排序**：
 
-P0-2 重构后采用**基础分归一化 + bonus 叠加**结构，总分上限 1.5：
+P0-2 重构后采用**基础分归一化 + bonus 叠加**结构，基础分上限 1.05(含 downloads bonus)，总分上限 1.55：
 
 ```
-基础分 (<=1.0):
+基础分 (<=1.05):
   stars      × 0.25    ← 归一化到 [0, 50000]
   recency    × 0.2     ← 连续线性衰减:1年内=1.0,1-3年线性衰减到0.1
   coverage   × 0.4     ← 描述命中所有 query 内容词得 0.4,部分按比例
   downloads  × 0.1     ← 归一化到 [0, 1000000]
+  + downloads bonus 0.05  ← downloads > 100000 时额外加 0.05(体现"极流行"优势)
   license    × 0.05    ← 有 license = 1.0,无 = 0
 
 + bonus (<=0.5,合并上限):
@@ -300,7 +301,7 @@ P0-2 重构后采用**基础分归一化 + bonus 叠加**结构，总分上限 1
   phraseBonus  × 0.1    ← 精确短语匹配加分
   topicsBonus  × 0.1    ← topics 命中加分
 
-= 总分 (<=1.5)
+= 总分 (<=1.55)
 ```
 
 **额外调整**：
@@ -1031,14 +1032,15 @@ interface SuggestQueriesOutput {
 
 ### 评分公式
 
-P0-2 重构后采用**基础分归一化(1.0) + bonus(上限 0.5)**结构,总分上限 1.5,语义清晰:
+P0-2 重构后采用**基础分归一化(1.05) + bonus(上限 0.5)**结构,总分上限 1.55,语义清晰:
 
 ```
-基础分 (<=1.0):
+基础分 (<=1.05):
   stars      × 0.25    ← 归一化到 [0, 50000]
   recency    × 0.2     ← 连续线性衰减:1年内=1.0,1-3年线性衰减到0.1,3年以上=0
   coverage   × 0.4     ← 描述命中所有 query 内容词得 0.4,部分按比例
   downloads  × 0.1     ← 归一化到 [0, 1000000](P0 调整,原 100000)
+  + downloads bonus 0.05  ← downloads > 100000 时额外加 0.05(优化18,体现"极流行"优势)
   license    × 0.05    ← 有 license = 1.0,无 = 0
 
 + bonus (<=0.5,合并上限):
@@ -1047,7 +1049,7 @@ P0-2 重构后采用**基础分归一化(1.0) + bonus(上限 0.5)**结构,总分
   phraseBonus  × 0.1    ← 精确短语匹配加分(description 含完整 query 短语)
   topicsBonus  × 0.1    ← topics 命中加分(仓库标签命中 query 词)
 
-= 总分 (<=1.5)
+= 总分 (<=1.55)
 ```
 
 **各子分计算**：
@@ -1338,7 +1340,7 @@ findawheel 注册了五个工具：
 | 硬规则相关性过滤 | Phase 6 已删除——判断交给 AI 调用方（RAG 范式） |
 | 领域特化配置表 | Phase 6 已删除 DOMAINS/GENERIC_WORDS/STARS_DENOMINATOR——统一处理 |
 
-> ✅ **Phase 6 简化（RAG 范式）**：findawheel 重新定位为"AI 编程的上下文增强器"。检索器只负责召回，相关性判断交给 AI。删除了 isMissingCoreConcept / isReverseIntent 等硬过滤函数、6 领域配置表、embedded 4 处特殊逻辑。保留翻译表/同义词表/ACTION_VERBS/feedback 加权/详情预抓取/硬件 ecosystem 推荐等纯增益机制。634 测试全通过。
+> ✅ **Phase 6 简化（RAG 范式）**：findawheel 重新定位为"AI 编程的上下文增强器"。检索器只负责召回，相关性判断交给 AI。删除了 isMissingCoreConcept / isReverseIntent 等硬过滤函数、6 领域配置表、embedded 4 处特殊逻辑。保留翻译表/同义词表/ACTION_VERBS/feedback 加权/详情预抓取/硬件 ecosystem 推荐等纯增益机制。696 测试全通过。
 >
 > 🔧 **第二轮搜索/判断优化（N1-N17，commit xxx）**：聚焦"搜索召回质量、判断准确性、AI 协作体验"三个维度。修复 3 个 P0 bug:N7(filterOut 误杀 Maven 包 — 空描述+无 stars 被过滤)、N3(github-code 文件级结果与 github 仓库级结果未按 owner/repo 去重)、N6(HuggingFace likes 用 stars 分母 10000 归一化导致热度失真)。4 个 P1 优化:N1(fuzzyQuery 保留原词锚点,不再完全替换)、N12(find_wheel 输出新增 translatedQuery 字段供 AI 调试)、N16(top 4-10 只抓 README 不抓 release,减少 35% GitHub API 调用)、N8(topics 短词匹配改用 kebab-case 边界,避免 js 误匹配 vue-js)。
 

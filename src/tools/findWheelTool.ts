@@ -170,17 +170,23 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       return handleCacheHit(cached, input, intent, excludeSet);
     }
 
-    // 未命中:用 dedupe 包裹搜索流程,同 key 并发只执行一次
-    const result = await cache.dedupe(key, () => runSearch(input, intent, limit));
+    // 未命中:用 dedupe 包裹搜索+详情预抓取+缓存写入全流程。
+    // C1 修复:dedupe 作用域扩大到覆盖 enrichTopWheels(GitHub API 预抓取)和 cache.set,
+    // 避免并发同 key 请求各自独立预抓取(浪费 GitHub 配额)和冗余磁盘写入。
+    // 注:feedback 和 exclude 过滤在 buildOutputFromSearch 内部、cache.set 之后执行,
+    // 只影响本次返回值,不污染缓存,因此 dedupe 包裹它们是安全的(各请求 feedback 可能不同)。
+    return cache.dedupe(key, async () => {
+      const result = await runSearch(input, intent, limit);
 
-    if (result.allFailed) {
-      return {
-        content: [{ type: 'text', text: 'all data sources unavailable' }],
-        isError: true,
-      };
-    }
+      if (result.allFailed) {
+        return {
+          content: [{ type: 'text', text: 'all data sources unavailable' }],
+          isError: true,
+        };
+      }
 
-    return buildOutputFromSearch(result, key, input, intent, excludeSet);
+      return buildOutputFromSearch(result, key, input, intent, excludeSet);
+    });
   }
 
   /**

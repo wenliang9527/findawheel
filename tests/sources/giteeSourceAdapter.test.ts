@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GiteeSourceAdapter } from '../../src/sources/giteeSourceAdapter.js';
 import type { SearchOpts } from '../../src/sources/sourceAdapter.js';
+import type { ParsedQuery } from '../../src/classifier/queryParser.js';
 import { RateLimitError, SourceError } from '../../src/errors.js';
 
 // mock httpGet / HttpError:路径相对测试文件解析到 src/util/http.js
@@ -255,7 +256,7 @@ describe('GiteeSourceAdapter.search', () => {
         modifiers: [],
         expandedQuery: 'custom expanded query',
         formatWords: [],
-      } as any,
+      } as Partial<ParsedQuery> as ParsedQuery,
     });
 
     const calledUrl = new URL(vi.mocked(httpGet).mock.calls[0][0] as string);
