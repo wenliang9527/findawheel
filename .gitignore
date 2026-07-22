@@ -12,6 +12,9 @@ docs/superpowers/
 .vscode/
 .idea/
 
+# Agent memory (local tooling, not for version control)
+.workbuddy/
+
 # Test / build artifacts
 coverage/
 *.tsbuildinfo

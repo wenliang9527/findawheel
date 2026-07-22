@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.github
+.vscode
+.workbuddy
+docs
+tests
+*.md
+.env
+.env.*
+!.env.example
+Dockerfile
+.dockerignore
+npm-debug.log
