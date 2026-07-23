@@ -107,11 +107,11 @@ export function createServer() {
     {
       name: 'suggest_queries',
       description:
-        'Generate 4 English search-term variants (precise/action-oriented/fuzzy/concise) from user\'s original request. CALL THIS FIRST before find_wheel — never pass raw user input to find_wheel. If output includes "recommendedEcosystem" (e.g., "arduino"/"cpp" for hardware), pass it to find_wheel\'s ecosystem param.',
+        'Generate 4 English search-term variants (precise/action-oriented/fuzzy/concise) from user\'s original request. CALL THIS FIRST before find_wheel — never pass raw user input to find_wheel. If output includes "recommendedEcosystem" (e.g., "arduino"/"cpp" for hardware), pass it to find_wheel\'s ecosystem param. NOTE: built-in translation covers common tech terms only; if "warning" field appears in output, translation was incomplete — you MUST translate the user intent to English yourself and retry find_wheel with your own English query.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          query: { type: 'string', description: 'User\'s original request in any language (Chinese/English/...)' },
+          query: { type: 'string', description: 'User\'s original request in any language (Chinese/English/...). For niche domains (e.g., 算卦/风水/中医), the built-in translation table may not cover them — check the "warning" field in the output.' },
           ecosystem: { type: 'string', description: 'js | ts | python | rust | go | java | cpp | arduino (optional)' },
         },
         required: ['query'],
@@ -124,7 +124,7 @@ export function createServer() {
       inputSchema: {
         type: 'object' as const,
         properties: {
-          query: { type: 'string', description: 'Precise English search query (NOT raw user input). Call suggest_queries first to generate this.' },
+          query: { type: 'string', description: 'Precise English search query (NOT raw user input). Call suggest_queries first to generate this. If the user\'s domain is niche (e.g., 算卦/风水/中医) and suggest_queries returns a "warning" field, translate the intent to English yourself instead of using the suggested query.' },
           intent: { type: 'string', enum: ['feature', 'project', 'auto'], default: 'auto' },
           ecosystem: { type: 'string', description: 'js | ts | python | rust | go | java | cpp | arduino' },
           limit: { type: 'number', minimum: 1, maximum: 100, default: 50 },

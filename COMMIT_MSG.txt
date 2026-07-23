@@ -1,0 +1,39 @@
+feat: translation gap detection + warning mechanism (round-14)
+
+问题:翻译表是穷举式维护,冷门领域(算卦/风水/中医/古籍)覆盖不足,
+用户测试"我想做个算卦看风水的程序"时,suggest_queries 翻译不完整,
+导致 find_wheel 召回差(返回微信小程序包而非易经/风水项目)。
+
+根因:翻译表作为唯一翻译机制,长尾领域必然有盲区。用户选择不删翻译表
+也不调 LLM(违反硬约束),而是加"检测+预警"机制让 AI client 知道何时
+该自己翻译。
+
+修复(3 层防御):
+
+1. 翻译不完整检测(queryTranslator.ts):
+   - 新增 containsCJK() 函数:检测字符串是否仍含 CJK 字符
+   - 翻译后仍含中文 → 翻译表未覆盖该领域
+
+2. suggest_queries 预警(suggestQueriesTool.ts):
+   - translatedQuery 仍含 CJK 时返回 warning 字段
+   - 提示 AI client:"翻译表未覆盖,直接搜索会召回差,建议自行翻译为英文 query"
+
+3. find_wheel 双重保险(findWheelTool.ts):
+   - buildSummary 加 query 参数,检测 query 含中文且翻译后仍含中文时加 warning
+   - 即使 AI client 跳过 suggest_queries 直接调 find_wheel 也能收到预警
+
+4. 工具描述强化(server.ts):
+   - suggest_queries: "if warning field appears, translation was incomplete —
+     you MUST translate the intent to English yourself and retry"
+   - find_wheel query: "if suggest_queries returns warning field,
+     translate the intent to English yourself instead of using the suggested query"
+
+5. 补玄学领域词条(queryTranslator.ts):
+   - 算卦/占卜/卜卦 → divination/fortune-telling
+   - 风水/看风水 → feng-shui/fengshui/geomancy
+   - 八字/四柱 → bazi/four-pillars
+   - 六爻/梅花易数/紫微斗数/黄历/黄道吉日/农历/吉日/择日
+   - 取名/起名/测字/手相/面相/塔罗/星座/生肖/运势/运程/姻缘/算命
+   - 共 30 个词条,覆盖玄学/命理常见场景
+
+All 696 tests passed (55 files). typecheck 0 errors.

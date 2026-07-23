@@ -7,7 +7,7 @@ import { GITHUB_CODE_PATH_SEP } from '../normalize/types.js';
 import { classify } from '../classifier/queryClassifier.js';
 import { extractKeywords } from '../classifier/queryTranslator.js';
 import { parseQuery, type ParsedQuery } from '../classifier/queryParser.js';
-import { translateQuery } from '../classifier/queryTranslator.js';
+import { translateQuery, containsCJK } from '../classifier/queryTranslator.js';
 import { routeSources, type RoutingResult } from '../classifier/sourceRouter.js';
 import { normalize } from '../normalize/normalizer.js';
 import { enrich } from '../enrich/metricsEnricher.js';
@@ -233,7 +233,7 @@ export function createFindWheelTool(opts: CreateToolOpts) {
       total: filtered.length,
       wheels: filtered,
       // 优化8:cache 命中路径无 degraded 信息(不缓存),instruction 不含降级提示
-      summary: buildSummary(filtered, []),
+      summary: buildSummary(filtered, [], input.query),
       cached: true,
       // 修复2:恢复缓存写入时的路由信息(若为旧格式缓存则无此字段,行为不变)
       ...(cachedRouting ?? {}),
@@ -744,6 +744,7 @@ async function enrichTopWheels(
 function buildSummary(
   wheels: Wheel[],
   degraded: Array<{ name: string; reason: string }> = [],
+  query: string = '',
 ): FindWheelOutput['summary'] {
   // 按推荐等级分组(P1-13:用 ?? [] 替代非空断言 !)
   const byLevel = new Map<string, string[]>();
@@ -774,6 +775,16 @@ function buildSummary(
     const topStars = wheels[0].metrics.stars ?? 0;
     if (topStars < LOW_STARS_THRESHOLD) {
       warning = `⚠️ 召回质量警告:top 1 结果仅 ${topStars} stars,可能未命中主流库。建议:(1) 换更宽泛的 query(如去掉平台名/修饰词);(2) 调用 suggest_queries 工具生成搜索词变体;(3) 尝试用更精准的英文关键词重新搜索。`;
+    }
+  }
+
+  // 翻译不完整检测(双重保险):query 含中文且翻译后仍含中文 → 翻译表未覆盖
+  // 即使 AI client 跳过 suggest_queries 直接调 find_wheel 也能收到预警
+  if (query && containsCJK(query)) {
+    const translated = translateQuery(query);
+    if (containsCJK(translated)) {
+      const cjkWarning = `⚠️ 翻译不完整预警:query 含中文且翻译表未覆盖,直接搜索会召回差。建议:AI client 自行将用户意图翻译为精准英文 query 后重新调 find_wheel(例如"算卦看风水"→"divination feng-shui i-ching fortune-telling")。`;
+      warning = warning ? `${warning}\n${cjkWarning}` : cjkWarning;
     }
   }
 

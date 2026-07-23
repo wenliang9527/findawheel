@@ -355,6 +355,38 @@ const ZH_TO_EN: Record<string, string[]> = {
   '位置控制': ['position-control'],
   '速度控制': ['velocity-control', 'speed-control'],
   '扭矩控制': ['torque-control'],
+
+  // 玄学/命理类(用户搜"算卦/看风水/八字"时,需翻成英文才能命中 GitHub 上的相关项目)
+  '算卦': ['divination', 'fortune-telling'],
+  '占卜': ['divination', 'fortune-telling'],
+  '卜卦': ['divination', 'fortune-telling'],
+  '起卦': ['divination', 'cast-coin'],
+  '风水': ['feng-shui', 'fengshui', 'geomancy'],
+  '看风水': ['feng-shui', 'fengshui', 'geomancy'],
+  '八字': ['bazi', 'four-pillars', 'ba-zi'],
+  '四柱': ['four-pillars', 'bazi'],
+  '六爻': ['liu-yao', 'liuyao', 'six-lines'],
+  '梅花易数': ['meihua-yishu', 'plum-blossom-numerology'],
+  '紫微斗数': ['ziwei-doushu', 'purple-star-astrology'],
+  '黄历': ['huangli', 'chinese-calendar', 'almanac'],
+  '黄道吉日': ['huangli', 'auspicious-day', 'chinese-calendar'],
+  '老黄历': ['huangli', 'chinese-calendar', 'almanac'],
+  '农历': ['lunar-calendar', 'chinese-calendar'],
+  '阴历': ['lunar-calendar', 'chinese-calendar'],
+  '吉日': ['auspicious-day', 'lucky-day'],
+  '择日': ['date-selection', 'auspicious-day'],
+  '取名': ['naming', 'name-generator'],
+  '起名': ['naming', 'name-generator'],
+  '测字': ['character-divination', 'zi-wei'],
+  '手相': ['palmistry', 'palm-reading'],
+  '面相': ['face-reading', 'physiognomy'],
+  '塔罗': ['tarot', 'tarot-card'],
+  '星座': ['zodiac', 'horoscope', 'constellation'],
+  '生肖': ['chinese-zodiac', 'zodiac-sign'],
+  '运势': ['fortune', 'luck', 'horoscope'],
+  '运程': ['fortune', 'horoscope'],
+  '姻缘': ['marriage-fortune', 'relationship-fortune'],
+  '算命': ['fortune-telling', 'destiny-reading'],
 };
 
 /**
@@ -683,6 +715,18 @@ export function translateQuery(query: string): string {
   const fallback = applyFallback(stripped);
   // 兜底也无效(用户输入全是意图前缀)则返回原文(保留原 query 不破坏下游)
   return fallback || query;
+}
+
+/**
+ * 检测字符串是否仍含 CJK 字符(中日韩统一表意文字 + 扩展 A 区)。
+ * 用于 translateQuery 后检查"翻译是否完整":若仍含中文,说明翻译表未覆盖,
+ * 应提示 AI client 自行生成英文查询。
+ *
+ * 注:只检测"是否含中文",不检测其他非 ASCII(日文假名/韩文等也会命中)。
+ * 覆盖范围:\u4e00-\u9fff(CJK 基本区) + \u3400-\u4dbf(扩展 A 区)。
+ */
+export function containsCJK(s: string): boolean {
+  return /[\u4e00-\u9fff\u3400-\u4dbf]/.test(s);
 }
 
 /**

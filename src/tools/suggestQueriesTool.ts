@@ -6,7 +6,7 @@
 // 生成多角度搜索词(精准/动作导向/模糊/简洁)。
 
 import { parseQuery } from '../classifier/queryParser.js';
-import { translateQuery } from '../classifier/queryTranslator.js';
+import { translateQuery, containsCJK } from '../classifier/queryTranslator.js';
 import { classify } from '../classifier/queryClassifier.js';
 import { HARDWARE_WORDS_RE, EMBEDDED_PLATFORM_RE, ARDUINO_RE } from '../classifier/hardwareKeywords.js';
 import type { Intent } from '../normalize/types.js';
@@ -42,6 +42,13 @@ export interface SuggestQueriesOutput {
   recommended: string;
   /** 推荐理由 */
   reason: string;
+  /**
+   * 翻译不完整预警(可选)。
+   * 当 translatedQuery 仍含中文(CJK)字符时触发,提示 AI client:
+   * 翻译表未覆盖该领域,直接用 translatedQuery 搜索会召回差,
+   * 建议 AI client 自行生成英文 query 后再调 find_wheel。
+   */
+  warning?: string;
   /**
    * 推荐的 ecosystem(可选)。
    * 当检测到硬件类 query(stepper/motor/servo/encoder/esp32/stm32 等)时,
@@ -171,6 +178,12 @@ export function createSuggestQueriesTool() {
       reason,
       ...(recommendedEcosystem ? { recommendedEcosystem } : {}),
     };
+
+    // 翻译不完整检测:translatedQuery 仍含 CJK 字符 → 翻译表未覆盖该领域
+    // 提示 AI client 自行生成英文 query,避免直接用 translatedQuery 召回差
+    if (containsCJK(translated)) {
+      output.warning = `⚠️ 翻译不完整预警:translatedQuery 仍含中文("${translated}"),说明翻译表未覆盖该领域。直接用此 query 搜索会召回差。建议:AI client 自行将用户意图翻译为精准英文 query 后再调 find_wheel(例如"算卦看风水"→"divination feng-shui i-ching fortune-telling")。`;
+    }
 
     return { content: [{ type: 'text', text: JSON.stringify(output) }] };
   }
