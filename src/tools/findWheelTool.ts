@@ -7,7 +7,7 @@ import { GITHUB_CODE_PATH_SEP } from '../normalize/types.js';
 import { classify } from '../classifier/queryClassifier.js';
 import { extractKeywords } from '../classifier/queryTranslator.js';
 import { parseQuery, type ParsedQuery } from '../classifier/queryParser.js';
-import { translateQuery, containsCJK } from '../classifier/queryTranslator.js';
+import { translateQuery, hasUntranslatedZh } from '../classifier/queryTranslator.js';
 import { routeSources, type RoutingResult } from '../classifier/sourceRouter.js';
 import { normalize } from '../normalize/normalizer.js';
 import { enrich } from '../enrich/metricsEnricher.js';
@@ -778,14 +778,11 @@ function buildSummary(
     }
   }
 
-  // 翻译不完整检测(双重保险):query 含中文且翻译后仍含中文 → 翻译表未覆盖
+  // 翻译不完整检测(双重保险):query 含未翻译的中文技术词 → 翻译表未覆盖
   // 即使 AI client 跳过 suggest_queries 直接调 find_wheel 也能收到预警
-  if (query && containsCJK(query)) {
-    const translated = translateQuery(query);
-    if (containsCJK(translated)) {
-      const cjkWarning = `⚠️ 翻译不完整预警:query 含中文且翻译表未覆盖,直接搜索会召回差。建议:AI client 自行将用户意图翻译为精准英文 query 后重新调 find_wheel(例如"算卦看风水"→"divination feng-shui i-ching fortune-telling")。`;
-      warning = warning ? `${warning}\n${cjkWarning}` : cjkWarning;
-    }
+  if (query && hasUntranslatedZh(query)) {
+    const cjkWarning = `⚠️ 翻译不完整预警:query 含中文技术词且翻译表未覆盖,直接搜索会召回差。建议:AI client 自行将用户意图翻译为精准英文 query 后重新调 find_wheel(例如"算卦看风水"→"divination feng-shui i-ching fortune-telling")。`;
+    warning = warning ? `${warning}\n${cjkWarning}` : cjkWarning;
   }
 
   return {

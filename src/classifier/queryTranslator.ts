@@ -719,14 +719,44 @@ export function translateQuery(query: string): string {
 
 /**
  * 检测字符串是否仍含 CJK 字符(中日韩统一表意文字 + 扩展 A 区)。
- * 用于 translateQuery 后检查"翻译是否完整":若仍含中文,说明翻译表未覆盖,
- * 应提示 AI client 自行生成英文查询。
- *
- * 注:只检测"是否含中文",不检测其他非 ASCII(日文假名/韩文等也会命中)。
- * 覆盖范围:\u4e00-\u9fff(CJK 基本区) + \u3400-\u4dbf(扩展 A 区)。
  */
 export function containsCJK(s: string): boolean {
   return /[\u4e00-\u9fff\u3400-\u4dbf]/.test(s);
+}
+
+/**
+ * 检测 query 中是否有"未被翻译表覆盖的中文技术词"。
+ *
+ * 逻辑:
+ * 1. 剥离意图前缀 + 虚词(与 translateQuery 相同的预处理)
+ * 2. 如果不含 CJK 字符,不需要翻译 → false
+ * 3. 找出 ZH_TO_EN 命中的所有中文 key
+ * 4. 从 stripped 中删除已匹配的中文 key,剩余部分如果还有 CJK 字符 → 有未翻译的词
+ *
+ * 注意:translateQuery 设计为"保留原文 + 追加英文词",所以 translatedQuery
+ * 永远含中文原文。不能直接用 containsCJK(translatedQuery) 检测翻译完整性,
+ * 否则所有中文输入都会触发 warning。必须用这个函数检测"是否有未翻译的中文"。
+ *
+ * 示例:
+ * - "算卦看风水的程序"(翻译表已覆盖"算卦""看风水""程序")→ 剩余"的"→ 剥离虚词后无 CJK → false
+ * - "算卦看风水的程序"(翻译表只覆盖"程序")→ 剩余"算卦看风水的"→ 含 CJK → true
+ * - "某个完全没收录的中文领域"→ 剩余全部 CJK → true
+ */
+export function hasUntranslatedZh(query: string): boolean {
+  let stripped = stripIntentPrefix(query);
+  stripped = translateConversionPatterns(stripped);
+  stripped = stripFillerWords(stripped);
+  if (!containsCJK(stripped)) return false;
+
+  const mappings = findZhMappings(stripped);
+  // 从 stripped 中删除所有已匹配的中文 key
+  let remaining = stripped;
+  for (const [zh] of mappings) {
+    remaining = remaining.split(zh).join('');
+  }
+  // 剥离常见虚词残留("的""和""与""等""及""或")
+  remaining = remaining.replace(/[的和与及或等]/g, ' ');
+  return containsCJK(remaining);
 }
 
 /**
